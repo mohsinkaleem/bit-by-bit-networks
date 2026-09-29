@@ -1,0 +1,296 @@
+<h3>“The internet is broken”</h3>
+
+<p>Sunday morning, and Grandpa Otto is on the phone.</p>
+
+<dialogue>
+G: The internet is broken.
+B: Which part of it?
+G: All of it! Well… the garden website won’t open. And the weather. The video call with your aunt worked fine, though.
+B: So some of it works.
+A: Ask him the detective’s questions. What exactly doesn’t work? Is it every site, or some? Every device, or one? Always, or sometimes? And what changed?
+G: What changed… I did plug in a new box the internet company sent me.
+B: That’s a clue.
+</dialogue>
+
+<p>Everything in this book is also a way for things to go wrong: every layer, every protocol, every box in the middle. This last chapter of Part II is about finding <em>which</em>. It isn’t a new protocol; it’s a way of thinking, and the tools from the last twenty-two chapters, used in the right order. And it has real cases, including one from Bob’s own network that this book never managed to solve completely.</p>
+
+<h3>The detective’s method</h3>
+
+<p>Networks are built in layers, and each layer depends on the ones below it. If the Wi-Fi is down, DNS fails, TLS fails and the web page fails, all at once, and all four error messages are telling the truth. So the first rule of network detective work is to start at the bottom, and stop at the first thing that fails:</p>
+
+<!-- @include src/figs/ch38-method.svg -->
+
+<p>A few more habits help:</p>
+
+<ul>
+<li><strong>Find something that works, and compare.</strong> Another site, another device, another network (a phone’s hotspot is the detective’s best friend). The difference between working and not working is the clue.</li>
+<li><strong>Test the thing you care about.</strong> A server that ignores ping may be perfectly healthy. A server that answers ping may still refuse web connections.</li>
+<li><strong>Change one thing at a time,</strong> and write down what you did. Otherwise you’ll fix it and not know how, or break something else and not know when.</li>
+<li><strong>Suspect what changed.</strong> Grandpa’s new box, a software update, a new VPN, a new firewall rule.</li>
+</ul>
+
+<h3>A network doctor</h3>
+
+<p>This chapter’s <code>netdoctor.py</code> climbs the ladder automatically. On Bob’s MacBook, everything is healthy:</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 netdoctor.py --big
+layer by layer, from the bottom up:
+
+  ✓ IP         this computer is 192.168.1.3, and has a route out
+  ✓ gateway    the router, 192.168.1.1, answers ping
+  ✓ internet   a TCP connection to 1.1.1.1:443 works  (48 ms)
+  ✓ DNS        192.168.1.1 answers over UDP  (example.org is 104.20.26.136)
+  ✓ HTTPS      https://example.org/: HTTP/1.1 200 OK  (184 ms)
+  ✓ big        a 2 MB download finished  (0.3 s, 50 Mbit/s)
+
+diagnosis: everything checked works.
+</terminal>
+
+<!-- @code labs/ch38/netdoctor.py#checks -->
+
+<p>To see it earn its keep, we need a sick network. The lab’s <code>breakit.sh</code> builds one out of Chapter 36’s namespaces on the Pi: a “patient” computer behind two routers, joined by a link that only carries 1,400-byte packets, all routed out to the real internet. Then it breaks it, one of five ways. The DNS setting points at a server that doesn’t exist:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./breakit.sh nodns
+  ✓ IP         this computer is 10.38.0.2, and has a route out
+  ✓ gateway    the router, 10.38.0.1, answers ping
+  ✓ internet   a TCP connection to 1.1.1.1:443 works  (12 ms)
+  ✗ DNS        the configured DNS server, 10.38.0.53, doesn't answer  (⟦1:but 1.1.1.1 does⟧: fix the DNS setting (DHCP, Chapter 22))
+</terminal>
+
+<callouts>
+1 | This is Grandpa’s case. The new box handed out, by DHCP, the address of a DNS server that didn’t answer. The video call kept working because it was already connected, by address: no new names were needed.
+</callouts>
+
+<p>Or the default route is missing:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./breakit.sh noroute
+  ✗ IP         no route to the internet  (⟦1:Network is unreachable⟧: no default route? not connected?)
+</terminal>
+
+<callouts>
+1 | This error comes from the computer’s own routing table (Chapter 20), before any packet is sent. A silent timeout would mean the packets left and nothing came back, which is a different problem further away.
+</callouts>
+
+<p>Those two are easy. Now the famous ones.</p>
+
+<h3>Case 1: small things work, big things hang</h3>
+
+<p>It’s the strangest symptom in networking. Chat messages go through. Small web pages load. But big downloads stop dead, some secure websites never finish connecting, and an SSH session freezes the moment you run a command with a lot of output. The culprit is almost always the size of packets:</p>
+
+<!-- @include src/figs/ch38-blackhole.svg -->
+
+<p>Here is the patient with a narrow link, first working (the routers send their ICMP “too big” messages), then as a black hole (a firewall rule on each router throws them away):</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./breakit.sh healthy
+=== a small file and a big one, from the server beyond the narrow link
+   small.txt: HTTP 200, 6 bytes in 0.000869 s
+   big.bin:   HTTP 200, 2000000 bytes in 0.001893 s
+=== one big packet, with Don't Fragment set
+   ⟦1:From 10.38.0.1 icmp_seq=1 Frag needed and DF set (mtu = 1400)⟧
+$ sudo ./breakit.sh blackhole
+  ✓ IP         this computer is 10.38.0.2, and has a route out
+  ✓ gateway    the router, 10.38.0.1, answers ping
+  ✓ internet   a TCP connection to 1.1.1.1:443 works  (15 ms)
+  ✓ DNS        1.1.1.1 answers over UDP  (example.org is 172.66.157.237)
+  ✗ HTTPS      the web page failed  (⟦2:_ssl.c:1012: The handshake operation timed out⟧)
+  ! MTU        the biggest packet that reaches 172.66.157.237 is 1400 bytes  (⟦3:and nobody said why⟧: ICMP “too big” messages are being lost)
+=== a small file and a big one, from the server beyond the narrow link
+   small.txt: HTTP 200, 6 bytes in 0.005448 s
+   big.bin:   HTTP 200, ⟦4:0 bytes in 8.002337 s⟧
+=== one big packet, with Don't Fragment set
+   1 packets transmitted, 0 received, 100% packet loss, time 0ms
+</terminal>
+
+<callouts>
+1 | Healthy: the router says exactly what’s wrong, and how big a packet would fit.
+2 | The TCP connection opened (small packets), but the TLS handshake never finished: the server’s certificate chain (Chapter 32) comes in full-size packets.
+3 | The doctor found the size by halving the gap between a packet that got through and one that didn’t, as in Chapter 1’s guessing game. But no router explained itself.
+4 | The HTTP headers arrived (small), and then nothing. The server kept resending its first big packet, and never learned why it vanished.
+</callouts>
+
+<p>Where do narrow links come from? Tunnels, mostly (Chapter 35): every VPN, VXLAN or PPPoE line takes a few bytes from each packet. Bob’s home connection is PPPoE, and here is healthy path MTU discovery on it for real, from the Pi to 1.1.1.1:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ ping -c1 -M do -s 1464 1.1.1.1
+1472 bytes from 1.1.1.1: icmp_seq=1 ttl=58 time=9.34 ms
+$ ping -c1 -M do -s 1465 1.1.1.1
+From 192.168.1.1 icmp_seq=1 ⟦1:Frag needed and DF set (mtu = 1492)⟧
+$ ip route get 1.1.1.1
+1.1.1.1 via 192.168.1.1 dev wlan0 src 192.168.1.4 uid 1000
+    ⟦2:cache expires 598sec mtu 1492⟧
+</terminal>
+
+<callouts>
+1 | 1,464 bytes of data, plus 8 of ICMP and 20 of IP, makes 1,492: the most that fits in PPPoE. One byte more, and the home router explains.
+2 | And the Pi remembers it, for ten minutes, for this destination. Its TCP connections to 1.1.1.1 will now use smaller segments. (Chapter 22’s MSS clamping does the same job for TCP before anything is lost.)
+</callouts>
+
+<p>The same trap exists in IPv6, only worse: IPv6 routers never fragment (Chapter 25), so path MTU discovery is the <em>only</em> way, and ICMPv6 also carries neighbour discovery, IPv6’s replacement for ARP. The <code>icmpv6</code> scenario blocks it all, as an over-eager firewall rule might:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./breakit.sh icmpv6
+=== IPv6 to the router, on the same cable
+   2 packets transmitted, 0 received, 100% packet loss, time 1023ms
+   neighbour table: fd38::1 ⟦1:INCOMPLETE⟧
+</terminal>
+
+<callouts>
+1 | The patient asked for the router’s MAC address, and threw away the answer, because it came in an ICMPv6 message. Without ICMPv6, IPv6 can’t even reach the next computer on the same cable.
+</callouts>
+
+<h3>Case 2: one site never loads</h3>
+
+<p>This one is real, and it’s been quietly following this book around: on Bob’s home network, <code>example.com</code> never resolves, which is why the real examples in Part II use example.org instead. Now let’s investigate properly. First, find exactly where the edge of the problem is, changing one thing at a time:</p>
+
+<table class="data">
+<tr><th>question, over UDP</th><th>to the router</th><th>to 8.8.8.8</th><th>to 1.1.1.1</th><th>over TCP</th></tr>
+<tr><td><code>example.com</code></td><td>timeout</td><td>timeout</td><td>timeout</td><td>104.20.23.154</td></tr>
+<tr><td><code>www.example.com</code></td><td>timeout</td><td>timeout</td><td>timeout</td><td>104.20.23.154</td></tr>
+<tr><td><code>myexample.com</code></td><td></td><td>timeout</td><td></td><td></td></tr>
+<tr><td><code>EXAMPLE.COM</code>, <code>eXaMpLe.CoM</code></td><td></td><td>timeout</td><td></td><td></td></tr>
+<tr><td><code>example.com</code> AAAA, TXT</td><td></td><td>timeout</td><td></td><td></td></tr>
+<tr><td><code>example.com.au</code></td><td></td><td>198.202.211.1</td><td></td><td></td></tr>
+<tr><td><code>example.org</code>, <code>example.net</code>, <code>iana.org</code></td><td>answers</td><td>answers</td><td>answers</td><td>answers</td></tr>
+</table>
+
+<p>So: every resolver, every record type, any capitalization, and anything whose name <em>ends</em> in example.com; only over UDP. That points at something in the middle looking inside DNS packets. But where? Chapter 21’s traceroute trick can answer that, with real DNS questions instead of throwaway packets: send the question with a time-to-live of 1, then 2, then 3, and see which routers say it expired on their watch:</p>
+
+<!-- @code labs/ch38/dnstrace.py#probe -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 dnstrace.py example.org 8.8.8.8
+a DNS question for example.org, to 8.8.8.8, with a growing time-to-live:
+  ttl  1: expired at 192.168.1.1         1.4 ms
+  ttl  2: silence
+  ttl  3: expired at 203.0.113.9         6.0 ms
+  ttl  4: silence
+  ttl  5: expired at 142.250.172.12     13.1 ms
+  ttl  6: expired at 192.178.121.31     11.2 ms
+  ttl  7: expired at 142.251.55.41       9.1 ms
+  ttl  8: an ANSWER from 8.8.8.8, 36.0 ms. The question got all the way there, and back.
+$ python3 dnstrace.py example.com 8.8.8.8
+a DNS question for example.com, to 8.8.8.8, with a growing time-to-live:
+  ttl  1: expired at 192.168.1.1         1.4 ms
+  ttl  2: silence
+  ⟦1:ttl  3: silence⟧
+  ttl  4: silence
+  …
+  ttl 20: silence
+no answer at any distance
+</terminal>
+
+<callouts>
+1 | For example.org, the router at hop 3 reported the expiry. For example.com it never does, at any distance: the question doesn’t get that far.
+</callouts>
+
+<!-- @include src/figs/ch38-dnstrace.svg -->
+
+<p>That’s as far as tests from inside the house can go. The question dies at the home router or the internet provider’s first box, filtered by name. The next steps are human ones: look in the router’s settings for anything called parental controls, safe browsing or DNS filtering; try from a phone’s hotspot, on a different provider; and if it’s the provider, ask them. Meanwhile, the workarounds are exactly what the evidence suggests: DNS over TCP, or DNS over HTTPS (Chapter 29), which nothing in the middle can read. Real detective work often ends like this: not with a fix, but with the problem cornered, and the right person to ask.</p>
+
+<h3>Case 3: it doesn’t answer ping</h3>
+
+<p>“The server’s down! It doesn’t answer ping.” Maybe. The <code>noping</code> scenario gives the patient a firewall that drops ping, and a web server:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ ping -c 2 10.38.0.2
+2 packets transmitted, 0 received, ⟦1:100% packet loss⟧
+$ nc -vz 10.38.0.2 80
+Connection to 10.38.0.2 80 port [tcp/http] ⟦2:succeeded!⟧
+$ curl -s -o /dev/null -w "HTTP %{http_code}\n" http://10.38.0.2/
+HTTP 200
+</terminal>
+
+<callouts>
+1 | Silence. From outside, this looks exactly like a missing computer.
+2 | But the thing we actually care about works. Ping is one kind of packet (ICMP echo, Chapter 21); a firewall can treat it differently from everything else, and many do.
+</callouts>
+
+<p>The same caution applies to traceroute and <code>mtr</code>, which rely on routers answering. Here’s <code>mtr</code> from the Pi to 1.1.1.1:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ mtr -n -r -c 20 1.1.1.1
+HOST: raspberrypi                 Loss%   Snt   Last   Avg  Best  Wrst StDev
+  1.|-- 192.168.1.1                0.0%    20    3.4   4.1   3.4   5.0   0.4
+  2.|-- ⟦1:???⟧                       100.0    20    0.0   0.0   0.0   0.0   0.0
+  3.|-- 203.0.113.9                0.0%    20    6.1   6.2   5.0   8.6   0.7
+  4.|-- 198.51.100.77              0.0%    20    7.0   6.7   5.9   7.2   0.4
+  5.|-- ???                       100.0    20    0.0   0.0   0.0   0.0   0.0
+  6.|-- 198.51.100.131            ⟦2:20.0%⟧    20   12.3  12.5  11.2  20.1   2.1
+  7.|-- 1.1.1.1                    ⟦3:0.0%⟧    20   11.6  11.1  10.3  11.7   0.4
+</terminal>
+
+<callouts>
+1 | “100% loss” at hop 2: but packets clearly get through it, since later hops answer. This router simply never replies to traceroute. (The provider’s addresses are replaced with documentation ones.)
+2 | 20% “loss” here…
+3 | …and none at the destination. Hop 6 isn’t losing packets; it’s too busy forwarding everyone else’s to answer every one of ours, and routers make answering the lowest priority. Loss only matters if it carries on to the end.
+</callouts>
+
+<h3>Case 4: the Wi-Fi hiccups</h3>
+
+<p>Even on one home network, round trips aren’t steady. Pinging Bob’s MacBook from the Pi, over Wi-Fi:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ ping -c 10 -i 2 192.168.1.3
+time=3.64 time=6.39 time=6.32 time=5.48 time=6.40 time=6.41 ⟦1:time=86.8⟧ time=6.44 time=6.44 ⟦1:time=122⟧
+$ ping -c 30 -i 0.1 -q 192.168.1.3
+rtt min/avg/max/mdev = 5.381/34.479/⟦2:316.303⟧/67.464 ms, pipe 4
+</terminal>
+
+<callouts>
+1 | Mostly 6 ms, and then suddenly 87 or 122: jumps of about a tenth of a second.
+2 | A fast burst of pings sometimes caught something worse: over 300 ms.
+</callouts>
+
+<p>Jumps in steps of about 100 ms are a clue: that’s the interval between a Wi-Fi access point’s beacons (Chapter 19). The usual suspects are <strong>power saving</strong>, where a device switches its radio off between beacons and asks the access point to hold its frames until it wakes up (the Pi reports <code>Power save: on</code> for its Wi-Fi), and <strong>scanning</strong>, when a computer briefly leaves the channel to look for other networks, or, on a Mac, to talk to nearby Apple devices for AirDrop. Neither is a fault; both trade a little latency for battery life or features. To tell them apart: ping in both directions, compare a slow trickle of pings with a fast burst, and try the same test over a cable. It explains something from this chapter’s own making, too: the Pi’s SSH connection kept freezing for a few seconds at a time while this book was being written.</p>
+
+<h3>Your turn</h3>
+
+<p>Five cases, with the real outputs from this chapter’s tests. How few tests can you solve them with?</p>
+
+<div data-widget="detective"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<think>
+<p>So many problems in this chapter came from ICMP being thrown away. Why do people block it, and what should a careful firewall let through?</p>
+<p>People block ICMP because it looks like housekeeping, and because in the 1990s there were attacks built on it (like the “ping of death”, a deliberately malformed ping that crashed computers). Blocking all of it breaks path MTU discovery, traceroute and, in IPv6, the network altogether. Chapter 34’s stateful firewall shows the right approach: let in ICMP errors that are <em>related</em> to connections you started (“too big”, “unreachable”, “time exceeded”), always allow the ICMPv6 that neighbour discovery needs (there’s a standard list, RFC 4890), and, if you like, drop or rate-limit unsolicited pings. Ping is the only part that’s safe to lose, and even then, it makes the next person’s detective work harder.</p>
+</think>
+
+<realworld>
+<p>“It’s always DNS” is a joke among network engineers, because so often it is. On 4 October 2021, Facebook, Instagram and WhatsApp vanished for about six hours: a maintenance command accidentally cut Facebook’s internal backbone, and its DNS servers, finding themselves cut off, withdrew their BGP routes (Chapter 24), so nothing in the world could look up Facebook’s names. It was DNS <em>and</em> BGP. Worse, Facebook’s own tools, and reportedly even some of its door badges, depended on the same network, which made it much harder to get in and fix.</p>
+<p>The most famous detective story among system administrators is “the 500-mile email”: a university’s mail server that couldn’t send email to anywhere more than about 500 miles away. After a software upgrade, a connection timeout had been set to almost zero, about three milliseconds, which is roughly how long light (Chapter 17) takes to travel 500 miles. It’s worth looking up and reading in full.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>That’s the end of Part II, and of networks as they are. Bob and Alice started this book with a flashlight between two bedroom windows; they’ve ended it able to take apart, rebuild and repair almost everything between a key press and a web page. Part III looks forward: networks that program themselves, internet from satellites, messages that take hours to cross the solar system, cryptography for a world with quantum computers, and networks that ask for <em>what</em> they want instead of <em>where</em> it is.</p>
+
+<lab>
+<p>Three programs. <code>netdoctor.py</code> runs on macOS and Linux (it uses Chapter 29’s DNS code). <code>breakit.sh</code> and <code>dnstrace.py</code> are for Linux; a Raspberry Pi is ideal.</p>
+
+<h4>1. The doctor</h4>
+
+<p><code>python3 netdoctor.py --big</code> checks your own connection. It finds a path MTU the same way you’d find a number in a guessing game:</p>
+
+<!-- @code labs/ch38/netdoctor.py#mtu -->
+
+<h4>2. Break things on purpose</h4>
+
+<p><code>sudo ./breakit.sh healthy</code>, then <code>nodns</code>, <code>noroute</code>, <code>blackhole</code>, <code>noping</code> and <code>icmpv6</code>. Add <code>shell</code> at the end (<code>sudo ./breakit.sh blackhole shell</code>) to get a shell inside the patient, and investigate yourself with <code>ping</code>, <code>dig</code>, <code>curl</code> and <code>tshark</code> before reading the answers. Each break is a line or two:</p>
+
+<!-- @code labs/ch38/breakit.sh#break -->
+
+<h4>3. Trace a DNS question</h4>
+
+<p><code>python3 dnstrace.py example.org</code> shows how far a real DNS question travels. Try a name you suspect is blocked on your network, or your provider’s own resolver instead of 8.8.8.8.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>In the <code>blackhole</code> scenario, switch on Linux’s fallback for black holes inside the patient: <code>sudo ip netns exec patient sh -c 'echo 1 &gt; /proc/sys/net/ipv4/tcp_mtu_probing'</code> (that’s the sender’s setting, so try it on the server side too: the host, remembering to set it back to 0 afterwards). What changes, and how long does the big download take now?</li>
+<li>Fix the black hole without touching the routers’ firewalls: clamp the MSS on r1 (Chapter 22) with an nftables rule, <code>tcp flags syn tcp option maxseg size set rt mtu</code>. Why does that help TCP, and why doesn’t it help the big ping?</li>
+<li>Add a scenario of your own to <code>breakit.sh</code>: a router that answers DNS with a wrong address, like Chapter 14’s Eve. Which of the doctor’s checks notices, and which doesn’t?</li>
+<li>Run <code>netdoctor.py</code> on a phone’s hotspot, on a café’s Wi-Fi, and at home. Which checks change? Does <code>dnstrace.py example.com</code> behave differently on another network?</li>
+</ul>
+</lab>

@@ -1,0 +1,236 @@
+<h3>Eve reads the post</h3>
+
+<p>Eve is back. She’s still on Bob’s Wi-Fi (nobody ever changed the password after Chapter 19), and she’s been busy. She hands Bob a printout.</p>
+
+<dialogue>
+E: Your quiz answers. Grandpa’s shopping list. The message your study group sent at half past eleven. All of it came through the air, in plain text. I only had to listen.
+B: That’s… horrifying. How do I stop you?
+E: You can’t stop me listening. Radio goes everywhere, and so do packets, once they leave the house.
+A: But you can make listening useless. Scramble everything, so that only Bob and whoever he’s talking to can unscramble it.
+B: With a password? We’d need to agree on one first, and Eve would hear us agreeing.
+A: That’s the clever part. There’s a way to agree on a secret while she listens to every word.
+E: I’ll believe that when I see it.
+</dialogue>
+
+<p>Everything in Part II so far has been visible to anyone on the path: every DNS question, every web page, every cookie. This chapter is a short course in the cryptography that fixes that, told from scratch. Not the mathematics in full, but enough of the ideas to understand what’s going on inside every padlock icon, and enough code, in pure Python, to build one in Chapter 32.</p>
+
+<h3>What Eve can do</h3>
+
+<p>Eve has three tricks, and cryptography has an answer to each:</p>
+
+<table class="data">
+<tr><th>Eve…</th><th>which breaks…</th><th>and the answer is…</th></tr>
+<tr><td>reads the messages</td><td><strong>confidentiality</strong></td><td>encryption</td></tr>
+<tr><td>changes them on the way</td><td><strong>integrity</strong></td><td>authentication tags</td></tr>
+<tr><td>pretends to be Bob’s bank</td><td><strong>authenticity</strong></td><td>signatures and certificates</td></tr>
+</table>
+
+<p>Chapter 10’s checksums and CRCs don’t help with the second one, by the way. They catch accidents, not attacks: Eve can change a packet, and compute the new CRC herself.</p>
+
+<h3>The perfect code</h3>
+
+<p>People have hidden messages for thousands of years, usually by swapping letters: every A becomes D, every B becomes E. Codes like that fall apart quickly, because the language shows through: the commonest letter in the code is probably E. But there’s one code that can’t be broken at all, and it’s built on the simplest operation a computer has, <strong>XOR</strong>:</p>
+
+<!-- @include src/figs/ch31-xor.svg -->
+
+<p>If the key is truly random, as long as the message, and used only once, it’s called a <strong>one-time pad</strong>, and it’s perfectly secure: every possible message of that length is equally likely to have produced the ciphertext, so Eve learns nothing, however clever she is. The catch is “used only once”. Use a key twice, and it cancels itself out:</p>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py pad
+message 1: MEET AT THE OAK AT NOON
+key:       e873cb9f8ded201e8d83d4872184817120f962d770cda8
+encrypted: a5368ecbadac743ed9cb91a76ec5ca5161ad42993f82e6   (without the key, every message of this length is equally likely)
+
+Now Alice lazily uses the same key again, for message 2. Eve has both ciphertexts:
+c1 XOR c2: 190d00746b040d001d1b657501050e726100680b6f020f   = message 1 XOR message 2: no key involved at all!
+  if one message has 'THE ' at position  0, the other one there reads 'MEET'
+  if one message has 'THE ' at position  8, the other one there reads 'IS U'
+  if one message has 'THE ' at position 12, the other one there reads 'UMKR'
+  if one message has 'THE ' at position 17, the other one there reads 'T NO'
+</terminal>
+
+<p>Guess a common word in one message, and the other message shows through at the same place. (Some guesses give nonsense, like “UMKR”; the good ones are obvious.) Exactly this mistake let codebreakers read Soviet messages for decades, in a project called Venona.</p>
+
+<h3>Ciphers with short keys</h3>
+
+<p>A key as long as everything you’ll ever send is impractical. So real ciphers use a short key, 32 bytes, and stretch it. A <strong>stream cipher</strong> like <strong>ChaCha20</strong> turns the key, plus a number used only once (a <strong>nonce</strong>), into an endless stream of bytes that look completely random, and XORs them with the message, like a one-time pad. A <strong>block cipher</strong> like <strong>AES</strong> scrambles 16 bytes at a time instead, and is used in a way that also produces a stream. Both are designed so that without the key, the output can’t be told apart from random noise.</p>
+
+<p>Could Eve simply try every possible key? A 256-bit key has 2<sup>256</sup> possibilities, about 10<sup>77</sup>. If every computer on Earth tried a billion billion keys a second, it would take far longer than the universe has existed. Nobody breaks modern ciphers by guessing keys; they break them by stealing keys, or finding mistakes in how they’re used.</p>
+
+<p>ChaCha20 itself is just additions, rotations and XORs, repeated 20 times over a grid of sixteen 32-bit numbers. Here’s the whole thing, from this chapter’s lab:</p>
+
+<!-- @code labs/ch31/chacha.py#chacha -->
+
+<h3>Fingerprints</h3>
+
+<p>A <strong>cryptographic hash function</strong> turns any amount of data into a short, fixed-size fingerprint, like Chapter 10’s checksums. But it’s designed so that nobody can find two inputs with the same fingerprint, or an input that gives a chosen fingerprint, or learn anything about the input from the fingerprint. The most common one is SHA-256, which gives 256 bits:</p>
+
+<div data-widget="hashplay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Why 256 bits? Because of a surprise called the <strong>birthday paradox</strong>: in a room of just 23 people, two probably share a birthday. For fingerprints, it means that finding <em>any</em> two messages with the same fingerprint takes only about the square root of the number of possible fingerprints. The lab finds a clash in the first 32 bits of SHA-256 in a fraction of a second:</p>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py collide
+'Pay Bob £54396' and 'Pay Bob £91194' share the fingerprint 1df15bb5
+found after 91,194 tries in 0.04 s
+</terminal>
+
+<p>That’s 2<sup>16</sup>-ish tries for 32 bits. For all 256, it would be 2<sup>128</sup>: hopeless, which is the point.</p>
+
+<h3>Seals</h3>
+
+<p>A fingerprint on its own doesn’t stop Eve: she can change a message and compute a new fingerprint. But a fingerprint mixed with a secret key can only be made by someone who knows the key. That’s a <strong>message authentication code</strong>, or MAC, and the usual way to make one is <strong>HMAC</strong>:</p>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py mac
+message: Transfer 10 pounds to Bob
+tag:     49b8c5c27c7317729d3d7d3617f7d0a1fe567442365944bf527a4afca19b977c
+Bob checks 'Transfer 10 pounds to Bob': genuine
+Bob checks 'Transfer 99 pounds to Eve': FORGED: the tag is wrong
+</terminal>
+
+<p>Modern protocols never encrypt without authenticating, because encryption alone doesn’t stop tampering. With a stream cipher, flipping a bit of the ciphertext flips exactly that bit of the message, so Eve could turn “10 pounds” into “90 pounds” without ever knowing the key. So they use ciphers that do both at once, called <strong>authenticated encryption</strong>:</p>
+
+<!-- @include src/figs/ch31-aead.svg -->
+
+<terminal title="labs/ch31">
+$ python3 chacha.py --test
+RFC 8439 test vectors: all match
+$ python3 chacha.py
+message:    Meet me at the old oak at midnight. -A
+sealed:     7cc4567d99cf183e99b24c6b657beb0e3ea84f92e03bc9d839da9ae073e3f61e73de13a4674c  (the same length as the message)
+            + tag 4a97433ca1dd21ad1809b5712cc7e999
+opened:     Meet me at the old oak at midnight. -A
+one bit flipped: authentication failed: this message was changed, or the key is wrong
+</terminal>
+
+<p>The first command checks the lab’s ChaCha20-Poly1305 against the official test vectors from the standard, byte for byte, which is how you know homemade cryptography code is right. (Knowing it’s <em>safe</em> is much harder: real implementations are also careful that their timing never depends on secret data. Use this one for learning, and a well-tested library for anything that matters.)</p>
+
+<h3>The key problem</h3>
+
+<p>All of this needs Alice and Bob to share a secret key. How can they agree on one, if Eve hears everything they say? In 1976, Whitfield Diffie and Martin Hellman published the answer, and it’s one of the most surprising ideas in computing. It’s easiest to see with paint:</p>
+
+<!-- @include src/figs/ch31-paint.svg -->
+
+<p>With numbers, the “paint” is exponentiation modulo a prime: it’s easy to compute g<sup>a</sup> mod p, and practically impossible to work backwards from the answer to a (that’s called the <strong>discrete logarithm problem</strong>). Alice sends g<sup>a</sup>, Bob sends g<sup>b</sup>, and each raises what they received to their own secret power: (g<sup>b</sup>)<sup>a</sup> = (g<sup>a</sup>)<sup>b</sup> = g<sup>ab</sup>. Try it, and then let Eve try:</p>
+
+<div data-widget="dhplay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py dh
+everyone knows p = 23, g = 5
+Alice picks a = 6 (secret), sends A = g^a mod p = 8
+Bob picks   b = 15 (secret), sends B = g^b mod p = 19
+Alice computes B^a mod p = 2;  Bob computes A^b mod p = 2: the same!
+Eve, with tiny numbers, just tries every a: a = 6 works, so she can work it out too.
+
+with a 255-bit prime, A = 146,158,469,698… (255 bits)
+shared secret agrees: True. Trying every a would take longer than the
+universe has existed, even with every computer on Earth.
+</terminal>
+
+<p>Modern protocols do the same thing on an <strong>elliptic curve</strong> instead of with plain numbers, which gives the same security with much smaller keys. The one nearly every TLS connection uses today is called <strong>X25519</strong>, and it’s about forty lines of Python:</p>
+
+<terminal title="labs/ch31">
+$ python3 x25519.py --test
+RFC 7748 test vectors: all match
+$ python3 x25519.py
+Alice's private key (never sent): f79ed79e6a7c282603721b845993c5dc12105db909008c0d3e3187b8af8d99f4
+Alice's public key  (sent):       6ca53e7c690116251bc14c98ba3397b55790d8568e3ce15d00fa355529d7b845
+Bob's private key   (never sent): fbdac742e4b33da83b24370f22ba09eebadc1747e7f7d81882c651a02660d7b3
+Bob's public key    (sent):       1d902a7782459afa4f620e5a5d9a7f40b00cbf4e7843aba1d57dbc1c275c2e23
+
+Alice works out:  x25519(her private, his public) = 0e4494f542cb95397c0f82be5e0407e137544c015e56986e6cfc98c2696d955f
+Bob works out:    x25519(his private, her public) = 0e4494f542cb95397c0f82be5e0407e137544c015e56986e6cfc98c2696d955f
+The same 32 bytes. Eve saw both public keys, and can't compute them.
+</terminal>
+
+<h3>But who are you talking to?</h3>
+
+<p>Eve smiles. Diffie–Hellman stops her listening, but it doesn’t stop her <em>pretending</em>. If she can sit in the middle, as she did with ARP spoofing in Chapter 21, she can do a Diffie–Hellman exchange with Alice while pretending to be Bob, and another with Bob while pretending to be Alice. Each of them has a perfectly secret connection, to Eve, who decrypts everything, reads it, and encrypts it again for the other. The exchange needs one more thing: proof of who’s on the other end.</p>
+
+<p>That’s what <strong>public-key signatures</strong> are for. Each person has a pair of keys: a <strong>private key</strong> that never leaves them, and a <strong>public key</strong> they can give to anyone. Something signed with the private key can be checked by anyone with the public key, and nobody without the private key can produce a signature that checks. Here’s the idea in miniature, with the oldest method, RSA, and absurdly small numbers:</p>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py rsa
+public key (n, e) = (3233, 17);  private key d = 2753
+Alice signs 'I owe Bob 5 pounds': fingerprint mod n = 2215, signature = 2215^2753 mod 3233 = 839
+anyone checks: 839^17 mod 3233 = 2215, which matches the fingerprint: genuine
+change the message, and the signature checks out to 2215, not 934: forged
+</terminal>
+
+<p>RSA’s security rests on the fact that multiplying two big primes is easy, but splitting the answer back into them is practically impossible. (Here, n = 3,233 = 61 × 53, which anyone can find; real ones have over 600 digits.) Notice that Alice signs the message’s fingerprint, not the message: signatures are slow, and fingerprints are small. Most websites now use signatures on elliptic curves instead, called ECDSA and Ed25519, for the same reason as X25519: smaller keys, same security.</p>
+
+<h3>Who vouches for the key?</h3>
+
+<p>A signature proves that a message came from whoever holds a particular private key. But how does Bob know that a public key really belongs to his bank, and not to Eve? Somebody he already trusts has to vouch for it, by signing a statement that says “this public key belongs to example.org”. That signed statement is a <strong>certificate</strong>, and the somebody is a <strong>certificate authority</strong>. Here’s what a real website sends:</p>
+
+<terminal title="labs/ch31">
+$ python3 crypto_lab.py cert
+example.org sent a certificate that says:
+  subject:  example.org
+  also for: example.org, *.example.org
+  issuer:   countryName=US, organizationName=SSL Corporation, commonName=Cloudflare TLS Issuing ECC CA 3
+  valid:    Sep 26 22:05:05 2026 GMT to Dec 25 22:13:27 2026 GMT
+  (and Python checked it: the signature chain leads to a certificate authority this computer trusts,
+   and the name matches. Otherwise wrap_socket would have raised an error.)
+  the chain, from the site up to the trusted root: 4 certificates
+</terminal>
+
+<!-- @include src/figs/ch31-chain.svg -->
+
+<p>Every operating system and browser comes with a list of about 150 <strong>root certificates</strong>, from organizations that have been audited and promise to check that whoever asks for a certificate really controls the name. For most websites, that check is automatic: the certificate authority asks the site to put a particular file on its web server, or a particular record in its DNS (Chapter 29), which only the site’s owner could do. Since 2015, a non-profit certificate authority called Let’s Encrypt has done this for free, for anyone, which is a big part of why nearly the whole web now uses HTTPS. Certificates are also short-lived (this one lasts three months), so that a stolen key isn’t useful for long.</p>
+
+<p>And because a certificate authority that went wrong, or was hacked, could issue a certificate for anyone’s name, every certificate issued today is also published in public, append-only logs called <strong>Certificate Transparency</strong>, which browsers insist on. Anyone can search them (<a href="https://crt.sh">crt.sh</a> is one way), and big websites watch them for certificates in their name that they didn’t ask for.</p>
+
+<think>
+<p>If public keys solve everything, why not simply encrypt every message with Bob’s public key, and skip Diffie–Hellman and ciphers altogether?</p>
+<p>Because public-key operations are thousands of times slower than ciphers like ChaCha20. And because of something subtler: if Eve records all of Bob’s encrypted traffic today, and steals his private key years later, she could decrypt all of it. With Diffie–Hellman, each connection uses a brand new pair of secret numbers, thrown away afterwards, so a stolen key can’t unlock old conversations. That’s called <strong>forward secrecy</strong>, and TLS 1.3 insists on it. So real protocols use each tool for what it’s good at: Diffie–Hellman to agree on a fresh key, signatures and certificates to prove who you’re talking to, and a fast authenticated cipher for everything else. Chapter 32 is exactly that.</p>
+</think>
+
+<realworld>
+<p>Alice and Bob were born in cryptography. They first appeared in the 1978 paper by Ron Rivest, Adi Shamir and Leonard Adleman that introduced RSA, as the people sending each other messages, and have been the names in every cryptography paper since. Eve, the eavesdropper, came later. (This book borrowed them.)</p>
+<p>Diffie and Hellman published their key exchange in 1976. It later emerged that researchers at GCHQ, the British intelligence agency, had found both key exchange and something very like RSA a few years earlier, and kept them secret until 1997.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Eve is unimpressed until Alice fits the pieces together: a key exchange nobody can listen in on, a certificate that proves who’s on the other end, and a cipher that hides and seals everything after. That’s <strong>TLS</strong>, the protocol behind every <code>https://</code> and every padlock. In Chapter 32, we’ll watch a real TLS 1.3 handshake, and then build one from scratch, using this chapter’s X25519 and ChaCha20-Poly1305, and use it to fetch a real web page.</p>
+
+<lab>
+<p>Three programs. <code>crypto_lab.py</code> demonstrates each idea in this chapter. <code>x25519.py</code> and <code>chacha.py</code> are real, standard algorithms, written in plain Python and checked against the official test vectors; Chapter 32’s TLS client uses them.</p>
+
+<h4>1. The ideas</h4>
+
+<p><code>python3 crypto_lab.py pad</code>, <code>hash</code>, <code>collide</code>, <code>mac</code>, <code>dh</code>, <code>rsa</code> and <code>cert</code> are the demonstrations from this chapter. The one-time pad and its weakness take a dozen lines:</p>
+
+<!-- @code labs/ch31/crypto_lab.py#pad -->
+
+<p>And Diffie–Hellman with small numbers, then real ones:</p>
+
+<!-- @code labs/ch31/crypto_lab.py#dh -->
+
+<h4>2. X25519</h4>
+
+<p>All the elliptic curve arithmetic is in one loop, the “Montgomery ladder”, which does exactly the same work for every bit of the key, so that its timing can’t give the key away:</p>
+
+<!-- @code labs/ch31/x25519.py#ladder -->
+
+<h4>3. ChaCha20-Poly1305</h4>
+
+<p>The authentication half, Poly1305, treats the message as the coefficients of a polynomial, and evaluates it at a secret point:</p>
+
+<!-- @code labs/ch31/chacha.py#poly -->
+
+<p>and the two are combined like this, with a one-time Poly1305 key made from the first block of ChaCha20’s stream:</p>
+
+<!-- @code labs/ch31/chacha.py#aead -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Change <code>collide()</code> to look for 40-bit collisions (<code>collide(40)</code> needs a small edit: fingerprints are cut to whole bytes). How many more tries does it take? Predict it first.</li>
+<li>In <code>chacha.py</code>, encrypt two different messages with the same key <em>and nonce</em>, and XOR the ciphertexts. What have you just rebuilt?</li>
+<li>In <code>crypto_lab.py rsa</code>, pick different primes (both must be prime, and <code>e</code> must share no factor with <code>phi</code>). Then play Eve: factor <code>n</code> by trial division, work out <code>d</code>, and forge a signature.</li>
+<li>Run <code>python3 crypto_lab.py cert</code> on other sites (<code>python3 crypto_lab.py cert wikipedia.org</code>). Who issued their certificates? How long do they last?</li>
+</ul>
+</lab>

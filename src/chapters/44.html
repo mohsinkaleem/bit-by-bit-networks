@@ -1,0 +1,144 @@
+<h3>The night of the storm</h3>
+
+<p>In November a storm brings a tree down across the lane, and with it the telegraph poles. The power comes back by morning. The internet doesn’t: the one fibre that joins the whole village to the world was on those poles, and the company says it will be ten days.</p>
+
+<dialogue>
+G: Ten days! I’ve got seedlings to order.
+B: Everyone’s phones still work, just about. The mast on the hill has batteries. But it’s slow, and indoors there’s hardly any signal.
+A: The pub has a 5G router on the roof, for the card machine. That’s one way out, for everyone, if we could share it.
+B: The house two doors down has Wi-Fi that reaches the pub. And we can reach them. And the Hendersons can reach us…
+G: Pass it along, house to house. Like the lamp across the street, all those years ago.
+A: A mesh. Each house relays for its neighbours, and the network works out the best way through by itself. People have built whole cities of them.
+B: And if one house loses power in the next storm?
+A: Then the mesh goes round it.
+</dialogue>
+
+<p>This is the book’s last chapter, and it’s about the part of the network nearest to you: the <strong>last mile</strong>, between the internet’s big cables and your house, your phone, your car. It’s where most of the change is happening, in three ways at once: networks that build themselves from their own members, like the village’s; mobile networks that are becoming software; and computers moving closer to the people who use them.</p>
+
+<h3>A network with no centre</h3>
+
+<p>In a home network (Chapter 22), every device talks to one router. In a <strong>mesh network</strong>, every node is a router: it can talk to whichever neighbours it can reach, and passes on traffic for the others. There’s no single point that everything depends on, so a mesh can grow a house at a time, and heal around damage.</p>
+
+<p>The hard part is choosing routes. Radio links aren’t like cables: they’re good or bad, and change with the weather, the leaves on the trees and the microwave oven next door. A routing protocol that counts hops, like Chapter 23’s RIP, loves long links, because they skip hops, and long radio links are exactly the ones that lose packets. So mesh protocols measure <em>quality</em> instead.</p>
+
+<p><strong>B.A.T.M.A.N.</strong> (“better approach to mobile ad-hoc networking”), from Germany’s Freifunk community networks, does it with gossip, like Chapter 11’s routers. Every second, each node broadcasts a small “originator message”: <em>I’m here</em>. Its neighbours re-broadcast it, and so on across the mesh. Each node counts how many of each node’s messages reach it, and through which neighbour. A neighbour that delivers nearly all of house 3’s messages is a good way to reach house 3; one that delivers few, isn’t. Nobody ever sees a map of the whole network; each node just knows, for every destination, which neighbour is the best first step. And because batman-adv works underneath IP, as a kind of Ethernet (Chapter 18), the whole village looks to its computers like one big home network.</p>
+
+<h3>A village in a Pi</h3>
+
+<p>batman-adv is part of Linux, so this chapter’s <code>mesh.sh</code> builds the village on Grandpa’s Pi, with namespaces for houses (Chapter 36). Each house has one “radio”. They all plug into one software switch, the “air”, and a few firewall rules decide who can hear whom, including one long link across the green that loses 30% of everything:</p>
+
+<!-- @code labs/ch44/mesh.sh#air -->
+
+<!-- @code labs/ch44/mesh.sh#houses -->
+
+<p>After a minute, house 1 has learned its way around:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./mesh.sh
+built five houses; batman-adv needs about a minute to learn how good each link is…
+=== house 1's table: every other house, through which neighbour, and how good the path is (out of 255)
+[B.A.T.M.A.N. adv 2025.4, MainIF/MAC: wlan0/02:44:00:00:00:01 (bat0/16:d1:2e:0f:87:81 BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+              house5    0.136s   (111)            house3 [     wlan0]
+ *            house5    0.136s   (250)            house5 [     wlan0]
+              house2    0.104s   (128)            house3 [     wlan0]
+ *            house2    0.104s   (255)            house2 [     wlan0]
+              house3    0.920s   (194)            house5 [     wlan0]
+ ⟦1:*            house3    0.920s   (220)            house2 [     wlan0]⟧
+              house3    0.920s   ⟦2:(145)            house3⟧ [     wlan0]
+              house4    0.060s   (189)            house2 [     wlan0]
+              house4    0.060s   (129)            house3 [     wlan0]
+ *            house4    0.060s   (218)            house5 [     wlan0]
+=== the path from house 1 to house 3
+traceroute to house3 (02:44:00:00:00:03), 50 hops max, 20 byte packets
+ 1: house2 (02:44:00:00:00:02)  0.011 ms  0.004 ms  0.003 ms
+ 2: house3 (02:44:00:00:00:03)  0.003 ms  0.003 ms  0.003 ms
+=== and out to the internet, through the pub
+64 bytes from 1.1.1.1: icmp_seq=1 ttl=56 time=8.64 ms
+64 bytes from 1.1.1.1: icmp_seq=2 ttl=56 time=10.9 ms
+64 bytes from 1.1.1.1: icmp_seq=3 ttl=56 time=11.0 ms
+3 packets transmitted, 3 received, 0% packet loss, time 2004ms
+</terminal>
+
+<callouts>
+1 | The star marks the best way to each house. To reach house 3, go through house 2: a quality of 220 out of 255.
+2 | House 1 can hear house 3 directly, but that link loses too much: 145. Two good hops beat one bad one, and batman-adv worked that out from nothing but counting hellos.
+</callouts>
+
+<p>Then <code>mesh.sh</code> breaks something. House 1 pings house 3 five times a second, and three seconds in, house 2’s radio fails:</p>
+
+<!-- @code labs/ch44/mesh.sh#break -->
+
+<terminal title="Grandpa Otto’s Pi">
+=== house 2's radio breaks. House 1 keeps pinging house 3, five times a second, for 30 seconds:
+   150 packets transmitted, 126 received, 16% packet loss, time 30394ms
+   rtt min/avg/max/mdev = 0.022/2.658/266.265/24.256 ms, pipe 2
+   no answer to: ⟦1:16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39⟧
+=== house 1's path to house 3, now
+traceroute to house3 (02:44:00:00:00:03), 50 hops max, 20 byte packets
+ 1: house5 (02:44:00:00:00:05)  0.008 ms  0.003 ms  0.003 ms
+ 2: house4 (02:44:00:00:00:04)  0.003 ms  0.003 ms  0.003 ms
+ 3: house3 (02:44:00:00:00:03)  0.003 ms  0.003 ms  0.003 ms
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+ *            house5    0.460s   (255)            house5 [     wlan0]
+ *            house2   ⟦2:27.968s⟧   (255)            house2 [     wlan0]
+ *            house3    0.240s   ⟦3:(198)            house5⟧ [     wlan0]
+ *            house4    0.580s   (222)            house5 [     wlan0]
+</terminal>
+
+<callouts>
+1 | Twenty-four pings, about five seconds, went nowhere while house 1 still sent everything to house 2. Then the ratings caught up.
+2 | House 2 hasn’t been heard from for 28 seconds. It will be forgotten entirely after a few minutes.
+3 | The new way to house 3: round through the pub and house 4. Three hops, but good ones, and still better than the weak link across the green.
+</callouts>
+
+<!-- @include src/figs/ch44-mesh.svg -->
+
+<p>Try building your own village:</p>
+
+<div data-widget="meshsim"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<think>
+<p>Every extra hop in a radio mesh costs more than delay. Why can a packet that crosses three hops use up three times the capacity of one that crosses one?</p>
+<p>Because the air is shared. Most mesh nodes have one radio, on one channel, so neighbouring nodes take turns (Chapter 19’s CSMA/CA). A packet going three hops is transmitted three times, in the same stretch of air, and while house 2 is passing it on, houses 1 and 3 must stay quiet. So a mesh’s capacity falls quickly with distance, and busy meshes use extra radios on other channels for the links between their main nodes. (The lab’s virtual “air” doesn’t share time like real radio, so it can’t show this; a real mesh would.)</p>
+</think>
+
+<h3>The mobile network becomes software</h3>
+
+<p>The village’s way out was the pub’s 5G router. What makes 5G different from the 4G before it? On the radio side, more and wider slices of spectrum, from long-reaching low frequencies to very high “millimetre-wave” ones that carry huge amounts over short distances, and antennas that aim a beam at each phone, like Chapter 40’s satellite dishes. Shorter time slots cut the delay across the air to a few milliseconds.</p>
+
+<p>The bigger change is behind the antennas. Older mobile networks were built from specialised boxes, each from one company. In 5G, the <strong>core network</strong>, the part that knows who you are, sets up your connection and routes your packets, is a set of programs that run on ordinary servers, and talk to each other over HTTP/2 (Chapter 33) with JSON: the SDN idea of Chapter 39, applied to the phone network.</p>
+
+<!-- @include src/figs/ch44-5g.svg -->
+
+<p>Software makes new tricks possible. <strong>Network slicing</strong> runs several logical networks over the same antennas and servers, each with its own promises: one for phones, one for a hospital’s equipment, one for a factory. Companies can run a <strong>private 5G</strong> network of their own, for a port or a warehouse, with their own SIM cards. And more and more homes, like the pub, get their broadband over 5G instead of a cable: “fixed wireless”, the last mile with no wire at all. Next, satellites join in: the latest standards let phones talk to satellites directly (Chapter 40’s “direct to cell”), for places no mast can reach.</p>
+
+<h3>The edge</h3>
+
+<p>Networks keep getting faster, but one number never improves: the speed of light. In fibre, light covers about 200 km in a millisecond (Chapter 17), and a round trip has to go both ways. Some things people want to build, like virtual-reality headsets, cloud gaming, or machines that must react together, need answers in tens or even single milliseconds. Past a point, a faster network doesn’t help. Only a closer server does:</p>
+
+<!-- @include src/figs/ch44-edge.svg -->
+
+<p>So computing is moving towards people: into the CDN data centres of Chapter 34, which now run customers’ programs as well as caching their files, and into mobile operators’ own buildings, near the masts (“multi-access edge computing”). That’s the <strong>edge</strong>. You’ve already met it: the Pi’s pings to 1.1.1.1 take about 10 ms, because Cloudflare’s nearest data centre, reached by anycast (Chapter 34), is close by. The far end of the internet is, more and more often, just round the corner.</p>
+
+<realworld>
+<p>Community networks are real, and some are large. Freifunk, in Germany, links tens of thousands of rooftop and windowsill routers, and wrote batman-adv, which has been part of Linux since 2011. Guifi.net, in Catalonia, has grown since 2004 into one of the world’s largest community networks. NYC Mesh connects apartment blocks across New York, and a small mesh in Red Hook, Brooklyn, famously kept a neighbourhood connected after Hurricane Sandy in 2012. And you may have a mesh at home already: “mesh Wi-Fi” systems link several access points wirelessly, and smart-home devices using Thread (underneath Matter) form a mesh of their own.</p>
+<p>5G was first standardised in 2018, by the 3GPP, the body that writes mobile standards. Its successor, 6G, is expected around 2030, and the research promises everything from terahertz radios to networks that sense their surroundings like radar. Some of that will happen, and some won’t: as this whole Part has shown, the network that wins is not always the cleverest, but the one that can be built a piece at a time, on top of what’s already there.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Ten days later, the fibre is mended. The village keeps its mesh anyway, just in case, and because the Hendersons have started a village film club. And that’s the end of the chapters. But there’s one more scene: two bedroom windows, and a flashlight.</p>
+
+<lab>
+<p>One script, <code>mesh.sh</code>, for Linux, with <code>sudo</code> and <code>batctl</code> (<code>sudo apt install batctl</code>); a Raspberry Pi is ideal. It takes about two minutes, most of it spent letting the mesh learn, and removes everything when it’s done. <code>sudo ./mesh.sh keep</code> leaves the village running, so you can explore; <code>sudo ./mesh.sh down</code> removes it.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>With the village kept running, watch house 1’s table fill in: <code>sudo ip netns exec house1 watch -n 1 batctl originators</code>. How long do the ratings take to settle? Break a house, and watch them change.</li>
+<li>Make the long link across the green better (change 30 to 5) or worse (60). At what loss does house 1 start sending straight to house 3?</li>
+<li>Give the village a second way out: a satellite dish at house 3, say (Chapter 40). batman-adv can choose between gateways itself: look up <code>batctl gw_mode</code>. What happens to house 1’s traffic when the pub’s connection fails?</li>
+<li>Try B.A.T.M.A.N.’s newer algorithm, which rates links by their speed instead of their loss: <code>ip link add bat0 type batadv routing_algo BATMAN_V</code>. Tell it how fast each radio is with <code>batctl hardif wlan0 throughput_override 20mbit</code>. Which paths does it choose now?</li>
+<li>In the widget, find a village where routing by fewest hops cuts a house off, or makes it much worse, while routing by link quality doesn’t. Why do real meshes never use hop count alone?</li>
+</ul>
+</lab>

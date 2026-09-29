@@ -1,0 +1,2581 @@
+<p>Every idea in this book has a real counterpart running on your computer right now, and the command line is the easiest way to look at it. This guide collects the most useful networking commands for <strong>macOS</strong> and <strong>Linux</strong>, grouped by topic. Each entry has a table of the commands side by side, then real output with the interesting parts numbered and explained.</p>
+
+<p>The chapters point here from their “At the command line” boxes, and the chip next to each command shows which chapters it belongs to. This guide grows with the book. It covers every chapter of the book.</p>
+
+<h3>Before you start</h3>
+
+<p><strong>Opening a terminal.</strong> On a Mac, open <em>Terminal</em> from Applications → Utilities (or press ⌘-Space and type “terminal”). On Linux, look for <em>Terminal</em> in your applications menu. On Ubuntu, Ctrl-Alt-T opens one. In the examples, lines starting with <code>$</code> are what you type (don’t type the <code>$</code> itself), and everything else is what the computer prints.</p>
+
+<p><strong>Getting help.</strong> Almost every command has a manual page: <code>man ping</code> opens it, the arrow keys scroll, <code>/word</code> searches, and <code>q</code> quits. Many commands also print a short summary with <code>--help</code> or <code>-h</code>. To stop a command that keeps running, like <code>ping</code>, press Ctrl-C.</p>
+
+<p><strong>Old tools and new tools on Linux.</strong> For decades, Unix systems used <code>ifconfig</code>, <code>netstat</code>, <code>arp</code> and <code>route</code> to look at the network. Linux has since replaced them with two newer tools, <code>ip</code> and <code>ss</code>, and many Linux systems no longer install the old ones at all. macOS still uses the old names, but its versions come from BSD Unix, and their options don’t always match the Linux versions. That’s why the same job often needs different commands on the two systems, and why this guide shows both.</p>
+
+<p><strong>Missing a command?</strong> On a Mac, install extra tools with <a href="https://brew.sh">Homebrew</a>: <code>brew install mtr</code>. On Debian, Ubuntu and Raspberry Pi OS use <code>sudo apt install xxd</code>, and on Fedora <code>sudo dnf install</code>. <code>sudo</code> runs one command with administrator rights, and it will ask for your password. Nothing in this guide needs it unless it says so.</p>
+
+<p>The examples below were captured on a MacBook and on a Raspberry Pi running Debian 13, both on the same home network. Your addresses, names and numbers will be different, and that’s part of the fun.</p>
+
+<h3>Bits and bytes</h3>
+
+<cmd id="xxd" name="xxd" title="See the bits and bytes inside anything" ch="1,5,10">
+<p>A <strong>hex dump</strong> shows every byte of a file, or of whatever a command prints, as hexadecimal numbers alongside any readable text. It’s the quickest way to see what’s really inside. <code>xxd</code> can also show individual bits, and turn hex back into bytes.</p>
+
+<os>
+== See a file’s bytes in hex
+both: xxd hi.txt
+== See the bits themselves
+both: xxd -b hi.txt
+== Look at what a command prints
+both: printf 'HI' | xxd -b
+== Turn hex back into bytes
+both: echo 48 49 0a | xxd -r -p
+tip: On Linux, install it with <code>sudo apt install xxd</code> if it’s missing. It comes from the vim editor.
+</os>
+
+<terminal title="macOS or Linux">
+$ printf 'HI' | xxd -b
+⟦1:00000000:⟧ ⟦2:01001000⟧ 01001001                                      ⟦3:HI⟧
+$ printf 'HI BOB\n' > hi.txt
+$ xxd hi.txt
+00000000: ⟦4:4849⟧ 2042 4f42 ⟦5:0a⟧                        HI BOB⟦6:.⟧
+</terminal>
+
+<callouts>
+1 | The <strong>offset</strong>: how many bytes into the data this line starts, counted in hex.
+2 | The letter H as 8 bits. H is number 72 in ASCII, and 72 = 64 + 8 = <code>01001000</code> (Chapters 1 and 5).
+3 | The same bytes as text, wherever they’re printable.
+4 | Without <code>-b</code>, each byte is two hex digits, grouped in pairs: <code>48</code> is H, <code>49</code> is I.
+5 | <code>0a</code> is the newline character that <code>\n</code> added: the invisible “end of line”.
+6 | Bytes that aren’t printable characters show up as dots.
+</callouts>
+</cmd>
+
+<cmd id="hexdump" name="hexdump -C / od" title="Two more hex viewers, found almost everywhere" ch="5">
+<p><code>hexdump -C</code> does the same job as <code>xxd</code>, one byte at a time. <code>od</code> (“octal dump”) is older still and is guaranteed to exist on any Unix-like system, so it’s handy on a stripped-down server. <code>wc -c</code> just counts the bytes.</p>
+
+<os>
+== Hex and text, side by side
+both: hexdump -C hi.txt
+== The same with od
+both: od -A x -t x1z hi.txt
+== Count the bytes in a file
+both: wc -c hi.txt
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ hexdump -C hi.txt
+00000000  48 49 20 42 4f 42 0a                              ⟦1:|HI BOB.|⟧
+⟦2:00000007⟧
+$ od -A x -t x1z hi.txt
+000000 48 49 20 42 4f 42 0a                             >HI BOB.<
+000007
+</terminal>
+
+<callouts>
+1 | The text column, between bars. Spaces and letters appear as themselves; the newline is a dot.
+2 | The last line is the total length in hex: 7 bytes.
+</callouts>
+</cmd>
+
+<cmd id="file" name="file" title="Guess what kind of data a file holds" ch="5">
+<p>A file’s name is just a label, and anyone can rename <code>cat.png</code> to <code>cat.txt</code>. <code>file</code> ignores the name and looks at the first few bytes instead, where most formats put a <strong>magic number</strong> (Chapter 5). It can also print the media type that a web server would send.</p>
+
+<os>
+== Describe a file
+both: file volcano.png
+== Print its media type
+mac: file -I volcano.png
+linux: file -i volcano.png
+</os>
+
+<terminal title="macOS">
+$ file labs/ch06/sites/bob/volcano.png
+labs/ch06/sites/bob/volcano.png: ⟦1:PNG image data⟧, ⟦2:384 x 192⟧, 8-bit/color RGB, non-interlaced
+$ file -I labs/ch06/sites/bob/volcano.png
+labs/ch06/sites/bob/volcano.png: ⟦3:image/png⟧; charset=binary
+</terminal>
+
+<callouts>
+1 | Recognized from the 8-byte PNG signature at the start of the file.
+2 | <code>file</code> even read the width and height out of the IHDR chunk, the one we took apart in Chapter 5.
+3 | The media type, exactly what goes in a <code>Content-Type</code> header (Chapter 6). Note the capital <code>-I</code> on a Mac and lowercase <code>-i</code> on Linux.
+</callouts>
+</cmd>
+
+<h3>Checking data</h3>
+
+<cmd id="sha256" name="shasum / sha256sum" title="Fingerprint a whole file" ch="10,31">
+<p>A SHA-256 fingerprint is 256 bits long, and changing even one bit of the file changes it completely. Websites often publish the fingerprints of their downloads, so you can check that you got exactly the right file. Unlike the CRC, it’s designed so that nobody can craft a different file with the same fingerprint (Chapter 31).</p>
+
+<os>
+== Fingerprint a file
+mac: shasum -a 256 hi.txt
+linux: sha256sum hi.txt
+== Check files against a list of fingerprints
+mac: shasum -a 256 -c SHA256SUMS
+linux: sha256sum -c SHA256SUMS
+== Are two files identical? Where do they differ?
+both: cmp a.bin b.bin
+</os>
+
+<terminal title="macOS and Linux give the same answer">
+$ shasum -a 256 hi.txt
+⟦1:fba51340df5c4e635dbfeac1b9457b417d71718cc7965bd4fc53113c026eff27⟧  hi.txt
+$ sha256sum hi.txt
+fba51340df5c4e635dbfeac1b9457b417d71718cc7965bd4fc53113c026eff27  hi.txt
+</terminal>
+
+<callouts>
+1 | 64 hex digits, 4 bits each, makes 256 bits. The same 7 bytes give the same fingerprint on every computer in the world.
+</callouts>
+</cmd>
+
+<cmd id="crc" name="cksum / gzip" title="Compute Chapter 10’s CRC-32 yourself" ch="10">
+<p>There’s no single standard command for CRC-32, but there are two good tricks. The Mac’s <code>cksum</code> can use the CRC-32 from Ethernet and ZIP files. And every gzip file ends with a CRC-32 of its contents, followed by the length, so you can make one and read the last 8 bytes.</p>
+
+<os>
+== CRC-32 (the Ethernet and ZIP one)
+mac: cksum -o 3 hi.txt
+linux: python3 -c "import zlib,sys; print(zlib.crc32(sys.stdin.buffer.read()))" < hi.txt
+== A trick that works everywhere
+both: gzip -c hi.txt | tail -c 8 | xxd
+== The POSIX checksum (a different CRC!)
+both: cksum hi.txt
+</os>
+
+<terminal title="macOS">
+$ printf 'HI BOB' | cksum -o 3
+⟦1:993367676⟧ ⟦2:6⟧
+$ printf 'HI BOB' | gzip -c | tail -c 8 | xxd
+00000000: ⟦3:7c96 353b⟧ ⟦4:0600 0000⟧                      |.5;....
+</terminal>
+
+<callouts>
+1 | In decimal. Convert it with <code>python3 -c "print(hex(993367676))"</code> and you get <code>0x3b35967c</code>, exactly what <code>checks.py demo "HI BOB"</code> printed in Chapter 10.
+2 | The number of bytes that were checked.
+3 | The same CRC in gzip’s trailer, <code>3b 35 96 7c</code> written backwards: gzip stores numbers little-endian (Chapter 5’s eggs!).
+4 | The length, 6, also little-endian.
+</callouts>
+
+<p>Plain <code>cksum</code>, with no options, uses the CRC from the POSIX standard. It’s the same long-division idea with a different divisor and bit order, so its answers won’t match zlib’s.</p>
+</cmd>
+
+<h3>Your network interfaces</h3>
+
+<cmd id="ifconfig" name="ifconfig / ip link" title="List your network cards, their addresses and MTU" ch="8,10,18">
+<p>Every way your computer can connect to a network is an <strong>interface</strong>: the Wi-Fi card, an Ethernet port, and the pretend “loopback” interface that programs on the same computer use to talk to each other. This is how to see them, along with each card’s address (Chapter 8) and its maximum packet size (Chapter 10).</p>
+
+<os>
+== List every interface
+mac: ifconfig
+linux: ip link
+== A short list
+mac: ifconfig -l
+linux: ip -br link
+== One interface
+mac: ifconfig en0
+linux: ip link show dev wlan0
+== Which one is Wi-Fi?
+mac: networksetup -listallhardwareports
+linux: iw dev
+</os>
+
+<terminal title="macOS">
+$ ifconfig en0
+⟦1:en0⟧: flags=8863<⟦2:UP⟧,BROADCAST,SMART,⟦2:RUNNING⟧,SIMPLEX,MULTICAST> ⟦3:mtu 1500⟧
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	ether ⟦4:e2:5f:b1:3c:77:0a⟧
+	inet6 fe80::1c2b:3a4d:5e6f:7081%en0 prefixlen 64 secured scopeid 0xe
+	⟦5:inet 192.168.1.3⟧ netmask 0xffffff00 broadcast 192.168.1.255
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect
+	status: active
+</terminal>
+
+<callouts>
+1 | On a Mac, <code>en0</code> is usually Wi-Fi (on a laptop) or the built-in Ethernet port (on a desktop). <code>lo0</code> is loopback.
+2 | The interface is switched on (UP) and actually connected (RUNNING).
+3 | The biggest frame it will send: 1,500 bytes of data, Ethernet’s number from 1980. Loopback’s is 16,384.
+4 | The card address, what the real world calls a <strong>MAC address</strong>. There’s a surprise here, explained below.
+5 | A different kind of address, used for getting between networks. That’s Chapter 11.
+</callouts>
+
+<terminal title="macOS">
+$ networksetup -listallhardwareports
+…
+Hardware Port: Wi-Fi
+Device: en0
+Ethernet Address: ⟦6:84:2f:57:6a:91:0e⟧
+</terminal>
+
+<callouts>
+6 | The Wi-Fi card’s built-in address is <em>different</em> from the one <code>ifconfig</code> showed! Modern Macs, iPhones and Android phones use a made-up “private” address for each Wi-Fi network they join, so that shops and airports can’t recognize you from one visit to the next. The first byte of the made-up address, <code>e2</code>, has a special bit set that means “locally assigned, not built in”.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip -br link
+⟦7:lo⟧               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP>
+eth0             ⟦8:DOWN⟧           2c:cf:67:5e:10:c1 <⟦8:NO-CARRIER⟧,BROADCAST,MULTICAST,UP>
+wlan0            UP             ⟦9:2c:cf:67:5e:10:c2⟧ <BROADCAST,MULTICAST,UP,LOWER_UP>
+</terminal>
+
+<callouts>
+7 | Loopback doesn’t have a real card, so its address is all zeros.
+8 | NO-CARRIER means no signal on the wire: nothing is plugged into this Ethernet port.
+9 | The first three bytes of a card address identify the manufacturer. <code>2c:cf:67</code> belongs to Raspberry Pi, and its two cards got consecutive numbers at the factory.
+</callouts>
+</cmd>
+
+<cmd id="link" name="ethtool / iw / ifconfig media" title="How fast is the link, and is it full duplex?" ch="2,3,17,19">
+<p>A network card and whatever’s at the other end of its cable agree on a bit rate (Chapter 2) and on half or full duplex (Chapter 3) when they connect. This is called <strong>auto-negotiation</strong>. Here’s how to see what they agreed. For Wi-Fi, the rate changes all the time as the signal gets stronger or weaker.</p>
+
+<os>
+== Wired: speed and duplex
+mac: ifconfig en0 | grep media
+linux: ethtool eth0
+== Wi-Fi: current bit rate and signal
+mac: system_profiler SPAirPortDataType
+linux: iw dev wlan0 link
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ethtool eth0
+Settings for eth0:
+	Supported ports: [ TP	 MII ]
+	Supported link modes:   ⟦1:10baseT/Half⟧ 10baseT/Full
+	                        100baseT/Half 100baseT/Full
+	                        1000baseT/Half ⟦1:1000baseT/Full⟧
+	…
+	Speed: ⟦2:Unknown!⟧
+	Duplex: Unknown! (255)
+	Auto-negotiation: ⟦3:on⟧
+	…
+	Link detected: ⟦2:no⟧
+</terminal>
+
+<callouts>
+1 | Every combination the card can do, from 10 megabits per second over half duplex (a 1990 shared cable, Chapter 8) up to 1,000 megabits over full duplex.
+2 | This Pi’s Ethernet cable was unplugged, so there was nothing to agree with. With a cable plugged into a gigabit switch, you’d see <code>Speed: 1000Mb/s</code> and <code>Duplex: Full</code>.
+3 | Auto-negotiation is how the two ends pick the best mode they both support.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ iw dev wlan0 link
+Connected to 14:c3:5e:40:0b:38 (on wlan0)
+	SSID: HomeWiFi
+	⟦4:freq: 2437.0⟧
+	RX: 1525709 bytes (5532 packets)
+	TX: 278853 bytes (1874 packets)
+	⟦5:signal: -28 dBm⟧
+	rx bitrate: 72.2 MBit/s
+	⟦6:tx bitrate: 65.0 MBit/s⟧
+</terminal>
+
+<callouts>
+4 | The radio frequency in megahertz: 2.437 GHz, which is Wi-Fi channel 6.
+5 | Signal strength, in decibels relative to a milliwatt. Closer to zero is stronger: −30 is excellent, −80 is poor.
+6 | The current bit rate. On the Mac in the same room, <code>system_profiler SPAirPortDataType</code> reported a “Transmit Rate” of 780 (megabits), on the faster 5 GHz band.
+</callouts>
+</cmd>
+
+<cmd id="netstat-i" name="netstat -i / ip -s link" title="Count packets, damaged frames and collisions" ch="8,9,10">
+<p>Every interface keeps counters: packets in and out, frames that failed their check and were thrown away (Chapter 10), and collisions (Chapter 8). On a healthy modern network the errors and collisions should be zero, or very close to it.</p>
+
+<os>
+== Counters for every interface
+mac: netstat -i
+linux: ip -s link
+== Just one interface
+mac: netstat -i -I en0
+linux: ip -s link show dev wlan0
+== Watch them change every second
+mac: netstat -w 1 -I en0
+linux: watch -n 1 ip -s link show dev wlan0
+</os>
+
+<terminal title="macOS">
+$ netstat -i -I en0
+Name       Mtu   Network       Address            ⟦1:Ipkts⟧ ⟦2:Ierrs⟧    Opkts Oerrs  ⟦3:Coll⟧
+en0        1500  <Link#14>   e2:5f:b1:3c:77:0a 311670831     0 72994160     0     0
+en0        1500  192.168.1     192.168.1.3     311670831     - 72994160     -     -
+</terminal>
+
+<callouts>
+1 | Input packets: over 311 million since this Mac started up.
+2 | Input errors, including frames that failed their CRC. Zero.
+3 | Collisions. Wi-Fi and switched Ethernet avoid them (Chapters 9 and 19), so this is zero too. On a 1980s shared cable it would be climbing steadily.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip -s link show dev wlan0
+3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP mode DORMANT group default qlen 1000
+    link/ether 2c:cf:67:5e:10:c2 brd ⟦4:ff:ff:ff:ff:ff:ff⟧
+    RX:  bytes packets ⟦5:errors⟧ dropped  missed   mcast
+        942233    3302      0       0       0       0
+    TX:  bytes packets errors dropped carrier ⟦5:collsns⟧
+        266541    2013      0       0       0       0
+</terminal>
+
+<callouts>
+4 | <code>brd</code> is the broadcast address, all ones: “everybody” (Chapter 8).
+5 | The same error and collision counters, both zero.
+</callouts>
+</cmd>
+
+<cmd id="wifi-scan" name="nmcli dev wifi / iw scan / system_profiler" title="Which Wi-Fi networks can you hear, and on which channels?" ch="19">
+<p>Your Wi-Fi card is always listening for beacons (Chapter 19). These commands list the networks it has heard, with their channels and signal strength, which is how you find a quiet channel for your own router.</p>
+
+<os>
+== List nearby networks
+mac: system_profiler SPAirPortDataType
+linux: nmcli dev wifi list
+== Scan now, with every detail of every beacon
+linux: sudo iw dev wlan0 scan
+== How many frames did your card fail to send?
+linux: iw dev wlan0 station dump
+tip: On a Mac, <code>system_profiler</code> lists the other networks under “Other Local Wi-Fi Networks”; recent macOS versions hide their names unless the Terminal app has permission to use your location. On Linux, <code>nmcli</code> works without <code>sudo</code> on any system that uses NetworkManager, like Ubuntu and Raspberry Pi OS.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ nmcli -f IN-USE,SSID,CHAN,RATE,SIGNAL,BARS,SECURITY dev wifi list
+IN-USE  SSID      CHAN  RATE        SIGNAL  BARS  SECURITY
+        HomeWiFi  ⟦1:6⟧     270 Mbit/s  100     ▂▄▆█  WPA2
+⟦2:*⟧       HomeWiFi  ⟦1:149⟧   270 Mbit/s  ⟦3:80⟧      ▂▄▆_  WPA2
+</terminal>
+
+<callouts>
+1 | The same network name twice: the router has two radios, one on 2.4 GHz channel 6, and one on 5 GHz channel 149. A device can use either.
+2 | The one this Pi is connected to. It picked 5 GHz, even though the 2.4 GHz signal is stronger, because there’s much more room there.
+3 | Signal as a percentage, which <code>nmcli</code> works out from the dBm figure.
+</callouts>
+</cmd>
+
+<cmd id="macaddr" name="networksetup -getmacaddress / ethtool -P" title="Your card’s factory address, and the one it’s really using" ch="18">
+<p>Phones and laptops usually use a made-up <em>private</em> MAC address on Wi-Fi, so they can’t be tracked from network to network. The factory address is still stored in the card. These commands show both.</p>
+
+<os>
+== The address in use right now
+mac: ifconfig en0 | grep ether
+linux: ip link show wlan0
+== The factory (permanent) address
+mac: networksetup -getmacaddress en0
+linux: ethtool -P wlan0
+== Who made a card? Look up the first three bytes
+both: tshark -G manuf | grep -i ^2c:cf:67
+note: needs Wireshark; or search the list at standards-oui.ieee.org
+tip: If the second-lowest bit of the first byte is 1 (the first byte is <code>x2</code>, <code>x6</code>, <code>xa</code> or <code>xe</code> in hex), the address was chosen by software, not a factory.
+</os>
+
+<terminal title="macOS">
+$ networksetup -getmacaddress en0
+Ethernet Address: ⟦1:84:2f:57:6a:91:0e⟧ (Device: en0)
+$ ifconfig en0 | grep ether
+	ether ⟦2:e2:5f:b1:3c:77:0a⟧
+</terminal>
+
+<callouts>
+1 | The factory address. <code>84:2f:57</code> is one of Apple’s blocks.
+2 | The private address this Mac uses on its home Wi-Fi. <code>e2</code> is <code>11100010</code>: the “chosen by software” bit is set.
+</callouts>
+</cmd>
+
+<cmd id="vlan" name="ip link … type vlan / networksetup -createVLAN" title="Make a VLAN interface, and see VLAN tags" ch="18">
+<p>A VLAN interface sends and receives frames tagged with one VLAN number, on top of an ordinary interface. You only need one if the switch port you’re plugged into is a trunk. Creating one needs administrator rights, and it lasts until you delete it or restart.</p>
+
+<os>
+== Make a VLAN interface for VLAN 20
+mac: sudo networksetup -createVLAN vlan20 en0 20
+linux: sudo ip link add link eth0 name eth0.20 type vlan id 20
+== List VLAN interfaces
+mac: networksetup -listVLANs
+linux: ip -d link show type vlan
+== Delete it again
+mac: sudo networksetup -deleteVLAN vlan20 en0 20
+linux: sudo ip link del eth0.20
+== See the tags on the wire
+both: sudo tcpdump -i en0 -e -n vlan
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip -d link show bbb-a.20
+6: ⟦1:bbb-a.20@bbb-a⟧: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether c2:eb:34:e0:4d:4b brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 0 maxmtu 65535
+    ⟦2:vlan protocol 802.1Q id 20⟧ <REORDER_HDR> addrgenmode eui64 …
+</terminal>
+
+<callouts>
+1 | The VLAN interface, and the interface underneath it (here, one end of a virtual cable, from Chapter 18’s lab).
+2 | Everything sent through it gets an 802.1Q tag with VLAN number 20.
+</callouts>
+</cmd>
+
+<h3>Addresses and routes</h3>
+
+<cmd id="addr" name="ifconfig inet / ip addr" title="See your network address, and where the network part ends" ch="11,20">
+<p>Besides its card address, every interface that’s connected to a network has a network address (Chapter 11), and a <strong>netmask</strong> or <strong>prefix length</strong> that says how many of its bits are the network part.</p>
+
+<os>
+== Network addresses on every interface
+mac: ifconfig | grep inet
+linux: ip addr
+== A short list
+mac: ifconfig en0 inet
+linux: ip -br addr
+== Just the address, nothing else
+mac: ipconfig getifaddr en0
+linux: hostname -I
+</os>
+
+<terminal title="macOS">
+$ ifconfig en0 inet
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	inet ⟦1:192.168.1.3⟧ netmask ⟦2:0xffffff00⟧ broadcast ⟦3:192.168.1.255⟧
+</terminal>
+
+<callouts>
+1 | This Mac’s network address: network 192.168.1, host 3.
+2 | The netmask in hex: <code>ff ff ff 00</code>, 24 one-bits then 8 zero-bits. The ones mark the network part.
+3 | The broadcast address: the network part followed by all ones. A packet sent here reaches everyone on this network.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip -br addr
+lo               UNKNOWN        ⟦4:127.0.0.1/8⟧ ::1/128
+eth0             DOWN
+wlan0            UP             ⟦5:192.168.1.4/24⟧ ⟦6:fe80::5a1c:9e02:4b7d:a3f1/64⟧
+</terminal>
+
+<callouts>
+4 | Loopback. Every address starting with 127 means “this computer”.
+5 | Linux writes the netmask as a <strong>prefix length</strong>: <code>/24</code> means the first 24 bits are the network part. Same network as the Mac (192.168.1), different host (4).
+6 | A second, newer kind of address. That’s Chapter 25.
+</callouts>
+</cmd>
+
+<cmd id="routes" name="netstat -rn / ip route" title="Read your computer’s routing table" ch="11,20,23,38">
+<p>Your computer has a routing table too, usually a very short one: “my own network is right here, and everything else goes to the gateway”. You can also ask which way one particular packet would go.</p>
+
+<os>
+== Show the routing table
+mac: netstat -rn -f inet
+linux: ip route
+== Which way would a packet to 1.1.1.1 go?
+mac: route -n get 1.1.1.1
+linux: ip route get 1.1.1.1
+== Just the default gateway
+mac: route -n get default
+linux: ip route show default
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip route
+⟦1:default via 192.168.1.1⟧ dev wlan0 proto dhcp src 192.168.1.4 metric 600
+⟦2:192.168.1.0/24 dev wlan0⟧ proto kernel ⟦3:scope link⟧ src 192.168.1.4 metric 600
+$ ip route get 1.1.1.1
+1.1.1.1 ⟦4:via 192.168.1.1 dev wlan0⟧ src 192.168.1.4 uid 1000
+</terminal>
+
+<callouts>
+1 | The <strong>default route</strong>: anything not listed elsewhere goes to the gateway, 192.168.1.1, the home router.
+2 | The Pi’s own network. Packets for 192.168.1.anything go straight out of the Wi-Fi card…
+3 | …with no router in between (“scope link” means “on this link”).
+4 | 1.1.1.1 isn’t on the Pi’s network, so the answer is the gateway.
+</callouts>
+
+<terminal title="macOS">
+$ netstat -rn -f inet
+Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+⟦5:default            192.168.1.1        UGScg⟧                 en0
+127                127.0.0.1          UCS                   lo0
+127.0.0.1          127.0.0.1          UH                    lo0
+⟦6:192.168.1          link#14⟧            UCS                   en0      !
+⟦7:192.168.1.1        14:c3:5e:40:0b:32⟧  UHLWIir               en0   ⟦8:1200⟧
+192.168.1.3/32     link#14            UCS                   en0      !
+</terminal>
+
+<callouts>
+5 | The same default route. The G flag means “through a gateway”.
+6 | The Mac’s own network, 192.168.1. <code>link#14</code> means “deliver directly on interface number 14”, which is en0.
+7 | macOS mixes “who has” answers into its routing table: here’s the router’s card address.
+8 | …and that answer will be forgotten in 1,200 seconds (20 minutes) unless it’s confirmed again.
+</callouts>
+</cmd>
+
+<cmd id="route-get" name="route get / ip route get" title="Straight there, or through the router? Ask your computer" ch="20,37">
+<p>Before sending a packet, your computer decides whether the destination is on its own network, or has to go through a router (Chapter 20). These commands ask it to make that decision for one address, and show the answer, without sending anything.</p>
+
+<os>
+== Which way would a packet to 1.1.1.1 go?
+mac: route -n get 1.1.1.1
+linux: ip route get 1.1.1.1
+</os>
+
+<terminal title="macOS">
+$ route -n get 1.1.1.1
+   route to: 1.1.1.1
+destination: ⟦1:default⟧
+       mask: default
+    ⟦2:gateway: 192.168.1.1⟧
+  interface: en0
+</terminal>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip route get 1.1.1.1
+1.1.1.1 via 192.168.1.1 dev wlan0 ⟦3:src 192.168.1.4⟧ uid 1000
+$ ip route get 192.168.1.3
+192.168.1.3 ⟦4:dev wlan0⟧ src 192.168.1.4 uid 1000
+</terminal>
+
+<callouts>
+1 | No more specific route matched, so the default one was used…
+2 | …which means handing the packet to the router.
+3 | The address this computer would put in the packet’s “from” field.
+4 | On the same network: no “via”, so the packet goes straight to it.
+</callouts>
+</cmd>
+
+<cmd id="route-add" name="ip route add / route add" title="Add, remove and blackhole routes by hand" ch="23">
+<p>A <strong>static route</strong> is one you type in yourself (Chapter 23): “to reach this network, go through that router”. It’s handy for a lab, a VPN, or a second router at home. Routes you add this way vanish when the computer restarts, which makes experimenting safe. A <strong>blackhole</strong> route throws matching packets away, which is how networks stop traffic to an address under attack. All of these need <code>sudo</code>.</p>
+
+<os>
+== Send a network through a particular router
+linux: sudo ip route add 203.0.113.0/24 via 192.168.1.1 dev wlan0
+mac: sudo route -n add -net 203.0.113.0/24 192.168.1.1
+== Throw a network’s packets away
+linux: sudo ip route add blackhole 198.51.100.0/24
+mac: sudo route -n add -net 198.51.100.0/24 127.0.0.1 -blackhole
+== Take a route away again
+linux: sudo ip route del 203.0.113.0/24
+mac: sudo route -n delete -net 203.0.113.0/24
+== Change the default gateway
+linux: sudo ip route replace default via 192.168.1.1
+mac: sudo route -n change default 192.168.1.1
+note: over SSH, a wrong gateway can cut you off
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ sudo ip route add 203.0.113.0/24 via 192.168.1.1 dev wlan0
+$ sudo ip route add blackhole 198.51.100.0/24
+$ ip route
+default via 192.168.1.1 dev wlan0 proto dhcp src 192.168.1.4 metric 600
+192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.4 metric 600
+⟦1:blackhole 198.51.100.0/24⟧
+⟦2:203.0.113.0/24 via 192.168.1.1 dev wlan0⟧
+$ ip route get 198.51.100.7
+⟦3:RTNETLINK answers: Invalid argument⟧
+$ ping -c1 -W1 198.51.100.7
+ping: connect: Invalid argument
+$ sudo ip route del 203.0.113.0/24
+$ sudo ip route del blackhole 198.51.100.0/24
+</terminal>
+
+<callouts>
+1 | The blackhole route. Its prefix is longer than the default route’s, so it wins for these addresses (longest-prefix match).
+2 | The static route. No <code>proto</code> is shown, which means “typed in by someone” (<code>proto boot</code>).
+3 | Linux refuses to even try: a blackhole route means “there is no way there”. Routers do the same, silently, for packets passing through.
+</callouts>
+</cmd>
+
+<cmd id="ipaddress" name="python3 -c 'import ipaddress…'" title="Subnet arithmetic, with nothing to install" ch="20">
+<p>Python’s <code>ipaddress</code> module does all the subnet sums from Chapter 20. There are dedicated tools too (<code>ipcalc</code> and <code>sipcalc</code> on Linux, from your package manager), but Python is already on every Mac and nearly every Linux computer.</p>
+
+<os>
+== A network’s mask, broadcast address and size
+both: python3 -c 'import ipaddress as i; n = i.ip_network("10.23.147.8/13", strict=False); print(n, n.netmask, n.broadcast_address, n.num_addresses)'
+== Is an address inside a network? Is it private?
+both: python3 -c 'import ipaddress as i; print(i.ip_address("192.168.1.3") in i.ip_network("192.168.1.0/24"))'
+both: python3 -c 'import ipaddress as i; print(i.ip_address("100.64.3.7").is_private)'
+</os>
+
+<terminal title="macOS">
+$ python3 -c 'import ipaddress as i; n = i.ip_network("10.23.147.8/13", strict=False); print(n, n.netmask, n.broadcast_address, n.num_addresses)'
+⟦1:10.16.0.0/13⟧ 255.248.0.0 10.23.255.255 ⟦2:524288⟧
+</terminal>
+
+<callouts>
+1 | <code>strict=False</code> lets you give any address inside the network; Python works out the network itself.
+2 | Every address, including the network and broadcast addresses, so 2 fewer are usable.
+</callouts>
+</cmd>
+
+<cmd id="neigh" name="arp -a / ip neigh" title="See the “who has?” answers your computer remembers" ch="11,15,21">
+<p>To send a frame to a network address on its own network, a computer first has to learn the card address that goes with it, by broadcasting “who has 192.168.1.1?”. The answers are kept for a while. Here’s how to see them.</p>
+
+<os>
+== List the remembered answers
+mac: arp -a
+linux: ip neigh
+== Forget them all
+mac: sudo arp -a -d
+linux: sudo ip neigh flush all
+note: harmless: your computer simply asks again next time
+</os>
+
+<terminal title="macOS">
+$ arp -a
+? (169.254.169.254) at ⟦1:(incomplete)⟧ on en0 [ethernet]
+router.home (192.168.1.1) at 14:c3:5e:40:0b:32 on en0 ifscope [ethernet]
+⟦2:raspberrypi.home (192.168.1.4) at 2c:cf:67:5e:10:c2⟧ on en0 ifscope [ethernet]
+mdns.mcast.net (224.0.0.251) at 1:0:5e:0:0:fb on en0 ifscope ⟦3:permanent⟧ [ethernet]
+</terminal>
+
+<callouts>
+1 | The Mac asked “who has 169.254.169.254?” and nobody answered.
+2 | The Raspberry Pi. That’s the same Wi-Fi card address that <code>ip link</code> showed on the Pi itself.
+3 | A special group address with a fixed, calculated card address, so it never needs asking.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip neigh
+192.168.1.1 dev wlan0 ⟦4:lladdr 14:c3:5e:40:0b:32⟧ ⟦5:STALE⟧
+fe80::16c3:5eff:fe40:b32 dev wlan0 lladdr 14:c3:5e:40:0b:32 router STALE
+fe80::1c2b:3a4d:5e6f:7081 dev wlan0 lladdr e2:5f:b1:3c:77:0a ⟦6:REACHABLE⟧
+</terminal>
+
+<callouts>
+4 | <code>lladdr</code> is the “link-layer address”: the card address.
+5 | STALE means “remembered, but not confirmed lately”. Linux double-checks before trusting it again.
+6 | REACHABLE means confirmed in the last few seconds. This one is the Mac (its private Wi-Fi address from the <a href="#cmd-ifconfig">ifconfig</a> entry), which was busy running these commands over SSH.
+</callouts>
+</cmd>
+
+<cmd id="arping" name="arping" title="Ask “who has?” yourself, and check for address clashes" ch="21">
+<p><code>arping</code> sends ARP “who has?” questions and times the answers, the way <code>ping</code> does with ICMP. Because ARP never leaves your own network, it works even for devices that ignore pings. It can also check whether anyone else is already using an address, before you give it to something. It needs <code>sudo</code>. Most Linux systems have it (in the <code>iputils-arping</code> package); on a Mac, <code>brew install arping</code> installs a similar version, whose options differ slightly.</p>
+
+<os>
+== Ask for a card address, 3 times
+linux: sudo arping -c 3 -I wlan0 192.168.1.1
+mac: sudo arping -c 3 -i en0 192.168.1.1
+== Is anyone already using this address?
+linux: sudo arping -D -c 2 -I wlan0 192.168.1.7
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ sudo arping -c 3 -I wlan0 192.168.1.1
+ARPING 192.168.1.1 from 192.168.1.4 wlan0
+Unicast reply from 192.168.1.1 [⟦1:14:c3:5e:40:0b:32⟧]  6.343ms
+Unicast reply from 192.168.1.1 [14:c3:5e:40:0b:32]  4.630ms
+Unicast reply from 192.168.1.1 [14:c3:5e:40:0b:32]  4.669ms
+Sent 3 probes (⟦2:1 broadcast(s)⟧)
+Received 3 response(s)
+$ sudo arping -D -c 2 -I wlan0 192.168.1.4
+ARPING 192.168.1.4 from ⟦3:0.0.0.0⟧ wlan0
+Sent 2 probes (2 broadcast(s))
+Received ⟦4:0 response(s)⟧
+</terminal>
+
+<callouts>
+1 | The router’s card address: the answer to “who has 192.168.1.1?”.
+2 | Only the first question was broadcast; the rest went straight to the router’s card.
+3 | Duplicate detection sends a probe “from” 0.0.0.0, so it doesn’t claim the address itself.
+4 | Nobody answered, so nobody else is using 192.168.1.4. An answer here would mean an address clash.
+</callouts>
+</cmd>
+
+<cmd id="ipv6" name="ifconfig inet6 / ip -6 addr / ndp / ip -6 neigh" title="Your IPv6 addresses, routes and neighbours" ch="25">
+<p>Almost every computer speaks IPv6 as well as IPv4, even on networks with no IPv6 internet, where it still has a link-local address (Chapter 25). These commands show its addresses, its IPv6 routes, and its <strong>neighbour cache</strong>, IPv6’s version of the ARP table. Link-local addresses need a <strong>zone</strong> (<code>%en0</code>, <code>%wlan0</code>) to say which interface they’re on.</p>
+
+<os>
+== Show IPv6 addresses
+mac: ifconfig en0 inet6
+linux: ip -6 addr
+== Show IPv6 routes
+mac: netstat -rn -f inet6
+linux: ip -6 route
+== Show the neighbour cache
+mac: ndp -an
+linux: ip -6 neigh
+== Ping every IPv6 device on the network
+mac: ping6 -c 2 ff02::1%en0
+linux: ping -6 -c 2 ff02::1%wlan0
+== Ping a link-local address
+mac: ping6 fe80::16c3:5eff:fe40:b32%en0
+linux: ping -6 fe80::16c3:5eff:fe40:b32%wlan0
+</os>
+
+<terminal title="macOS">
+$ ifconfig en0 inet6
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	inet6 ⟦1:fe80::1c2b:3a4d:5e6f:7081%en0⟧ prefixlen 64 ⟦2:secured⟧ scopeid 0xe
+	nd6 options=201<PERFORMNUD,DAD>
+$ ndp -an
+Neighbor                                Linklayer Address  Netif Expire    St Flgs Prbs
+fe80::1c2b:3a4d:5e6f:7081%en0           e2:5f:b1:3c:77:0a    en0 permanent R
+⟦3:fe80::16c3:5eff:fe40:b32%en0⟧            14:c3:5e:40:0b:32    en0 23h58m30s S  ⟦4:R⟧
+</terminal>
+
+<callouts>
+1 | A link-local address, with its zone. On a network with real IPv6 there’d be global ones too, starting with 2 or 3.
+2 | The interface ID was made with a private recipe, not from the card address.
+3 | The router’s address was made from its card address (look for ff:fe in the middle)…
+4 | …and R means it said it’s a router.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ip -6 addr show wlan0
+3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP qlen 1000
+    inet6 fe80::5a1c:9e02:4b7d:a3f1/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+$ ip -6 route
+⟦5:fe80::/64 dev wlan0 proto kernel metric 1024 pref medium⟧
+$ ip -6 neigh
+fe80::1c2b:3a4d:5e6f:7081 dev wlan0 lladdr e2:5f:b1:3c:77:0a REACHABLE
+fe80::16c3:5eff:fe40:b32 dev wlan0 lladdr 14:c3:5e:40:0b:32 ⟦6:router⟧ STALE
+</terminal>
+
+<callouts>
+5 | Only the link-local network, and no default route: this home network has no IPv6 internet.
+6 | Linux marks routers in the neighbour cache too.
+</callouts>
+</cmd>
+
+<h3>Joining a network</h3>
+
+<cmd id="dhcp-lease" name="ipconfig getpacket / nmcli" title="What did the DHCP server give you, and for how long?" ch="22">
+<p>When your computer joins a network, a DHCP server lends it an address, and tells it the netmask, the router and the name server (Chapter 22). These commands show that answer. Renewing the lease by hand is a classic first step when a connection is misbehaving.</p>
+
+<os>
+== Show the lease
+mac: ipconfig getpacket en0
+linux: nmcli -f DHCP4 device show wlan0
+== Ask for a fresh lease (briefly drops the connection)
+mac: sudo ipconfig set en0 DHCP
+linux: sudo nmcli device reapply wlan0
+tip: On Linux systems without NetworkManager, leases are usually kept in files under <code>/var/lib/dhcp/</code> or <code>/var/lib/dhcpcd/</code>.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ nmcli -f DHCP4 device show wlan0
+DHCP4.OPTION[2]:                        ⟦1:dhcp_lease_time = 86400⟧
+DHCP4.OPTION[3]:                        dhcp_server_identifier = 192.168.1.1
+DHCP4.OPTION[4]:                        domain_name = home
+DHCP4.OPTION[5]:                        domain_name_servers = 192.168.1.1
+DHCP4.OPTION[6]:                        ⟦2:expiry = 1790613727⟧
+DHCP4.OPTION[7]:                        host_name = raspberrypi
+DHCP4.OPTION[8]:                        ip_address = 192.168.1.4
+DHCP4.OPTION[9]:                        ⟦3:requested_broadcast_address = 1⟧
+…
+</terminal>
+
+<callouts>
+1 | A one-day lease.
+2 | When it runs out, in seconds since 1970. (<code>date -d @1790613727</code> turns it into a date on Linux; <code>date -r 1790613727</code> on a Mac.)
+3 | The “requested_” lines list what the Pi asked for in its DISCOVER, whether or not the server supplied it.
+</callouts>
+</cmd>
+
+<cmd id="public-ip" name="curl icanhazip.com / stun" title="What’s your address from outside?" ch="22">
+<p>Behind a NAT, your computer’s own address is private. To see the public one that websites see, ask a website. If it’s different from the “outside” address in your router’s settings, there’s another NAT in the way (carrier-grade NAT, Chapter 22).</p>
+
+<os>
+== Your public IPv4 address
+both: curl -4 -s https://icanhazip.com
+== Your public address and port, as a STUN server sees them
+both: python3 labs/ch22/stun.py
+</os>
+
+<terminal title="macOS">
+$ curl -4 -s https://icanhazip.com
+⟦1:203.0.113.77⟧
+</terminal>
+
+<callouts>
+1 | The router’s public address (replaced here with a documentation address). Every device in the house gets the same answer.
+</callouts>
+</cmd>
+
+<cmd id="mdns" name="dns-sd / avahi-browse" title="Find devices and services on your network by name" ch="22">
+<p>Names ending in <code>.local</code> are looked up with multicast DNS: the question goes to every device on the network, and the one with that name answers (Chapter 22). Devices also announce services, like printers, speakers and SSH. These commands run until you press Ctrl-C.</p>
+
+<os>
+== Look up a .local name
+mac: dns-sd -G v4 raspberrypi.local
+linux: avahi-resolve -n raspberrypi.local
+== Who offers SSH here?
+mac: dns-sd -B _ssh._tcp
+linux: avahi-browse -rt _ssh._tcp
+== Every service on the network
+mac: dns-sd -B _services._dns-sd._udp
+linux: avahi-browse -art
+tip: On Debian, Ubuntu and Raspberry Pi OS, the <code>avahi-browse</code> and <code>avahi-resolve</code> commands are in the <code>avahi-utils</code> package.
+</os>
+
+<terminal title="macOS">
+$ dns-sd -G v4 raspberrypi.local
+Timestamp     A/R  Flags         IF  Hostname                               Address                                      TTL
+ 3:31:45.819  Add  2             14  raspberrypi.local.                     ⟦1:192.168.1.4⟧                                  ⟦2:120⟧
+^C
+$ dns-sd -B _ssh._tcp
+Browsing for _ssh._tcp
+Timestamp     A/R    Flags  if Domain               Service Type         Instance Name
+ 3:31:47.712  Add        2  14 local.               _ssh._tcp.           ⟦3:bobs-macbook⟧
+^C
+</terminal>
+
+<callouts>
+1 | The Pi answered for its own name. No name server was involved.
+2 | Remember the answer for 120 seconds.
+3 | The Mac advertises its own SSH service (it’s on because Remote Login is switched on in its settings).
+</callouts>
+</cmd>
+
+<h3>Routing protocols</h3>
+
+<cmd id="birdc" name="birdc / vtysh" title="Ask a routing program who its neighbours are, and what it has learned" ch="23">
+<p>Routers running OSPF or BGP (Chapters 23 and 24) do it with a routing program, and on Linux that’s usually <strong>BIRD</strong> or <strong>FRRouting</strong>. Each has a command-line client for asking it questions: <code>birdc</code> for BIRD, and <code>vtysh</code> for FRRouting, whose commands copy the style of commercial routers. They’re in the <code>bird2</code> and <code>frr</code> packages. A Mac doesn’t route, so there’s nothing to ask there, but both programs install with Homebrew if you want to experiment. The examples come from Chapter 23’s three-router lab, where each router has its own control socket, given with <code>-s</code>.</p>
+
+<os>
+== Which routing protocols are running?
+linux: sudo birdc show protocols
+linux: sudo vtysh -c "show ip ospf"
+== Who are my OSPF neighbours?
+linux: sudo birdc show ospf neighbors
+linux: sudo vtysh -c "show ip ospf neighbor"
+== The whole OSPF map
+linux: sudo birdc show ospf state
+linux: sudo vtysh -c "show ip ospf database"
+== What routes did it learn?
+linux: sudo birdc show route
+linux: sudo vtysh -c "show ip route"
+</os>
+
+<terminal title="Linux (Raspberry Pi, Chapter 23’s lab)">
+$ sudo birdc -s /tmp/ospfbox/library.ctl show ospf neighbors
+BIRD 2.17.5 ready.
+campus:
+Router ID   	Pri	     State     	DTime	Interface  Router IP
+10.255.0.3  	  1	⟦1:Full/PtP⟧  	⟦2:30.866⟧	to-main    10.0.12.2
+10.255.0.2  	  1	Full/PtP  	30.871	to-lab     10.0.31.1
+$ sudo birdc -s /tmp/ospfbox/library.ctl show route
+BIRD 2.17.5 ready.
+Table master4:
+10.0.31.0/30         unicast [campus 15:58:55.018] * I (150/10) [10.255.0.1]
+	dev to-lab
+⟦3:10.1.3.0/24          unicast [campus 15:59:57.019] * I (150/30) [10.255.0.3]⟧
+	⟦4:via 10.0.31.1 on to-lab⟧
+10.1.1.0/24          unicast [campus 15:58:55.018] * I (150/10) [10.255.0.1]
+	dev lan
+10.1.2.0/24          unicast [campus 15:59:11.020] * I (150/20) [10.255.0.2]
+	via 10.0.31.1 on to-lab
+</terminal>
+
+<callouts>
+1 | “Full” means the two routers have exactly the same map. Anything else (Init, 2-Way, ExStart, Exchange, Loading) means they’re still getting to know each other, and a neighbour stuck in one of those states is a classic fault.
+2 | Seconds until this neighbour is declared dead, unless another Hello arrives. It counts down from 40 and starts again at each Hello.
+3 | A route learned from OSPF (<code>campus</code> is the protocol’s name in BIRD’s configuration). <code>I</code> means “inside this area”, 150 is BIRD’s preference for OSPF routes, 30 is the total cost, and <code>[10.255.0.3]</code> is the router that advertised it.
+4 | This was captured just after the library–main cable was cut: the main building’s network is now reached through the lab, at cost 30 instead of 20.
+</callouts>
+</cmd>
+
+<cmd id="whois-as" name="whois" title="Who owns an address, which network announces it, and what are its rules?" ch="24">
+<p>The registries that hand out addresses and AS numbers keep public databases of who has what, and <code>whois</code> asks them. It’s installed on macOS; on Linux, install the <code>whois</code> package. Two servers are especially handy: Team Cymru’s, which answers “which AS announces this address?” in one line, and the regional registry’s (RIPE’s for Europe, ARIN’s for North America), which has the full records, including the routing policies some networks publish.</p>
+
+<os>
+== Which AS announces this address, and in which prefix?
+both: whois -h whois.cymru.com " -v 188.184.67.127"
+== Who is this address registered to?
+both: whois 188.184.67.127
+== An AS’s record, with its published routing policy
+both: whois -h whois.ripe.net -r AS513
+tip: The <code>-r</code> stops RIPE’s server from also sending the contact records.
+</os>
+
+<terminal title="macOS">
+$ whois -h whois.cymru.com " -v 188.184.67.127"
+AS      | IP               | BGP Prefix          | CC | Registry | Allocated  | AS Name
+⟦1:513⟧     | 188.184.67.127   | ⟦2:188.184.0.0/16⟧      | CH | ripencc  | 2009-06-09 | CERN - CERN - European Organization for Nuclear Research, CH
+$ whois -h whois.ripe.net -r 188.184.67.127 | grep -E "^(inetnum|netname|route|origin)"
+inetnum:        188.184.0.0 - 188.184.255.255
+netname:        VMs-for-LCG
+route:          188.184.0.0/16
+⟦3:origin:         AS513⟧
+</terminal>
+
+<callouts>
+1 | The AS number of the network that announces this address to the rest of the internet (Chapter 24).
+2 | The prefix it announces. Longest-prefix match (Chapter 23) picks this route for the address.
+3 | A <strong>route object</strong>: CERN’s own public statement that AS513 is the right origin for this prefix. Many networks build their filters from objects like this one.
+</callouts>
+</cmd>
+
+<cmd id="ripestat" name="curl stat.ripe.net" title="See the internet’s routes from the outside" ch="24">
+<p>You can’t look inside other networks’ routers, but you can ask the route collectors that record what they announce. RIPEstat is a free service with a simple web API that answers in JSON; this book’s Chapter 24 lab, <code>asinfo.py</code>, is built on it. Websites like <a href="https://bgp.tools">bgp.tools</a> and <a href="https://bgp.he.net">bgp.he.net</a> show the same kind of data as web pages.</p>
+
+<os>
+== Is this route allowed by RPKI?
+both: curl -s "https://stat.ripe.net/data/rpki-validation/data.json?resource=13335&prefix=1.1.1.0/24"
+== Which AS paths lead to a prefix?
+both: curl -s "https://stat.ripe.net/data/looking-glass/data.json?resource=1.1.1.0/24"
+== Just one field, without installing anything
+both: curl -s "…" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["status"])'
+</os>
+
+<terminal title="macOS">
+$ curl -s "https://stat.ripe.net/data/rpki-validation/data.json?resource=513&prefix=188.184.0.0/16" | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print(d["status"], d["validating_roas"])'
+⟦1:valid⟧ [{'origin': '513', 'prefix': '188.184.0.0/16', 'validity': 'valid', ⟦2:'max_length': 16⟧}]
+$ curl -s "https://stat.ripe.net/data/rpki-validation/data.json?resource=64512&prefix=1.1.1.0/24" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["status"])'
+⟦3:invalid_asn⟧
+</terminal>
+
+<callouts>
+1 | A route for 188.184.0.0/16 from AS513 matches a signed ROA, so networks that check RPKI will accept it.
+2 | …and so would a route for exactly this prefix, but not for anything more specific, like a /24 inside it.
+3 | Any other AS announcing Cloudflare’s 1.1.1.0/24 would be <strong>invalid</strong>: a hijack, or a mistake.
+</callouts>
+</cmd>
+
+<h3>Reaching other computers</h3>
+
+<cmd id="ping" name="ping" title="Is it there, and how long does it take to answer?" ch="10,11,17,21,38,40">
+<p><code>ping</code> sends a tiny “are you there?” packet and waits for the reply. It tells you whether a computer is reachable, how long the round trip takes, and how many packets get lost on the way. It can also find the biggest packet that fits through every link along the path.</p>
+
+<os>
+== Ping 3 times
+both: ping -c 3 1.1.1.1
+== Ping until you press Ctrl-C
+both: ping 1.1.1.1
+== Find the path’s MTU: send 1,500 bytes, “don’t chop”
+mac: ping -D -s 1472 -c 1 1.1.1.1
+linux: ping -M do -s 1472 -c 1 1.1.1.1
+note: 1,472 bytes of data + 8 bytes of ping header + 20 bytes of address header = 1,500
+== Give up after N hops
+mac: ping -m 3 1.1.1.1
+linux: ping -t 3 1.1.1.1
+</os>
+
+<terminal title="macOS">
+$ ping -c 3 1.1.1.1
+PING 1.1.1.1 (1.1.1.1): 56 data bytes
+64 bytes from 1.1.1.1: ⟦1:icmp_seq=0⟧ ⟦2:ttl=58⟧ ⟦3:time=11.638 ms⟧
+64 bytes from 1.1.1.1: icmp_seq=1 ttl=58 time=9.610 ms
+64 bytes from 1.1.1.1: icmp_seq=2 ttl=58 time=10.024 ms
+
+--- 1.1.1.1 ping statistics ---
+3 packets transmitted, 3 packets received, ⟦4:0.0% packet loss⟧
+round-trip min/avg/max/stddev = 9.610/10.424/11.638/0.875 ms
+</terminal>
+
+<callouts>
+1 | Each ping is numbered, so a missing or late reply can be spotted (Chapter 13).
+2 | The reply’s remaining hop limit. Computers usually start it at 64, and every router on the way back takes one off (Chapter 11).
+3 | The round-trip time: there and back in about 10 milliseconds.
+4 | Every ping was answered. On a bad Wi-Fi connection this is often a few percent.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ping -M do -s 1472 -c 1 1.1.1.1
+PING 1.1.1.1 (1.1.1.1) 1472(1500) bytes of data.
+From ⟦5:192.168.1.1⟧ icmp_seq=1 ⟦6:Frag needed and DF set (mtu = 1492)⟧
+$ ping -M do -s 1464 -c 1 1.1.1.1
+PING 1.1.1.1 (1.1.1.1) 1464(1492) bytes of data.
+⟦7:1472 bytes from 1.1.1.1⟧: icmp_seq=1 ttl=58 time=25.7 ms
+</terminal>
+
+<callouts>
+5 | The home router answered, not 1.1.1.1…
+6 | …to say “too big, and you told me not to chop it up”. The link beyond the router carries at most 1,492 bytes, not 1,500. Many fiber and DSL connections use a system called PPPoE that adds an 8-byte label of its own to every packet.
+7 | 1,492 bytes fits, so this network’s path MTU is 1,492. (The reply says 1,472 bytes because it doesn’t count the 20-byte address header.)
+</callouts>
+</cmd>
+
+<cmd id="traceroute" name="traceroute / mtr" title="List every router on the way" ch="11,21,38">
+<p><code>traceroute</code> finds the routers between you and a destination, using the hop limit from Chapter 11. It sends a packet that’s allowed only one hop, and the first router sends back a complaint, revealing its address. Then it sends one allowed two hops, and so on. <code>mtr</code> does the same thing continuously, like a live traceroute.</p>
+
+<os>
+== Trace the route
+both: traceroute 1.1.1.1
+== Faster: numbers only, one try per hop
+both: traceroute -n -q 1 1.1.1.1
+== Live, continuously updating
+both: mtr 1.1.1.1
+note: install with <code>brew install mtr</code> or <code>sudo apt install mtr-tiny</code>. On a Mac, mtr has to be run with <code>sudo</code>
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ traceroute -n -q 1 -m 8 1.1.1.1
+traceroute to 1.1.1.1 (1.1.1.1), 8 hops max, 60 byte packets
+ ⟦1:1  192.168.1.1⟧  1.494 ms
+ ⟦2:2  *⟧
+ 3  203.0.113.9  3.682 ms
+ ⟦3:4  10.241.1.6⟧  5.252 ms
+ 5  *
+ 6  *
+ 7  10.241.1.1  5.342 ms
+ 8  198.51.100.77  5.491 ms
+</terminal>
+
+<callouts>
+1 | Hop 1 is always your own router, the way out of your home network.
+2 | A star means no answer. Routers are allowed to ignore traceroute’s probes, and many do. The packets still go through them.
+3 | Addresses starting with <code>10.</code> are private (Chapter 22). This is inside the internet provider’s own network.
+</callouts>
+</cmd>
+
+<h3>Talking to other programs</h3>
+
+<cmd id="pmtu" name="ping -D / ping -M do / tracepath" title="Find the biggest packet that gets through" ch="20,35,38">
+<p>A ping with the “don’t fragment” bit set, and a chosen size, tests whether packets that big can cross the whole path. The size you give is the ICMP data: add 8 bytes of ICMP header and 20 of IP header to get the packet size. If a router on the way can’t pass it, it should send back “fragmentation needed”, with the size that would fit; if nothing comes back at all, something is losing those messages (Chapter 38’s black hole). <code>tracepath</code> (Linux, from the <code>iputils-tracepath</code> package) finds the path MTU hop by hop, without <code>sudo</code>.</p>
+
+<os>
+== A full-size packet (1,500 bytes), not to be fragmented
+mac: ping -D -s 1472 -c 1 1.1.1.1
+linux: ping -M do -s 1472 -c 1 1.1.1.1
+== The largest that fits a PPPoE line (1,492 bytes)
+mac: ping -D -s 1464 -c 1 1.1.1.1
+linux: ping -M do -s 1464 -c 1 1.1.1.1
+== Find the path MTU, hop by hop
+linux: tracepath -n 1.1.1.1
+== What has this computer learned about a destination?
+linux: ip route get 1.1.1.1
+mac: route -n get 1.1.1.1
+tip: <code>-s 1472</code> means 1,472 bytes of data: the IP packet is 1,500. On most home networks, try 1464 and 1465 to see whether your connection is PPPoE.
+</os>
+
+<terminal title="macOS">
+$ ping -D -s 1464 -c 1 1.1.1.1
+1472 bytes from 1.1.1.1: icmp_seq=0 ttl=58 time=10.624 ms
+$ ping -D -s 1465 -c 1 1.1.1.1
+556 bytes from rtk_gw.home (192.168.1.1): ⟦1:frag needed and DF set (MTU 1492)⟧
+</terminal>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ping -c1 -M do -s 1465 1.1.1.1
+From 192.168.1.1 icmp_seq=1 Frag needed and DF set (mtu = 1492)
+$ ip route get 1.1.1.1
+1.1.1.1 via 192.168.1.1 dev wlan0 src 192.168.1.4 uid 1000
+    ⟦2:cache expires 598sec mtu 1492⟧
+</terminal>
+
+<callouts>
+1 | The home router can’t fit a 1,493-byte packet into its PPPoE line, and says so. That’s path MTU discovery working.
+2 | Linux remembers the answer for this destination, for ten minutes. A path where big pings get <em>no</em> reply at all, while small ones do, is a black hole.
+</callouts>
+</cmd>
+
+<cmd id="nc" name="nc" title="Netcat: connect your keyboard to the network" ch="4,6,12,38">
+<p><code>nc</code> is the simplest possible network program. It either waits for a connection or makes one, and then it sends whatever you type and prints whatever arrives. That makes it perfect for speaking a protocol by hand, or for checking whether anything is listening at all.</p>
+
+<os>
+== Wait for a connection on port 7000
+mac: nc -l 127.0.0.1 7000
+linux: nc -l 7000
+note: on a Mac, AirPlay Receiver already uses port 7000, so name the loopback address. Some older Linux netcats want <code>nc -l -p 7000</code>
+== Connect to a waiting program
+both: nc 127.0.0.1 7000
+== Is anything listening on a port?
+both: nc -zv localhost 7007
+== Speak HTTP by hand
+both: printf 'GET /time HTTP/1.0\r\nHost: localhost\r\n\r\n' | nc localhost 7007
+== Send UDP datagrams instead (Chapter 12)
+both: nc -u 127.0.0.1 7123
+== Wait for UDP datagrams
+mac: nc -u -l 127.0.0.1 7012
+linux: nc -u -l 7012
+</os>
+
+<terminal title="macOS, with Chapter 7’s dynserver.py running">
+$ nc -zv localhost 7007
+nc: connectx to localhost port 7007 (tcp) failed: ⟦1:Connection refused⟧
+Connection to localhost port 7007 ⟦2:[tcp/afs3-bos]⟧ succeeded!
+$ printf 'GET /time HTTP/1.0\r\nHost: localhost\r\n\r\n' | nc localhost 7007
+⟦3:HTTP/1.1 200 OK⟧
+Connection: close
+Content-Type: text/html; charset=utf-8
+Content-Length: 398
+
+<!doctype html><meta charset="utf-8"><title>What time is it?</title>
+…
+</terminal>
+
+<callouts>
+1 | “localhost” has two addresses, a new-style one and an old-style one. <code>nc</code> tried the new one first, found nothing listening there, then tried the other. That’s Chapter 25’s story.
+2 | Your computer keeps an old list of well-known port numbers in <code>/etc/services</code>, and port 7007 happens to be registered to a 1980s file system called AFS. Our server has nothing to do with it (more on ports in Chapter 12).
+3 | The server’s answer, exactly as it came over the wire: status line, headers, blank line, body (Chapter 6).
+</callouts>
+
+<terminal title="macOS or Linux, with Chapter 12’s otto.py running">
+$ echo hi | nc -u -w1 127.0.0.1 7123
+It's 19:21:46 at Otto's.
+</terminal>
+
+<p>With <code>-u</code>, each line you type goes out as one UDP datagram. <code>-w1</code> tells <code>nc</code> to give up one second after the last thing it hears, since a datagram conversation never formally ends.</p>
+</cmd>
+
+<cmd id="lsof" name="lsof -i / ss" title="Which program is using which port?" ch="12,13,26">
+<p>Every program that sends or receives over the network has one or more ports open. These commands list them, along with the program that owns each one. That’s useful when something says “Address already in use” and you want to know who got there first.</p>
+
+<os>
+== Every open network port
+mac: lsof -nP -i
+linux: ss -tuanp
+== Just UDP
+mac: lsof -nP -iUDP
+linux: ss -uanp
+== Who’s using port 7064?
+mac: lsof -nP -i :7064
+linux: ss -uanp 'sport = :7064'
+== Programs waiting for connections (Chapter 13)
+mac: lsof -nP -iTCP -sTCP:LISTEN
+linux: ss -tlnp
+== The old way, no program names
+mac: netstat -an -p udp
+linux: netstat -uan
+tip: <code>-n</code> and <code>-P</code> mean “show numbers, don’t look up names”, which is faster and clearer. You only see your own programs unless you add <code>sudo</code>.
+</os>
+
+<terminal title="macOS, with Chapter 12’s otto.py running">
+$ lsof -nP -iUDP:7000-7200
+COMMAND   ⟦1:PID⟧    USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+⟦2:Python⟧  84991 alice    4u  IPv4 0xf7233dd1bc41d7ed      0t0  UDP ⟦3:127.0.0.1:7012⟧
+Python  84991 alice    5u  IPv4 0xa006c17cc8e37a1c      0t0  UDP 127.0.0.1:7123
+Python  84991 alice    6u  IPv4 0xe6ccd704b842a6e9      0t0  UDP 127.0.0.1:7099
+Python  84991 alice    7u  IPv4 0x2efe85ec1f36b00c      0t0  UDP 127.0.0.1:7064
+</terminal>
+
+<callouts>
+1 | The process ID: the operating system’s number for the running program. <code>kill 84991</code> would stop it.
+2 | One program, four ports: chat, clock, slowpoke and chess, all inside <code>otto.py</code>.
+3 | The address and port it’s bound to. <code>127.0.0.1</code> means only programs on this same computer can reach it.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi), with otto.py running">
+$ ss -ulpn
+State  Recv-Q Send-Q               Local Address:Port  Peer Address:PortProcess
+⟦4:UNCONN⟧ 0      0                          0.0.0.0:111        0.0.0.0:*
+UNCONN 0      0                        127.0.0.1:7012       0.0.0.0:*    ⟦5:users:(("python3",pid=3680,fd=4))⟧
+UNCONN 0      0                        127.0.0.1:7064       0.0.0.0:*    users:(("python3",pid=3680,fd=7))
+UNCONN 0      0                        127.0.0.1:7099       0.0.0.0:*    users:(("python3",pid=3680,fd=6))
+</terminal>
+
+<callouts>
+4 | UNCONN, “unconnected”: datagram ports don’t have conversations, they just wait for whatever arrives.
+5 | The program that owns the port. The first line has no program shown because it belongs to a system service, not to us.
+</callouts>
+</cmd>
+
+<cmd id="services" name="/etc/services / portrange" title="What does port 53 usually mean? Which ports get handed out?" ch="12">
+<p>Your computer keeps a long list of well-known port numbers and the services that traditionally use them. It’s only a list of conventions: nothing stops a program from using port 53 for something else. And when a program doesn’t ask for a particular port, the operating system picks a free one from a range it keeps for the purpose.</p>
+
+<os>
+== What’s port 53 for?
+both: grep -w 53 /etc/services
+== Which port does NTP (time) use?
+both: grep -w ntp /etc/services
+== The range of ports handed out automatically
+mac: sysctl net.inet.ip.portrange.first net.inet.ip.portrange.last
+linux: cat /proc/sys/net/ipv4/ip_local_port_range
+</os>
+
+<terminal title="macOS">
+$ grep -wE "^(domain|ntp)" /etc/services
+domain           53/udp     # Domain Name Server
+domain           53/tcp     # Domain Name Server
+⟦1:ntp             123/udp⟧     # Network Time Protocol
+ntp             123/tcp     # Network Time Protocol
+$ sysctl net.inet.ip.portrange.first net.inet.ip.portrange.last
+net.inet.ip.portrange.first: ⟦2:49152⟧
+net.inet.ip.portrange.last: 65535
+</terminal>
+
+<callouts>
+1 | Clocks really do live at port 123, like Otto’s. Most services are registered for both UDP and TCP, even if they only use one.
+2 | macOS hands out ports from 49,152 to 65,535. The Raspberry Pi said <code>32768 60999</code>.
+</callouts>
+</cmd>
+
+<cmd id="udp-stats" name="netstat -s -p udp / nstat" title="Count UDP datagrams that were thrown away" ch="26">
+<p>UDP never tells a sender that a datagram was lost, but the kernel keeps count of the ones it threw away itself: for a port with no socket, or because a socket’s receive buffer was full (Chapter 26). If a UDP program seems to lose messages, check whether these numbers go up while it runs.</p>
+
+<os>
+== UDP counters
+mac: netstat -s -p udp
+linux: nstat -az | grep -i udp
+linux: cat /proc/net/snmp | grep Udp
+note: on Linux, RcvbufErrors counts drops from full buffers, NoPorts datagrams for closed ports
+</os>
+
+<terminal title="macOS, before and after Chapter 26’s flood experiment">
+$ netstat -s -p udp | grep "full socket"
+		⟦1:249638 dropped due to full socket buffers⟧
+$ python3 udp_lab.py flood
+receive buffer 786,896 bytes: sent 20,000 datagrams of 1000 bytes, received 762, lost 19,238  (the kernel counted 19,238 dropped for full buffers)
+…
+$ netstat -s -p udp | grep "full socket"
+		⟦2:268876 dropped due to full socket buffers⟧
+</terminal>
+
+<callouts>
+1 | Every datagram this Mac has dropped for a full buffer since it started. Busy programs lose some from time to time.
+2 | 19,238 more: exactly the ones the experiment lost.
+</callouts>
+</cmd>
+
+<cmd id="ntp" name="sntp / timedatectl / chronyc" title="Is your clock right? Ask a time server" ch="26">
+<p>Computers set their clocks over the network with NTP (Chapter 26). These commands show how far off your clock is, and whether it’s being kept in step. None of them change the clock unless you ask.</p>
+
+<os>
+== How far off is my clock?
+mac: sntp time.apple.com
+linux: chronyc tracking
+linux: timedatectl timesync-status
+note: which one works on Linux depends on whether chrony or systemd-timesyncd keeps the time
+== Is the clock being synchronized at all?
+linux: timedatectl status
+mac: sudo systemsetup -getusingnetworktime
+== Which servers is it using?
+linux: chronyc sources -v
+</os>
+
+<terminal title="macOS">
+$ sntp time.apple.com
+⟦1:+0.065679⟧ ⟦2:+/- 0.084274⟧ time.apple.com 17.253.18.99
+</terminal>
+
+<callouts>
+1 | This Mac’s clock is 65.7 milliseconds behind time.apple.com’s…
+2 | …give or take 84 milliseconds, based on how long the answer took to arrive.
+</callouts>
+</cmd>
+
+<h3>Reliable connections</h3>
+
+<cmd id="tcp-states" name="netstat -an / ss -tan" title="List connections and what state they’re in" ch="13,27">
+<p>A TCP connection goes through a series of states: waiting for someone to connect, shaking hands, established, saying goodbye. These commands list every connection with its state and all four of its numbers (Chapter 12).</p>
+
+<os>
+== Every TCP connection and its state
+mac: netstat -an -p tcp
+linux: ss -tan
+== Only established connections
+mac: netstat -an -p tcp | grep ESTABLISHED
+linux: ss -tn state established
+== Only programs waiting for connections
+mac: netstat -an -p tcp | grep LISTEN
+linux: ss -tln
+</os>
+
+<terminal title="macOS">
+$ netstat -an -p tcp | grep -E "LISTEN|ESTAB" | head -4
+tcp4       0      0  ⟦1:192.168.1.3.60712⟧      ⟦2:34.149.66.165.443⟧      ⟦3:ESTABLISHED⟧
+tcp4       0      0  192.168.1.3.60693      160.79.104.10.443      ESTABLISHED
+tcp4       0      0  192.168.1.3.60692      160.79.104.10.443      ESTABLISHED
+tcp46      0      0  ⟦4:*.8765⟧                 *.*                    LISTEN
+</terminal>
+
+<callouts>
+1 | This end: address 192.168.1.3, port 60712. macOS writes the port after a dot instead of a colon.
+2 | The other end: port 443, a secure website.
+3 | The handshake is done and data can flow both ways.
+4 | A program waiting for connections on port 8765, from any address (<code>*</code>). That’s the web server showing you this book. <code>tcp46</code> means it accepts both kinds of address (Chapter 25).
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ ss -tan
+State  Recv-Q Send-Q                     Local Address:Port                Peer Address:Port
+LISTEN 0      ⟦5:128⟧                                  0.0.0.0:22                        0.0.0.0:*
+LISTEN 0      4096                               127.0.0.1:11434                     0.0.0.0:*
+ESTAB  0      0      ⟦6:[fe80::5a1c:9e02:4b7d:a3f1]%wlan0:22⟧   [fe80::1c2b:3a4d:5e6f:7081]:60728
+</terminal>
+
+<callouts>
+5 | For a listening port, Send-Q shows how many new connections may queue up, waiting for the program to accept them.
+6 | The SSH connection from the Mac. It happens to use the newer kind of address (Chapter 25), but it’s the same idea: address and port at each end.
+</callouts>
+
+<p>You’ll also see <code>TIME_WAIT</code> for a while after a connection closes. The side that said goodbye first waits a minute or two before forgetting the connection, in case a late datagram from it is still wandering around the network.</p>
+</cmd>
+
+<cmd id="tcp-info" name="ss -ti / nettop" title="Look inside a connection: round trips, timeouts, windows" ch="13,27,28">
+<p>Every TCP connection keeps the numbers from Chapter 13 up to date: the average round-trip time and its wobble, the current timeout, and the window. Linux will show them all for any connection, and macOS shows the round-trip times.</p>
+
+<os>
+== Details of every connection
+mac: nettop -m tcp
+linux: ss -ti
+== One snapshot, for a script
+mac: nettop -m tcp -L 1 -n -J state,rtt_avg,bytes_in,bytes_out
+linux: ss -tin
+</os>
+
+<terminal title="Linux (Raspberry Pi), during an SSH session">
+$ ss -tin
+State Recv-Q Send-Q                     Local Address:Port                Peer Address:Port
+ESTAB 0      0      [fe80::5a1c:9e02:4b7d:a3f1]%wlan0:22   [fe80::1c2b:3a4d:5e6f:7081]:60728
+	 cubic wscale:6,10 ⟦1:rto:208⟧ ⟦2:rtt:4.847/1.823⟧ ato:40 ⟦3:mss:1428⟧ pmtu:1500 rcvmss:1428
+	 advmss:1428 ⟦4:cwnd:10⟧ bytes_sent:3481 bytes_acked:3481 bytes_received:3842 segs_out:15
+	 segs_in:23 … minrtt:3.11 ⟦5:snd_wnd:131072⟧ rcv_wnd:78848
+</terminal>
+
+<callouts>
+1 | The current timeout, in milliseconds. Linux never goes below 200 ms, however quick the round trips are.
+2 | The running average round-trip time (4.8 ms) and its wobble (1.8 ms), exactly the two numbers Alice kept.
+3 | The biggest piece of data per packet: the 1,500-byte MTU minus the headers.
+4 | The congestion window: how many packets may be unacknowledged right now, measured in packets.
+5 | How much the other end says it has room for: flow control.
+</callouts>
+
+<terminal title="macOS">
+$ nettop -m tcp -L 1 -n -J state,rtt_avg,bytes_in,bytes_out
+,state,bytes_in,bytes_out,rtt_avg,
+…
+tcp4 192.168.1.3:59341<->17.57.145.151:5223,Established,11000,71360,⟦6:121.16 ms⟧,
+</terminal>
+
+<callouts>
+6 | The average round trip for this connection. It’s to a server much further away than the Pi.
+</callouts>
+</cmd>
+
+<cmd id="tcp-stats" name="netstat -s / nstat" title="Count retransmissions and other TCP events" ch="13">
+<p>The operating system counts every datagram it has had to resend since it started up. A small percentage is normal. A lot means a bad Wi-Fi connection, or a congested link somewhere.</p>
+
+<os>
+== All TCP counters
+mac: netstat -s -p tcp
+linux: nstat -az 'Tcp*'
+== Just the resends
+mac: netstat -s -p tcp | grep -i retransmit
+linux: nstat -az TcpRetransSegs TcpOutSegs
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ nstat -az TcpRetransSegs TcpOutSegs TcpActiveOpens TcpPassiveOpens
+#kernel
+⟦1:TcpActiveOpens⟧                  49                 0.0
+TcpPassiveOpens                 2                  0.0
+⟦2:TcpOutSegs⟧                      1407               0.0
+⟦3:TcpRetransSegs⟧                  9                  0.0
+</terminal>
+
+<callouts>
+1 | Connections this computer started (it said hello first). Passive ones were started by someone else.
+2 | Packets sent since the Pi started up…
+3 | …and how many of them were resends: 9 out of 1,407, well under 1%.
+</callouts>
+</cmd>
+
+<cmd id="tcp-cc" name="sysctl … tcp" title="Which congestion control, and is ECN on?" ch="28">
+<p>Congestion control (Chapter 28) is chosen by the operating system, and on Linux you can change it. These commands show the settings; changing them needs <code>sudo</code>, and resets when the computer restarts unless you add them to <code>/etc/sysctl.conf</code>.</p>
+
+<os>
+== Which congestion control is in use?
+linux: sysctl net.ipv4.tcp_congestion_control
+linux: sysctl net.ipv4.tcp_available_congestion_control
+note: macOS always uses CUBIC, and has no setting for it
+== Switch to BBR (Linux)
+linux: sudo modprobe tcp_bbr && sudo sysctl -w net.ipv4.tcp_congestion_control=bbr
+== Is ECN switched on?
+mac: sysctl net.inet.tcp.ecn_initiate_out
+linux: sysctl net.ipv4.tcp_ecn
+note: on Linux, 1 means “ask for it”, 2 means “accept it if the other side asks”
+== The biggest buffers TCP may grow to
+mac: sysctl net.inet.tcp.autorcvbufmax net.inet.tcp.autosndbufmax
+linux: sysctl net.ipv4.tcp_rmem net.ipv4.tcp_wmem
+== One connection’s window and round trip, live
+linux: ss -ti dst 1.1.1.1
+</os>
+
+<terminal title="macOS">
+$ sysctl net.inet.tcp.ecn_initiate_out net.inet.tcp.ecn_setup_percentage net.inet.tcp.l4s net.inet.tcp.autorcvbufmax
+net.inet.tcp.ecn_initiate_out: ⟦1:1⟧
+net.inet.tcp.ecn_setup_percentage: 100
+net.inet.tcp.l4s: ⟦2:0⟧
+net.inet.tcp.autorcvbufmax: ⟦3:4194304⟧
+</terminal>
+
+<callouts>
+1 | This Mac asks for ECN on every connection it opens (and, from the next line, on 100% of them).
+2 | L4S, the newer low-latency scheme, is built in but switched off.
+3 | A connection’s receive buffer, and so its window, can grow to 4 MB.
+</callouts>
+</cmd>
+
+<cmd id="responsiveness" name="networkQuality" title="Does your connection get laggy when it’s busy?" ch="28">
+<p>Speed tests measure how fast a connection is; they don’t measure how long everything else waits while it’s busy, which is what makes games and video calls stutter (bufferbloat, Chapter 28). macOS has a test for exactly that. On Linux, run a ping in one window while something big downloads in another, or use Chapter 28’s <code>bloat.py</code>, which does both at once.</p>
+
+<os>
+== Capacity and responsiveness under load
+mac: networkQuality
+mac: networkQuality -v
+note: -v shows every measurement; -s tests download and upload one at a time
+== The same idea by hand
+both: ping 1.1.1.1
+both: curl -o /dev/null https://speed.cloudflare.com/__down?bytes=99000000
+note: run them in two windows, and watch the ping times while the download runs
+</os>
+
+<terminal title="macOS">
+$ networkQuality
+==== SUMMARY ====
+Uplink capacity: 119.938 Mbps
+Downlink capacity: 117.329 Mbps
+Responsiveness: ⟦1:Low (403.762 milliseconds | 148 RPM)⟧
+Idle Latency: ⟦2:29.368 milliseconds⟧ | 2043 RPM
+</terminal>
+
+<callouts>
+1 | With the connection full in both directions, a round trip took 400 ms: packets were waiting in an overfull queue. “RPM” is round trips per minute; higher is better.
+2 | The same round trip when the connection was idle. The difference is the bufferbloat.
+</callouts>
+</cmd>
+
+<h3>Names</h3>
+
+<cmd id="dig" name="dig / host" title="Ask the naming system directly" ch="14,15,29,37,38">
+<p><code>dig</code> sends one question to a name server and shows you the whole answer, including how long it may be remembered. With <code>+trace</code>, it does the resolver’s job itself, starting from the root, just like <code>lookup.py --trace</code> in Chapter 14.</p>
+
+<os>
+== Look up a name’s address
+both: dig example.com
+== Just the answer
+both: dig +short example.com
+== The short, friendly version
+both: host example.com
+== Ask a particular name server
+both: dig @1.1.1.1 example.com
+== Follow the chain from the root
+both: dig +trace example.com
+== Other kinds of record
+both: dig example.com MX
+both: dig example.com NS
+== If it times out, ask over TCP instead
+both: dig +tcp example.com
+tip: On Debian, Ubuntu and Raspberry Pi OS, install it with <code>sudo apt install bind9-dnsutils</code>. It’s already on a Mac.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ dig +tcp @1.1.1.1 example.com
+; <<>> DiG 9.20.26-1~deb13u1-Debian <<>> +tcp @1.1.1.1 example.com
+;; ->>HEADER<<- opcode: QUERY, status: ⟦1:NOERROR⟧, id: ⟦2:53028⟧
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+
+;; QUESTION SECTION:
+;example.com.			IN	A
+
+;; ANSWER SECTION:
+example.com.		⟦3:216⟧	IN	⟦4:A⟧	⟦5:104.20.23.154⟧
+example.com.		216	IN	A	172.66.147.243
+
+;; Query time: 8 msec
+;; SERVER: 1.1.1.1#53(1.1.1.1) ⟦6:(TCP)⟧
+</terminal>
+
+<callouts>
+1 | No error: the name exists. A made-up name would say <code>NXDOMAIN</code>, “no such domain”.
+2 | The question number. It’s random, so that Eve can’t guess it (Chapter 14).
+3 | How many more seconds this answer may be remembered.
+4 | The kind of record: <code>A</code> is an address.
+5 | Two addresses. Big websites often have several, and your computer picks one.
+6 | This answer came over TCP. The network these examples were captured on had broken UDP name lookups, so plain <code>dig</code> just timed out. Adding <code>+tcp</code> is a handy workaround.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ dig +tcp +trace +nodnssec @1.1.1.1 www.example.com
+.			514245	IN	NS	⟦7:a.root-servers.net.⟧
+.			514245	IN	NS	b.root-servers.net.
+…
+.			514245	IN	NS	m.root-servers.net.
+;; Received 239 bytes from 1.1.1.1#53(1.1.1.1) in 12 ms
+
+⟦8:com.⟧			172800	IN	NS	a.gtld-servers.net.
+…
+;; Received 868 bytes from 192.33.4.12#53(⟦9:c.root-servers.net⟧) in 140 ms
+
+example.com.		172800	IN	NS	⟦10:elliott.ns.cloudflare.com.⟧
+example.com.		172800	IN	NS	hera.ns.cloudflare.com.
+;; Received 363 bytes from 192.33.14.30#53(b.gtld-servers.net) in 40 ms
+
+⟦11:www.example.com.	300	IN	A	104.20.23.154⟧
+www.example.com.	300	IN	A	172.66.147.243
+;; Received 76 bytes from 108.162.195.228#53(elliott.ns.cloudflare.com) in 12 ms
+</terminal>
+
+<callouts>
+7 | The root. There are 13 root server names, a to m, each run by a different organization.
+8 | A root server referred us to the servers in charge of <code>com</code>…
+9 | …and it was root server c that answered.
+10 | The <code>com</code> servers referred us to the servers in charge of <code>example.com</code>, which happen to be run by a company called Cloudflare…
+11 | …which finally gave the answer, good for 300 seconds. Four steps, exactly like <code>otto.seaside</code>.
+</callouts>
+</cmd>
+
+<cmd id="resolver" name="dscacheutil / getent / resolv.conf" title="How your own computer looks names up" ch="14,29">
+<p>Programs don’t usually ask name servers directly. They ask the operating system, which checks the local list in <code>/etc/hosts</code>, its own memory of recent answers, and then the resolver it was told about when it joined the network. Names ending in <code>.local</code> skip the name servers entirely.</p>
+
+<os>
+== Look a name up the way programs do
+mac: dscacheutil -q host -a name example.com
+linux: getent hosts example.com
+== Which name servers am I using?
+mac: scutil --dns
+linux: cat /etc/resolv.conf
+== The local list of names
+both: cat /etc/hosts
+== Forget remembered answers
+mac: sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+linux: resolvectl flush-caches
+note: the Linux one only applies if your system uses systemd-resolved
+== Find a .local name on your network
+mac: dns-sd -G v4 raspberrypi.local
+linux: avahi-resolve -n raspberrypi.local
+</os>
+
+<terminal title="macOS">
+$ scutil --dns
+DNS configuration
+
+resolver #1
+  search domain[0] : home
+  ⟦1:nameserver[0] : 192.168.1.1⟧
+  if_index : 14 (en0)
+  …
+resolver #2
+  ⟦2:domain   : local⟧
+  ⟦2:options  : mdns⟧
+$ dscacheutil -q host -a name raspberrypi.local
+name: raspberrypi.local
+ip_address: 192.168.1.4
+$ dns-sd -G v4 raspberrypi.local
+Timestamp     A/R  Flags         IF  Hostname                               Address                                      TTL
+22:32:00.808  Add  40000002      14  raspberrypi.local.                     192.168.1.4                                  ⟦3:120⟧
+</terminal>
+
+<callouts>
+1 | The resolver this Mac uses: the home router, which it was told about when it joined the Wi-Fi.
+2 | Names ending in <code>.local</code> go to <strong>multicast DNS</strong> instead: the Mac shouts “who is raspberrypi.local?” to the whole local network, and the Pi answers for itself. It’s the “who has?” trick from Chapter 11, for names.
+3 | Even the Pi’s own answer says how long it may be remembered: 120 seconds.
+</callouts>
+
+<terminal title="Linux (Raspberry Pi)">
+$ cat /etc/resolv.conf
+# Generated by NetworkManager
+search home
+nameserver 192.168.1.1
+$ getent hosts raspberrypi
+⟦4:127.0.1.1⟧       raspberrypi raspberrypi
+</terminal>
+
+<callouts>
+4 | Found in <code>/etc/hosts</code>, the local list, before any name server was asked. Every computer still has the Chapter 14 list, it’s just very short.
+</callouts>
+</cmd>
+
+<cmd id="dig-more" name="dig +trace / +dnssec / -x" title="Follow a lookup from the root, check signatures, and look up addresses backwards" ch="29">
+<p>A few more of <code>dig</code>’s tricks, for looking into the machinery of DNS (Chapter 29). The <code>dig</code> on a Mac is an older version that doesn’t know the newest record types by name; ask for them by number instead, like <code>TYPE65</code> for HTTPS records.</p>
+
+<os>
+== Do the whole lookup yourself, from the root
+both: dig +trace @1.1.1.1 info.cern.ch
+note: the @1.1.1.1 is only used to get the list of root servers; some home routers can’t answer that
+== Is the answer signed, and did the resolver check it?
+both: dig +dnssec ripe.net
+note: look for “ad” in the flags, and RRSIG records
+== Which name belongs to an address?
+both: dig -x 1.1.1.1
+== Ask an authoritative server directly, without recursion
+both: dig +norec @ext-dns-1.cern.ch info.cern.ch
+== Force TCP, or pretend UDP answers must fit in 512 bytes
+both: dig +tcp @1.1.1.1 DNSKEY org
+both: dig +bufsize=512 +ignore @1.1.1.1 DNSKEY org
+== DNS over HTTPS, with nothing but curl
+both: curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=example.org&type=A'
+</os>
+
+<terminal title="macOS">
+$ dig +noall +answer @1.1.1.1 -x 1.1.1.1
+⟦1:1.1.1.1.in-addr.arpa.⟧	1445	IN	PTR	one.one.one.one.
+$ curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=example.org&type=A'
+{"Status":⟦2:0⟧,"TC":false,"RD":true,"RA":true,⟦3:"AD":true⟧,"CD":false,"Question":[{"name":"example.org","type":1}],"Answer":[{"name":"example.org","type":1,"TTL":136,"data":"104.20.26.136"},{"name":"example.org","type":1,"TTL":136,"data":"172.66.157.237"}]}
+</terminal>
+
+<callouts>
+1 | Reverse lookups use a special tree, with the address written backwards so that the most significant part comes last, like the end of a domain name.
+2 | Status 0 is NOERROR. This JSON form is Cloudflare’s and Google’s own convenience; real DNS over HTTPS (the standard) sends the binary DNS message itself, which is what Chapter 29’s <code>dig.py --doh</code> does.
+3 | The resolver checked the signatures on example.org’s answer.
+</callouts>
+</cmd>
+
+<h3>The web by hand</h3>
+
+<cmd id="curl" name="curl" title="Fetch a URL and see everything that happens" ch="6,7,15,30">
+<p><code>curl</code> is a browser without the window. It sends one request and prints the response, and with <code>-v</code> it shows you every header going each way. It’s installed on macOS and nearly every Linux system.</p>
+
+<os>
+== Fetch a page
+both: curl http://localhost:7007/
+== Show the request and response headers
+both: curl -v http://localhost:7007/
+== Headers only (a HEAD request)
+both: curl -I http://localhost:7007/
+== Follow redirects
+both: curl -L http://localhost:7006/bob/homework.mu
+== Send a form, like a POST from a browser
+both: curl -d 'name=Alice&message=hi' http://localhost:7007/guestbook
+== Remember cookies between requests
+both: curl -c jar.txt -b jar.txt http://localhost:7007/hello
+== Save the body to a file
+both: curl -o page.html http://localhost:7007/
+</os>
+
+<terminal title="macOS, with Chapter 7’s dynserver.py running">
+$ curl -v 'http://localhost:7007/dice?sides=6&n=3'
+⟦1:* Host localhost:7007 was resolved.⟧
+*   Trying [::1]:7007...
+* connect to ::1 port 7007 from ::1 port 53427 failed: Connection refused
+*   Trying 127.0.0.1:7007...
+* Connected to localhost (127.0.0.1) port 7007
+⟦2:> GET /dice?sides=6&n=3 HTTP/1.1⟧
+> ⟦3:Host: localhost:7007⟧
+> User-Agent: curl/8.7.1
+> Accept: */*
+>
+* Request completely sent off
+⟦4:< HTTP/1.1 200 OK⟧
+< Connection: close
+< Content-Type: text/html; charset=utf-8
+< ⟦5:Content-Length: 375⟧
+<
+{ [375 bytes data]
+</terminal>
+
+<callouts>
+1 | Lines starting with <code>*</code> are curl’s own notes about what it’s doing.
+2 | Lines starting with <code>&gt;</code> are the request curl sent: the method, the path with its query string (Chapter 7), and the protocol version.
+3 | The Host header, which lets one server host many sites (Chapter 6).
+4 | Lines starting with <code>&lt;</code> are the response. First the status line…
+5 | …then the headers. Content-Length frames the body, just like in Chapter 5.
+</callouts>
+
+<terminal title="macOS">
+$ curl -i -c jar.txt 'http://localhost:7007/hello'
+HTTP/1.1 200 OK
+Connection: close
+Content-Type: text/html; charset=utf-8
+⟦6:Set-Cookie: visitor=1; Path=/; Max-Age=86400⟧
+Content-Length: 413
+…
+</terminal>
+
+<callouts>
+6 | The server hands out a cookie (Chapter 7). <code>-c jar.txt</code> saved it in a file, and <code>-b jar.txt</code> on the next request sends it back.
+</callouts>
+</cmd>
+
+<cmd id="curl-more" name="curl -H / -r / --compressed / -x / -w" title="Try HTTP’s real-world features by hand" ch="30,37">
+<p>A few more <code>curl</code> options for the features of Chapter 30: conditional requests, ranges, compression, proxies, and timing each stage of a request. Add <code>--http1.1</code> to see HTTP/1.1 even where the server would prefer HTTP/2.</p>
+
+<os>
+== Ask “only if it changed”
+both: curl -sI -H 'If-None-Match: "286-4f1aadb3105c0"' http://info.cern.ch/
+== Just part of a file
+both: curl -r 0-99 http://info.cern.ch/
+== Ask for compression, and decompress it
+both: curl --compressed -o page.html https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol
+== Follow redirects, showing each response’s headers
+both: curl -sIL http://bbc.co.uk
+== Go through a proxy
+both: curl -x http://127.0.0.1:7130 http://info.cern.ch/
+== How long did each stage take?
+both: curl -so /dev/null -w "dns %{time_namelookup} connect %{time_connect} tls %{time_appconnect} first byte %{time_starttransfer} total %{time_total}\n" https://example.org
+</os>
+
+<terminal title="macOS">
+$ curl -sI --http1.1 -H 'If-None-Match: "286-4f1aadb3105c0"' http://info.cern.ch/
+⟦1:HTTP/1.1 304 Not Modified⟧
+Date: Mon, 28 Sep 2026 12:02:18 GMT
+Server: Apache
+Last-Modified: Wed, 05 Feb 2014 16:00:31 GMT
+ETag: "286-4f1aadb3105c0"
+$ curl -sIL --http1.1 http://bbc.co.uk | grep -iE "^HTTP|^location"
+HTTP/1.1 301 Moved Permanently
+Location: https://bbc.co.uk/
+HTTP/1.1 301 Moved Permanently
+Location: https://www.bbc.co.uk/
+⟦2:HTTP/1.1 200 OK⟧
+$ curl -so /dev/null -w "dns %{time_namelookup} connect %{time_connect} tls %{time_appconnect} first byte %{time_starttransfer} total %{time_total}\n" https://example.org
+dns 0.002052 ⟦3:connect 0.027552⟧ tls 0.058245 ⟦4:first byte 0.090105⟧ total 0.090280
+</terminal>
+
+<callouts>
+1 | The ETag matched the server’s current version, so no body was sent: use the copy you have.
+2 | Two redirects, then the page.
+3 | Times are in seconds from the start. The name was already cached (2 ms); the TCP handshake finished at 28 ms, and TLS at 58 ms…
+4 | …and the first byte of the answer arrived at 90 ms: one more round trip for the request itself.
+</callouts>
+</cmd>
+
+<cmd id="curl-http3" name="curl --http2 / --http3" title="Choose the HTTP version, and compare them" ch="33">
+<p><code>curl</code> can speak all three versions of HTTP. It uses HTTP/2 for <code>https://</code> by default when the server offers it; <code>--http1.1</code> and <code>--http2</code> choose explicitly, and <code>--http3-only</code> uses QUIC, if your curl was built with it. macOS’s own curl wasn’t (it says “the installed libcurl version doesn’t support this”); <code>brew install curl</code> gets one that is, and so do recent Debian and Ubuntu.</p>
+
+<os>
+== Which version did we get?
+both: curl -so /dev/null -w '%{http_version}\n' https://www.google.com
+== Insist on one version
+both: curl --http1.1 -sI https://cloudflare.com
+both: curl --http2 -sI https://cloudflare.com
+both: curl --http3-only -sI https://cloudflare.com
+note: HTTP/3 needs a curl built with it (Linux, or Homebrew’s curl on a Mac)
+== Does the site offer HTTP/3?
+both: curl -sI https://www.google.com | grep -i alt-svc
+== Compare the handshakes’ cost
+both: curl --http3-only -so /dev/null -w 'connect %{time_connect} tls %{time_appconnect} first byte %{time_starttransfer}\n' https://quic.nginx.org/
+== See curl’s HTTP/2 or HTTP/3 frames being built
+both: curl -sv --http2 -o /dev/null https://example.org 2>&1 | grep HTTP/2
+</os>
+
+<terminal title="Linux (Raspberry Pi), to a server 175 ms away">
+$ curl --http2 -4 -so /dev/null -w "connect %{time_connect} tls %{time_appconnect} first-byte %{time_starttransfer}\n" https://quic.nginx.org/
+connect ⟦1:0.149792⟧ tls ⟦2:0.311147⟧ first-byte 0.454056
+$ curl --http3-only -4 -so /dev/null -w "connect %{time_connect} tls %{time_appconnect} first-byte %{time_starttransfer}\n" https://quic.nginx.org/
+connect 0.182529 tls ⟦3:0.184836⟧ first-byte ⟦4:0.353272⟧
+$ curl -sI https://www.google.com | grep -i alt-svc
+alt-svc: ⟦5:h3=":443"; ma=2592000⟧,h3-29=":443"; ma=2592000
+</terminal>
+
+<callouts>
+1 | Over TCP: the three-way handshake took one round trip…
+2 | …and TLS another.
+3 | Over QUIC, “connect” and “tls” finish together: the transport and the encryption share one handshake.
+4 | About 100 ms sooner, one round trip, before the first byte of the answer.
+5 | “I also speak HTTP/3 on UDP port 443; remember that for 30 days.”
+</callouts>
+</cmd>
+
+<cmd id="http-server" name="python3 -m http.server" title="Share a folder over HTTP in one line" ch="6">
+<p>Python comes with a small web server. Run it in any folder and every file in that folder can be fetched with a browser or <code>curl</code>. It’s handy for testing, and for moving a file to another computer on your network.</p>
+
+<os>
+== Serve this folder on port 8000
+both: python3 -m http.server 8000
+== Only to programs on this computer
+both: python3 -m http.server 8000 --bind 127.0.0.1
+== Open it in your browser
+mac: open http://localhost:8000
+linux: xdg-open http://localhost:8000
+</os>
+
+<terminal title="macOS">
+$ python3 -m http.server 8123 --bind 127.0.0.1
+Serving HTTP on 127.0.0.1 port 8123 (http://127.0.0.1:8123/) ...
+⟦1:127.0.0.1⟧ - - [27/Sep/2026 19:06:58] "⟦2:GET /hi.txt HTTP/1.1⟧" ⟦3:200⟧ -
+</terminal>
+
+<callouts>
+1 | Who asked: the address of the computer that sent the request.
+2 | The request line.
+3 | The status code the server sent back.
+</callouts>
+
+<p>Without <code>--bind 127.0.0.1</code>, anyone on your network can read the files in that folder. Only serve folders you’re happy to share.</p>
+</cmd>
+
+<h3>Encryption and certificates</h3>
+
+<cmd id="hashes" name="openssl dgst / openssl rand" title="Seals (HMACs) and random keys" ch="31">
+<p><code>openssl</code> does the rest of Chapter 31 on the command line: fingerprints with any hash, HMACs (a fingerprint mixed with a secret key, which only someone with the key can make), and random bytes good enough for keys and nonces. For plain fingerprints, <a href="#cmd-sha256"><code>shasum</code></a> is simpler. On a Mac, <code>/usr/bin/openssl</code> is Apple’s LibreSSL; <code>brew install openssl</code> gets the real OpenSSL, which prints slightly different names.</p>
+
+<os>
+== A fingerprint, with openssl
+both: openssl dgst -sha256 msg.txt
+== An HMAC: a fingerprint only someone with the key can make
+both: openssl dgst -sha256 -hmac "our secret" msg.txt
+== 16 random bytes, in hex (a good key, or a nonce)
+both: openssl rand -hex 16
+== 32 random bytes, in base64 (the format WireGuard keys use)
+both: openssl rand -base64 32
+</os>
+
+<terminal title="macOS (Homebrew OpenSSL)">
+$ printf 'Meet me at noon\n' > msg.txt
+$ openssl dgst -sha256 msg.txt
+SHA2-256(msg.txt)= ⟦1:04e70c750e07d5ad576e6db62a6e55de8693934536f07a5851ab1a28a0c733de⟧
+$ openssl dgst -sha256 -hmac "our secret" msg.txt
+HMAC-SHA2-256(msg.txt)= ⟦2:27b4fa8888c6ec6daecd3a098e1444abf5396ccd01e93642c49aa8642d188c52⟧
+$ openssl rand -hex 16
+35f6b68477a4b420350b7be33fd6cc6e
+</terminal>
+
+<callouts>
+1 | The same as <code>shasum -a 256 msg.txt</code> (or <code>sha256sum</code> on Linux), which gave exactly this on the Pi too.
+2 | The HMAC: anyone can compute the fingerprint above, but only someone who knows “our secret” can compute this one.
+</callouts>
+</cmd>
+
+<cmd id="s-client" name="openssl s_client / openssl x509" title="Open a TLS connection by hand, and read certificates" ch="31,32">
+<p><code>openssl s_client</code> connects to a server, does the TLS handshake, and then lets you type into the encrypted connection, like <code>nc</code> with a padlock. It’s the standard way to see which certificate a server sends, which TLS version and cipher it picks, and whether the chain checks out. <code>openssl x509</code> decodes certificates. Pipe <code>echo</code> into <code>s_client</code> so that it hangs up by itself.</p>
+
+<os>
+== A one-line summary of the handshake
+both: echo | openssl s_client -connect example.org:443 -brief
+== Show every certificate the server sends
+both: echo | openssl s_client -connect example.org:443 -showcerts
+== Decode the site’s certificate: names, dates, fingerprint
+both: echo | openssl s_client -connect example.org:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+== Talk HTTP inside the encrypted connection
+both: openssl s_client -connect example.org:443 -quiet
+note: then type GET / HTTP/1.1, Host: example.org and an empty line
+== Insist on TLS 1.3, or 1.2
+both: openssl s_client -connect example.org:443 -tls1_3
+both: openssl s_client -connect example.org:443 -tls1_2
+tip: <code>-servername</code> sets the SNI when it differs from the address you connect to: <code>-connect 104.20.26.136:443 -servername example.org</code>. Newer OpenSSL sends the SNI automatically from <code>-connect</code>.
+</os>
+
+<terminal title="macOS (Homebrew OpenSSL)">
+$ echo | openssl s_client -connect example.org:443 -brief
+Connecting to 172.66.157.237
+CONNECTION ESTABLISHED
+⟦1:Protocol version: TLSv1.3⟧
+Ciphersuite: TLS_AES_256_GCM_SHA384
+Peer certificate: CN=example.org
+Hash used: SHA256
+⟦2:Signature type: ecdsa_secp256r1_sha256⟧
+⟦3:Verification: OK⟧
+⟦4:Negotiated TLS1.3 group: X25519MLKEM768⟧
+DONE
+$ echo | openssl s_client -connect example.org:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+subject=CN=example.org
+issuer=C=US, O=SSL Corporation, CN=Cloudflare TLS Issuing ECC CA 3
+notBefore=Sep 26 22:05:05 2026 GMT
+⟦5:notAfter=Dec 25 22:13:27 2026 GMT⟧
+X509v3 Subject Alternative Name:
+    ⟦6:DNS:example.org, DNS:*.example.org⟧
+</terminal>
+
+<callouts>
+1 | TLS 1.3, and the cipher the server chose from OpenSSL’s list: AES this time, not ChaCha20.
+2 | The kind of signature in CertificateVerify: ECDSA on the P-256 curve, with SHA-256 (the lab’s scheme <code>0x0403</code>).
+3 | The chain led to a root in OpenSSL’s trusted list, and the name matched.
+4 | The key exchange: X25519 and ML-KEM-768, a post-quantum method, combined (Chapter 42).
+5 | 90 days after it was issued.
+6 | The names it’s good for. The old “subject” line is kept for display; browsers only look here.
+</callouts>
+</cmd>
+
+<cmd id="keylog" name="SSLKEYLOGFILE" title="Decrypt your own HTTPS traffic in Wireshark" ch="32,33,37">
+<p>Encrypted traffic is unreadable in a capture, even your own. But browsers, <code>curl</code> and many other programs can write their TLS secrets to a file if the <code>SSLKEYLOGFILE</code> environment variable names one. Give that file to Wireshark or <code>tshark</code>, and they decrypt everything, HTTP/2 and HTTP/3 included. Chapter 32’s <code>tls13.py --keylog</code> writes the same format. Keep the file private: it unlocks those connections for anyone.</p>
+
+<os>
+== Save curl’s secrets while capturing
+linux: tshark -i wlan0 -f "tcp port 443" -w https.pcap -a duration:10 &
+linux: SSLKEYLOGFILE=keys.txt curl -s -o /dev/null https://example.org
+mac: sudo tshark -i en0 -f "tcp port 443" -w https.pcap -a duration:10 &
+mac: SSLKEYLOGFILE=keys.txt /opt/homebrew/opt/curl/bin/curl -s -o /dev/null https://example.org
+note: macOS’s own curl creates the file but leaves it empty; Homebrew’s curl (<code>brew install curl</code>) fills it in
+== Decrypt the capture
+both: tshark -r https.pcap -o tls.keylog_file:keys.txt -Y http2
+== The same for a browser
+mac: SSLKEYLOGFILE=$HOME/keys.txt open -na "Google Chrome"
+linux: SSLKEYLOGFILE=$HOME/keys.txt firefox
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ SSLKEYLOGFILE=keys.txt curl -s -o /dev/null https://example.org
+$ tshark -r https.pcap -o tls.keylog_file:keys.txt -Y http2
+   16 0.094257  192.168.1.4 → 104.20.26.136 HTTP2 189 ⟦1:Magic, SETTINGS[0], WINDOW_UPDATE[0], HEADERS[1]: GET /⟧
+   18 0.136485 104.20.26.136 → 192.168.1.4  HTTP2 619 SETTINGS[0], WINDOW_UPDATE[0], SETTINGS[0]
+   19 0.136640  192.168.1.4 → 104.20.26.136 HTTP2 97 SETTINGS[0]
+   20 0.146003 104.20.26.136 → 192.168.1.4  HTTP2 236 ⟦2:HEADERS[1]: 200 OK⟧
+   22 0.147651 104.20.26.136 → 192.168.1.4  HTTP2 656 DATA[1]
+   23 0.147654 104.20.26.136 → 192.168.1.4  HTTP2 97 DATA[1] (text/html)
+   25 0.147757  192.168.1.4 → 104.20.26.136 HTTP2 114 GOAWAY[0]
+</terminal>
+
+<callouts>
+1 | Without the keys this line would say “Application Data”. With them: curl’s whole HTTP/2 opening, in one packet (Chapter 33 explains each frame).
+2 | The response, on stream 1.
+</callouts>
+</cmd>
+
+<cmd id="pqc" name="openssl: ML-KEM, ML-DSA, and hybrid TLS" title="Post-quantum cryptography, by hand" ch="42">
+<p>OpenSSL 3.5 and newer include NIST’s post-quantum algorithms: ML-KEM for agreeing keys, ML-DSA and SLH-DSA for signatures, and the hybrid TLS groups that combine ML-KEM with X25519. Check your version with <code>openssl version</code>: on a Mac, the one in <code>/usr/bin</code> is LibreSSL, which doesn’t have them yet, so install OpenSSL with Homebrew; on Linux, Debian 13 (like the Pi) comes with 3.5.</p>
+
+<os>
+== Which post-quantum groups and algorithms do I have?
+both: openssl list -kem-algorithms
+both: openssl list -signature-algorithms
+== Did the site agree a post-quantum key? (look for the “group”)
+both: openssl s_client -connect example.org:443 -groups X25519MLKEM768 -brief
+== Make an ML-KEM key pair, and its public half
+both: openssl genpkey -algorithm ML-KEM-768 -out kem.pem
+both: openssl pkey -in kem.pem -pubout -out kem.pub
+== Lock up a fresh secret with the public key…
+both: openssl pkeyutl -encap -pubin -inkey kem.pub -out ct.bin -secret ss1.bin
+== …and unlock it with the private key
+both: openssl pkeyutl -decap -inkey kem.pem -in ct.bin -secret ss2.bin
+== Sign and verify with ML-DSA
+both: openssl genpkey -algorithm ML-DSA-65 -out sig.pem
+both: openssl pkeyutl -sign -rawin -inkey sig.pem -in msg.txt -out msg.sig
+both: openssl pkeyutl -verify -rawin -inkey sig.pem -in msg.txt -sigfile msg.sig
+note: prints “Signature Verified Successfully”
+tip: Only the key exchange needs to change urgently: a recording can be decrypted later, but a signature only has to be unforgeable at the moment it’s checked.
+</os>
+
+<terminal title="macOS (Homebrew’s OpenSSL 3.6)">
+$ openssl s_client -connect example.org:443 -groups X25519MLKEM768 -brief
+Connecting to 104.20.26.136
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_256_GCM_SHA384
+Peer certificate: CN=example.org
+Hash used: SHA256
+Signature type: ⟦1:ecdsa_secp256r1_sha256⟧
+Verification: OK
+Negotiated TLS1.3 group: ⟦2:X25519MLKEM768⟧
+$ openssl pkeyutl -encap -pubin -inkey kem.pub -out ct.bin -secret ss1.bin
+$ openssl pkeyutl -decap -inkey kem.pem -in ct.bin -secret ss2.bin
+$ wc -c kem.pub ct.bin ss1.bin ss2.bin
+    ⟦3:1686 kem.pub⟧
+    1088 ct.bin
+      32 ss1.bin
+      32 ss2.bin
+    2838 total
+$ cmp ss1.bin ss2.bin && echo same
+⟦4:same⟧
+</terminal>
+
+<callouts>
+1 | The certificate is still signed the classical way, with ECDSA: fine for now, since a forged signature would have to be forged <em>today</em>.
+2 | But the keys were agreed with the hybrid of X25519 and ML-KEM-768 (Chapter 42), so a recording of this connection is safe from a future quantum computer.
+3 | The 1,184-byte encapsulation key, in a PEM file (base64, with a header): about a third bigger than the raw bytes.
+4 | The same 32-byte secret on both sides, and only the ciphertext crossed between them.
+</callouts>
+</cmd>
+
+
+<h3>Middlemen: firewalls, caches and anycast</h3>
+
+<cmd id="firewall" name="nft / conntrack / pfctl / socketfilterfw" title="Look at (and change) the firewall" ch="34">
+<p>Linux’s firewall is <strong>nftables</strong>, driven by <code>nft</code> (older systems use <code>iptables</code>, which now usually writes nftables rules underneath). Its memory of connections is <strong>conntrack</strong>. macOS has two: <code>pf</code>, a packet filter from OpenBSD, driven by <code>pfctl</code>, and the <em>application firewall</em> in System Settings, which allows or blocks programs rather than ports. All of these need <code>sudo</code> except the application firewall’s status.</p>
+
+<os>
+== List every rule, with counters
+linux: sudo nft list ruleset
+mac: sudo pfctl -s rules
+== List the connections the firewall remembers
+linux: sudo conntrack -L
+mac: sudo pfctl -s state
+note: Linux: <code>sudo apt install conntrack</code> first
+== How many connections are being tracked?
+linux: sudo conntrack -C
+mac: sudo pfctl -s info
+== Is the firewall on?
+mac: /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+linux: sudo nft list tables
+== Drop everything to port 2222 (until the next reboot)
+linux: sudo nft add table inet test
+linux: sudo nft add chain inet test input '{ type filter hook input priority 0; }'
+linux: sudo nft add rule inet test input tcp dport 2222 counter drop
+linux: sudo nft delete table inet test
+note: to undo it
+tip: Firewall rules can lock you out of a computer you’re connected to over SSH. Try new rules on a computer you can reach with a keyboard, or inside a network namespace (Chapter 36), as Chapter 34’s <code>fw_box.sh</code> does.
+</os>
+
+<terminal title="Linux (Raspberry Pi), inside Chapter 34’s fw_box.sh">
+$ sudo ip netns exec garden nft list ruleset
+table inet garden {
+	chain input {
+		type filter hook input priority filter; ⟦1:policy drop⟧;
+		ct state established,related counter packets 12 bytes 1312 accept
+		iif "lo" accept
+		tcp dport 8000 counter packets 1 bytes 60 accept
+		counter ⟦2:packets 5 bytes 348⟧ drop
+	}
+}
+$ sudo ip netns exec garden conntrack -L
+tcp      6 ⟦3:114⟧ TIME_WAIT ⟦4:src=10.34.0.1 dst=10.34.0.2 sport=47260 dport=8000⟧ ⟦5:src=10.34.0.2 dst=10.34.0.1 sport=8000 dport=47260⟧ [ASSURED] mark=0 use=1
+</terminal>
+
+<terminal title="macOS">
+$ /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+Firewall is disabled. (State = 0)
+</terminal>
+
+<callouts>
+1 | Anything no rule accepts is dropped: “default deny”.
+2 | The counters show which rules are really being used: here, five packets were dropped.
+3 | Seconds until this entry is forgotten.
+4 | The connection as it was first seen…
+5 | …and what the replies look like. A reply is let in by matching this half. (With NAT, the two halves differ: that’s how the router knows how to translate the reply back, Chapter 22.)
+</callouts>
+</cmd>
+
+<cmd id="which-server" name="dig CH TXT / curl --resolve / curl --connect-to" title="Which copy of a server answered me?" ch="34,43">
+<p>Anycast and CDNs mean one name or address can be answered by hundreds of machines. DNS servers will often tell you which one answered, if you ask the special name <code>hostname.bind</code> or <code>id.server</code> in the CHAOS class. And <code>curl</code> can send a request to a server you choose, while still asking for the site’s name, so you can compare one CDN site with another.</p>
+
+<os>
+== Which copy of this DNS server answered?
+both: dig +short CH TXT hostname.bind @a.root-servers.net
+both: dig +short CH TXT id.server @1.1.1.1
+== Ask one particular address for a site
+both: curl -sI --resolve www.python.org:443:151.101.0.223 https://www.python.org/
+== …or send the connection somewhere else, keeping the name
+both: curl -sI --connect-to www.python.org:443:151.101.192.223:443 https://www.python.org/
+== Did a cache answer?
+both: curl -sI https://www.python.org/ | grep -iE 'x-cache|age|via|x-served-by'
+both: curl -sI https://example.org/ | grep -iE 'cf-cache-status|age'
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ dig +short CH TXT hostname.bind @a.root-servers.net
+⟦1:"nnn1-jptyo-2"⟧
+$ curl -sI --resolve www.python.org:443:151.101.0.223 https://www.python.org/ -o /dev/null -w "%{remote_ip} %{http_code}\n"
+⟦2:151.101.0.223 200⟧
+$ curl -sI https://www.python.org/ | grep -iE "x-cache|age"
+age: 1704
+⟦3:x-cache: MISS, HIT, HIT⟧
+</terminal>
+
+<callouts>
+1 | This copy of a-root is in Tokyo (“jp tyo”), 127 ms from the Pi. Other operators use airport codes.
+2 | The request went to the address we chose, with <code>www.python.org</code> still in the TLS SNI and the Host header, so the certificate still checks out.
+3 | One entry per cache on the way: missed at the first, a hit at the others (Chapter 34).
+</callouts>
+</cmd>
+
+<h3>Tunnels and VPNs</h3>
+
+<cmd id="wg" name="wg / wg-quick" title="WireGuard: keys, tunnels and what they’re doing" ch="35">
+<p><code>wg</code> makes WireGuard keys and configures WireGuard interfaces; <code>wg-quick</code> brings up a whole tunnel from a small configuration file. On Linux, install them with <code>sudo apt install wireguard-tools</code> (WireGuard itself is part of the kernel). On a Mac, the WireGuard app from the App Store does the same job, and <code>brew install wireguard-tools</code> adds the commands.</p>
+
+<os>
+== Make a key pair
+both: wg genkey | tee private.key | wg pubkey
+== Bring a tunnel up and down from /etc/wireguard/wg0.conf
+both: sudo wg-quick up wg0
+both: sudo wg-quick down wg0
+== What’s happening: peers, handshakes, bytes
+both: sudo wg show
+== Only the latest handshake times (to check a tunnel is alive)
+both: sudo wg show wg0 latest-handshakes
+== Add a peer by hand
+linux: sudo wg set wg0 peer PUBLICKEY allowed-ips 10.35.0.2/32
+tip: A <code>wg0.conf</code> is short: an <code>[Interface]</code> section with <code>PrivateKey</code>, <code>Address</code> and <code>ListenPort</code>, and a <code>[Peer]</code> section for each peer with <code>PublicKey</code>, <code>AllowedIPs</code> and (for the side that starts the connection) <code>Endpoint</code>. Private keys are secrets: keep them out of anything you share.
+</os>
+
+<terminal title="Linux (Raspberry Pi), after Chapter 35’s wg_peer.py ping">
+$ sudo wg show wg0
+interface: wg0
+  public key: MYiqG/t4foJ8jR0tysNbw4/i9B3vM6xwS/qblpB1GCA=
+  private key: (hidden)
+  listening port: ⟦1:51820⟧
+
+peer: ⟦2:S3s+t5hKxbmTa2ssB0lQbfHkhhh3VaIf1ch+ttAMslk=⟧
+  ⟦3:endpoint: 192.168.1.3:51857⟧
+  ⟦4:allowed ips: 10.35.0.2/32⟧
+  ⟦5:latest handshake: 19 seconds ago⟧
+  transfer: 388 B received, 480 B sent
+</terminal>
+
+<callouts>
+1 | The UDP port it listens on. WireGuard never answers a stranger on it, so it looks closed to port scanners.
+2 | A peer is just its public key.
+3 | Where the peer’s packets last came from. It updates by itself when the peer moves.
+4 | Which addresses this peer may send from, and which destinations are sent to it: “crypto-key routing”.
+5 | Handshakes repeat every two minutes while the tunnel is in use. One older than about three minutes means the tunnel is idle, or broken.
+</callouts>
+</cmd>
+
+<cmd id="tunnels" name="ip tunnel / ip link … vxlan / ifconfig utun" title="Find the tunnels on a computer, and make simple ones" ch="35">
+<p>Tunnels show up as network interfaces: <code>wg0</code>, <code>tun0</code>, <code>vxlan42</code> on Linux; <code>utun0</code>, <code>utun1</code>… on a Mac, where the system and VPN apps create them (iCloud Private Relay and some system services use a few even without a VPN). Each has its own MTU, smaller than the real network’s.</p>
+
+<os>
+== List tunnel interfaces
+linux: ip -d link show type wireguard
+linux: ip -d link show type vxlan
+linux: ip tunnel show
+mac: ifconfig | grep -A2 utun
+== VPNs configured in System Settings
+mac: scutil --nc list
+== Which interface would a packet use?
+linux: ip route get 10.35.0.1
+mac: route -n get 10.35.0.1
+== Make a GRE tunnel (both ends need one)
+linux: sudo ip tunnel add tun0 mode gre local 192.0.2.1 remote 192.0.2.2
+== Make a VXLAN tunnel (both ends need one)
+linux: sudo ip link add tun0 type vxlan id 42 local 192.0.2.1 remote 192.0.2.2 dstport 4789 dev eth0
+== Where does a VXLAN tunnel send each MAC address?
+linux: bridge fdb show dev tun0
+</os>
+
+<terminal title="Linux (Raspberry Pi), inside Chapter 35’s tunnel_box.sh">
+$ sudo ip netns exec alice ip -d link show tun0
+5: tun0: <BROADCAST,MULTICAST,UP,LOWER_UP> ⟦1:mtu 1450⟧ qdisc noqueue state UNKNOWN …
+    link/ether 5e:eb:22:6d:32:2c brd ff:ff:ff:ff:ff:ff …
+    vxlan ⟦2:id 42 remote 192.0.2.2 local 192.0.2.1⟧ dev net-a srcport 0 0 ⟦3:dstport 4789⟧ …
+$ sudo ip netns exec grandpa bridge fdb show dev tun0
+⟦4:5e:eb:22:6d:32:2c dst 192.0.2.1⟧ self
+00:00:00:00:00:00 dst 192.0.2.1 via net-g self permanent
+</terminal>
+
+<callouts>
+1 | 1,500 minus VXLAN’s 50 bytes of wrapping.
+2 | Network 42, between these two tunnel ends.
+3 | The standard UDP port for VXLAN.
+4 | Learned, like a switch: frames for this MAC go to the far end at 192.0.2.1. The all-zero entry means “anything unknown, and broadcasts, go there too”.
+</callouts>
+</cmd>
+
+<h3>Containers and namespaces</h3>
+
+<cmd id="netns" name="ip netns / lsns / nsenter / unshare" title="Make network namespaces, and look inside them" ch="36">
+<p>A network namespace is a separate copy of the network stack: its own interfaces, addresses, routes, firewall and ports. <code>ip netns</code> manages named ones; <code>lsns</code> lists every namespace on the computer, including the ones containers and system services use; <code>nsenter</code> runs a command inside another process’s namespaces; <code>unshare</code> starts a command in new ones. Linux only (on a Mac, containers run inside a Linux virtual machine). All need <code>sudo</code>.</p>
+
+<os>
+== Make a namespace, and run a command inside it
+linux: sudo ip netns add box
+linux: sudo ip netns exec box ip addr
+== A shell inside it (exit to leave)
+linux: sudo ip netns exec box bash
+== List them
+linux: ip netns list
+linux: lsns -t net
+== Join a container’s network namespace, by its process ID
+linux: sudo nsenter -t 7673 -n ip addr
+== Run one command in a brand-new, empty network
+linux: sudo unshare --net ip addr
+== Remove it
+linux: sudo ip netns del box
+tip: Commands inside a namespace still see the host’s files, so <code>ping</code>, <code>curl</code> and <code>tshark</code> all work there as usual. Only the network is different.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ sudo unshare --net ip addr
+1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+$ lsns -t net
+        NS TYPE NPROCS   PID USER       NETNSID NSFS           COMMAND
+4026531833 net     209     1 root    unassigned                /sbin/init splash
+4026532596 net       1   834 polkitd unassigned                ├─/usr/lib/polkit-1/polkitd --no-debug --log-level=notice
+4026532678 net       1  7673 root             0 ⟦1:/run/netns/web⟧ python3 -m http.server 80 --directory /run/box36-web
+4026532756 net       0       root               /run/netns/db
+</terminal>
+
+<callouts>
+1 | Named namespaces made by <code>ip netns add</code> live as files in <code>/run/netns</code>, which keeps them alive even with no process inside (like db here).
+</callouts>
+</cmd>
+
+<cmd id="veth-bridge" name="ip link add … veth / bridge" title="Virtual cables and software switches" ch="36">
+<p>A <strong>veth pair</strong> is a virtual cable: two interfaces, where whatever goes in one comes out of the other, often with one end moved into a namespace. A <strong>bridge</strong> is a software switch (Chapter 9) that interfaces can be plugged into. The <code>bridge</code> command shows its ports and the MAC addresses it has learned. Linux only.</p>
+
+<os>
+== Make a cable, with one end inside a namespace
+linux: sudo ip link add veth-box type veth peer name eth0 netns box
+== Make a switch, and plug the cable in
+linux: sudo ip link add br0 type bridge
+linux: sudo ip link set veth-box master br0 up
+== Which cables are plugged into the switch?
+linux: bridge link show master br0
+== Which MAC addresses has it learned, and where?
+linux: bridge fdb show br br0
+== Which interface is the other end of this cable?
+linux: ip -br link show type veth
+tip: Docker’s bridge is called <code>docker0</code>, Podman’s <code>podman0</code> or <code>podman1</code>; Kubernetes network plugins often use <code>cni0</code>.
+</os>
+
+<terminal title="Linux (Raspberry Pi), with Chapter 36’s box.sh running">
+$ bridge link show master br36
+51: veth-web@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br36 state ⟦1:forwarding⟧ priority 32 cost 2
+52: veth-db@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br36 state forwarding priority 32 cost 2
+$ bridge fdb show br br36 | grep -v permanent
+⟦2:8e:ad:b1:81:0a:4c dev veth-web master br36⟧
+76:01:08:b6:78:b2 dev veth-db master br36
+</terminal>
+
+<callouts>
+1 | The port’s spanning tree state (Chapter 9).
+2 | Learned from traffic: frames for this address go down the veth-web cable.
+</callouts>
+</cmd>
+
+<cmd id="docker-net" name="docker network / podman network" title="How containers are connected" ch="36">
+<p>Docker and Podman build the same bridges, cables and NAT rules for you. These commands show what they built. (<code>podman</code> accepts the same commands as <code>docker</code>.)</p>
+
+<os>
+== List networks, and look at one
+both: docker network ls
+both: docker network inspect bridge
+== A container’s addresses and routes, from inside
+both: docker run --rm alpine ip addr
+both: docker run --rm alpine ip route
+== Make a network with its own DNS, and use it
+both: docker network create garden
+both: docker run --rm --network garden alpine nslookup web
+== Publish a container’s port 80 as port 8036 on this computer
+both: docker run -d -p 8036:80 --name pub nginx
+both: docker port pub
+== Use the host’s network directly (Linux only)
+linux: docker run --rm --network host alpine ip addr
+</os>
+
+<terminal title="macOS (Podman)">
+$ podman network inspect garden --format '{{range .Subnets}}{{.Subnet}} gw {{.Gateway}}{{end}} dns={{.DNSEnabled}} iface={{.NetworkInterface}}'
+⟦1:10.89.0.0/24 gw 10.89.0.1⟧ dns=true iface=podman1
+$ podman run --rm --network garden alpine nslookup web
+Server:		⟦2:10.89.0.1⟧
+Address:	10.89.0.1:53
+
+Non-authoritative answer:
+Name:	web.dns.podman
+Address: 10.89.0.2
+…
+$ podman port pub
+80/tcp -> 0.0.0.0:8036
+</terminal>
+
+<callouts>
+1 | Each network gets its own subnet, and a bridge with the gateway address.
+2 | The container runtime’s own DNS server, on the bridge, answers with the other containers’ addresses.
+</callouts>
+</cmd>
+
+<h3>Programmable networks</h3>
+
+<cmd id="ovs" name="ovs-vsctl / ovs-ofctl / ovs-appctl" title="Open vSwitch: software switches, and their flow tables" ch="39">
+<p>Open vSwitch is the software switch inside many Linux servers and clouds. <code>ovs-vsctl</code> sets up switches, ports and controllers; <code>ovs-ofctl</code> speaks OpenFlow to a switch, to read or write its flow table by hand; and <code>ovs-appctl ofproto/trace</code> asks a switch what it <em>would</em> do with a packet, without sending one. Linux only; install it with <code>sudo apt install openvswitch-switch</code>. All need <code>sudo</code>.</p>
+
+<os>
+== Make a switch, and plug a device into it
+linux: sudo ovs-vsctl add-br s1
+linux: sudo ovs-vsctl add-port s1 veth1
+== Hand its brain to a controller
+linux: sudo ovs-vsctl set-controller s1 tcp:127.0.0.1:6653
+linux: sudo ovs-vsctl set-fail-mode s1 secure
+== Everything, at a glance
+linux: sudo ovs-vsctl show
+== The flow table, with counters
+linux: sudo ovs-ofctl -O OpenFlow13 dump-flows s1
+== Add a rule by hand
+linux: sudo ovs-ofctl add-flow s1 "priority=100,ip,nw_src=10.39.0.3,actions=drop"
+== What would it do with this packet?
+linux: sudo ovs-appctl ofproto/trace s1 in_port=1,dl_dst=0a:39:00:00:00:02
+== Remove it
+linux: sudo ovs-vsctl del-br s1
+tip: A new switch starts with one rule, <code>priority=0 actions=NORMAL</code>: behave like an ordinary learning switch (Chapter 9). Add a controller and <code>fail-mode=secure</code>, and it does nothing it isn’t told.
+</os>
+
+<terminal title="Linux (Raspberry Pi), during Chapter 39’s lab">
+$ sudo ovs-vsctl show
+    Bridge s1
+        Controller "tcp:127.0.0.1:6653"
+            ⟦1:is_connected: true⟧
+        fail_mode: secure
+        Port h1
+            Interface h1
+        Port s1-s2
+            Interface s1-s2
+        Port h2
+            Interface h2
+        Port s1
+            Interface s1
+                ⟦2:type: internal⟧
+    …
+$ sudo ovs-ofctl -O OpenFlow13 dump-flows s1
+OFPST_FLOW reply (OF1.3) (xid=0x2):
+ cookie=0x0, duration=1.636s, table=0, n_packets=3, n_bytes=294, idle_timeout=60, priority=10,in_port=2,dl_dst=0a:39:00:00:00:01 actions=output:1
+ cookie=0x0, duration=1.636s, table=0, ⟦3:n_packets=2, n_bytes=196⟧, idle_timeout=60, priority=10,in_port=1,dl_dst=0a:39:00:00:00:02 actions=output:2
+ …
+ cookie=0x0, duration=3.825s, table=0, n_packets=9, n_bytes=546, priority=0 actions=CONTROLLER:65535
+$ sudo ovs-appctl ofproto/trace s1 in_port=1,dl_src=0a:39:00:00:00:01,dl_dst=0a:39:00:00:00:02
+Flow: in_port=1,vlan_tci=0x0000,dl_src=0a:39:00:00:00:01,dl_dst=0a:39:00:00:00:02,dl_type=0x0000
+
+bridge("s1")
+------------
+ ⟦4:0. in_port=1,dl_dst=0a:39:00:00:00:02, priority 10⟧
+    output:2
+</terminal>
+
+<callouts>
+1 | The switch has a working connection to its controller.
+2 | Every Open vSwitch switch also has a port of its own name, for the host itself to join the switch.
+3 | How many packets, and bytes, have matched this rule so far: two 98-byte pings. <code>duration</code> is how long ago the rule was added.
+4 | The rule that would match, and what it would do. Try a destination nothing matches, and you’ll see it go to the controller.
+</callouts>
+</cmd>
+
+<cmd id="bpftrace" name="bpftrace" title="Ask the kernel questions, with one-line eBPF programs" ch="39">
+<p>bpftrace turns short scripts into eBPF programs (Chapter 39), attaches them to places in the Linux kernel, and prints what they find: every new connection, every retransmission, bytes per program. Nothing needs restarting, and when you press Ctrl-C the programs are removed and any totals (the <code>@</code> variables) are printed. Linux only (<code>sudo apt install bpftrace</code>); it needs <code>sudo</code>. macOS has the older DTrace, with the same idea, but System Integrity Protection blocks most of it.</p>
+
+<os>
+== List the places you can attach to (there are thousands)
+linux: sudo bpftrace -l 'tracepoint:tcp:*'
+== Show a tracepoint’s fields
+linux: sudo bpftrace -lv tracepoint:tcp:tcp_retransmit_skb
+== Every TCP connection opened, and which program opened it
+linux: sudo bpftrace -e 'tracepoint:sock:inet_sock_set_state /args->protocol == 6 && args->newstate == 2/ { printf("%s → %s:%d\n", comm, ntop(args->daddr), args->dport); }'
+== Bytes sent over TCP, per program (Ctrl-C for the totals)
+linux: sudo bpftrace -e 'kprobe:tcp_sendmsg { @bytes[comm] = sum(arg2); }'
+== Retransmissions, per destination
+linux: sudo bpftrace -e 'tracepoint:tcp:tcp_retransmit_skb { @[ntop(args->daddr)] = count(); }'
+tip: On a Raspberry Pi, bpftrace also prints warnings about missing “BTF” (type information the Pi’s kernel doesn’t include). These examples don’t need it.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ sudo bpftrace -l 'tracepoint:tcp:*'
+tracepoint:tcp:tcp_bad_csum
+tracepoint:tcp:tcp_cong_state_set
+tracepoint:tcp:tcp_destroy_sock
+…
+tracepoint:tcp:⟦1:tcp_retransmit_skb⟧
+tracepoint:tcp:tcp_retransmit_synack
+tracepoint:tcp:tcp_send_reset
+tracepoint:tcp:tcp_sendmsg_locked
+$ sudo bpftrace -e 'kprobe:tcp_sendmsg { @bytes[comm] = sum(arg2); } kprobe:udp_sendmsg { @udp_bytes[comm] = sum(arg2); }'
+Attaching 2 probes...
+^C
+@bytes[sshd-session]: 36
+@bytes[⟦2:curl⟧]: 14698
+@udp_bytes[⟦3:curl⟧]: 116
+</terminal>
+
+<callouts>
+1 | Each name is a hook with a fixed set of fields, kept stable between kernel versions. <code>kprobe:</code> can attach to almost any kernel function instead, but those change from version to version.
+2 | While this ran, <code>curl</code> fetched a page over HTTPS and then sent a 13 kB file.
+3 | And curl’s DNS questions (Chapter 29), over UDP.
+</callouts>
+</cmd>
+
+<h3>Faking a bad network</h3>
+
+<cmd id="netem" name="tc qdisc … netem" title="Make a link slow, jittery or lossy, on purpose" ch="28,41">
+<p>Linux can pretend a link is worse than it is. <code>netem</code>, the network emulator, is a queue (Linux calls them “qdiscs”; Chapter 28 met the queues in routers) that holds packets back for a while, shuffles them, loses some, or limits their speed, on the way <em>out</em> of an interface. It’s how you test a program against a satellite link, a bad mobile signal or Mars, from your desk. Linux only; it needs <code>sudo</code>. On a Mac, Apple’s free Network Link Conditioner (part of Xcode’s additional tools) does a similar job with a graphical window. Try it on a namespace’s virtual cable (Chapter 36), not on the link you’re connected through.</p>
+
+<os>
+== Add 100 ms of delay, give or take 20 ms, and lose 10% of packets
+linux: sudo tc qdisc add dev veth0 root netem delay 100ms 20ms loss 10%
+== See what’s set
+linux: tc qdisc show dev veth0
+== Change it (this replaces all the settings)
+linux: sudo tc qdisc change dev veth0 root netem rate 1mbit
+== Duplicate, corrupt or reorder some packets
+linux: sudo tc qdisc change dev veth0 root netem delay 10ms reorder 25% duplicate 1% corrupt 0.1%
+== Remove it
+linux: sudo tc qdisc del dev veth0 root
+tip: netem only affects packets <em>leaving</em> through that interface. For a slow link in both directions, add it at both ends of the cable, as Chapter 41’s <code>mars_link.sh</code> does.
+</os>
+
+<terminal title="Linux (Raspberry Pi), on one end of a namespace’s virtual cable">
+$ sudo tc qdisc add dev fg-a root netem delay 100ms 20ms loss 10%
+$ tc qdisc show dev fg-a
+qdisc netem 8009: root refcnt 5 limit 1000 ⟦1:delay 100ms  20ms loss 10%⟧ seed 7504879995641488549
+$ ping -c 20 -q -i 0.3 10.42.9.2
+20 packets transmitted, 18 received, ⟦2:10% packet loss⟧, time 5754ms
+rtt min/avg/max/mdev = ⟦3:80.905/102.209/119.696/11.336 ms⟧
+$ sudo tc qdisc change dev fg-a root netem rate 1mbit
+$ tc qdisc show dev fg-a
+qdisc netem 8009: root refcnt 5 limit 1000 ⟦4:rate 1Mbit⟧ seed 7504879995641488549
+</terminal>
+
+<callouts>
+1 | Before, a ping across this cable took 0.04 ms. Now every packet waits 100 ms, give or take 20.
+2 | Two pings in twenty lost: about the 10% asked for. (Losses are random, so a short test won’t hit it exactly.)
+3 | Between 80 and 120 ms, as asked. The delay only applies in one direction, so this is the whole round trip.
+4 | <code>change</code> replaced everything: the delay and loss are gone, and now there’s only a speed limit.
+</callouts>
+</cmd>
+
+<h3>Mesh networks</h3>
+
+<cmd id="batctl" name="batctl" title="Look inside a batman-adv mesh" ch="44">
+<p>batman-adv is the mesh routing protocol built into Linux (Chapter 44), used by community networks like Freifunk. Each node’s radios are handed to a virtual interface, <code>bat0</code>, and the whole mesh behaves like one big Ethernet. <code>batctl</code> shows what the node has learned, and traces paths through the mesh. Linux only (<code>sudo apt install batctl</code>); it needs <code>sudo</code>. Put <code>MAC name</code> lines in a file called <code>bat-hosts</code> (in the current folder, or <code>/etc</code>) and batctl will show names instead of addresses.</p>
+
+<os>
+== Make a mesh interface, and give it a radio
+linux: sudo ip link add bat0 type batadv
+linux: sudo ip link set wlan0 master bat0 up
+== Every other node, and the best neighbour to reach it through
+linux: sudo batctl originators
+== The neighbours this node can hear directly
+linux: sudo batctl neighbors
+== The path to a node, hop by hop, inside the mesh
+linux: sudo batctl traceroute house3
+== Ping a node at the mesh level (below IP)
+linux: sudo batctl ping house3
+tip: Because the mesh sits below IP, an ordinary <code>traceroute</code> across it shows one hop, however many radios the packets really crossed. Use <code>batctl traceroute</code> to see them.
+</os>
+
+<terminal title="Linux (Raspberry Pi), house 1 in Chapter 44’s lab">
+$ sudo batctl originators
+[B.A.T.M.A.N. adv 2025.4, MainIF/MAC: wlan0/02:44:00:00:00:01 (bat0/16:d1:2e:0f:87:81 BATMAN_IV)]
+   Originator        last-seen (#/255) Nexthop           [outgoingIF]
+              house5    0.136s   (111)            house3 [     wlan0]
+ *            house5    0.136s   (250)            house5 [     wlan0]
+              house2    0.104s   (128)            house3 [     wlan0]
+ *            house2    0.104s   (255)            house2 [     wlan0]
+              house3    0.920s   (194)            house5 [     wlan0]
+ ⟦1:*⟧            house3    0.920s   ⟦2:(220)⟧            ⟦3:house2⟧ [     wlan0]
+              house3    0.920s   (145)            house3 [     wlan0]
+              …
+$ sudo batctl traceroute house3
+traceroute to house3 (02:44:00:00:00:03), 50 hops max, 20 byte packets
+ 1: house2 (02:44:00:00:00:02)  0.011 ms  0.004 ms  0.003 ms
+ 2: house3 (02:44:00:00:00:03)  0.003 ms  0.003 ms  0.003 ms
+</terminal>
+
+<callouts>
+1 | The star marks the route in use to each node.
+2 | The route’s quality, out of 255, worked out from how many of house 3’s “originator messages” arrive through each neighbour.
+3 | The next hop: to reach house 3, hand the frame to house 2. The other lines are the alternatives, ready if house 2 goes quiet.
+</callouts>
+</cmd>
+
+<h3>Watching packets</h3>
+
+<cmd id="tcpdump" name="tcpdump" title="Watch every packet go by" ch="15,16">
+<p><code>tcpdump</code> shows you the packets passing through a network interface, as they happen, decoded layer by layer. It’s the single most useful tool for seeing what a network is <em>really</em> doing. Watching live needs administrator rights (<code>sudo</code>), because it can see everyone’s traffic on that interface. Reading a saved capture file doesn’t.</p>
+
+<os>
+== Watch the Wi-Fi (Ctrl-C to stop)
+mac: sudo tcpdump -i en0 -n
+linux: sudo tcpdump -i wlan0 -n
+== Watch programs talking on this computer
+mac: sudo tcpdump -i lo0 -n port 7007
+linux: sudo tcpdump -i lo -n port 7007
+== Only some packets
+both: sudo tcpdump -i en0 -n host 1.1.1.1
+both: sudo tcpdump -i en0 -n udp port 53
+both: sudo tcpdump -i en0 -n arp
+== Stop after 20 packets
+both: sudo tcpdump -i en0 -n -c 20
+== Show each packet’s bytes, in hex and text
+both: sudo tcpdump -i en0 -n -X port 80
+== Save to a file, and read it back later
+both: sudo tcpdump -i en0 -w mine.pcap
+both: tcpdump -r mine.pcap -n
+== Show card (MAC) addresses too
+both: sudo tcpdump -i en0 -n -e
+== Keep only the headers: the first 128 bytes
+both: sudo tcpdump -i en0 -s 128 -w mine.pcap
+== Keep recording, in 10 files of 100 MB each
+both: sudo tcpdump -i en0 -C 100 -W 10 -w ring.pcap
+== Send packets down a pipe to another program
+both: sudo tcpdump -i en0 -U -w - | python3 minidump.py -
+== Show the compiled filter program
+both: tcpdump -r mine.pcap -d 'tcp dst port 80'
+== Show which program each packet belongs to
+mac: sudo tcpdump -i pktap,en0 -k
+note: macOS only; files written this way are pcapng
+tip: <code>-n</code> means “don’t look up names”, which keeps <code>tcpdump</code> from making DNS lookups of its own while you watch. Put filters in single quotes, so the shell leaves brackets and <code>&amp;</code> alone. For a friendlier view of the same files, install <a href="https://www.wireshark.org">Wireshark</a>.
+</os>
+
+<terminal title="macOS: reading Chapter 15’s sample capture">
+$ tcpdump -r sample.pcap -n
+reading from file sample.pcap, link-type EN10MB (Ethernet)
+19:43:20.000000 ⟦1:ARP, Request who-has 192.168.1.1 tell 192.168.1.3⟧, length 28
+19:43:20.001200 ARP, Reply 192.168.1.1 is-at 14:c3:5e:40:0b:32, length 28
+19:43:20.002000 IP 192.168.1.3.53123 > 192.168.1.1.53: ⟦2:7470+ A? grandpa-otto.example.⟧ (38)
+19:43:20.017100 IP 192.168.1.1.53 > 192.168.1.3.53123: 7470 1/0/0 A 203.0.113.42 (54)
+19:43:20.017700 IP 192.168.1.3.52000 > 203.0.113.42.80: Flags ⟦3:[S]⟧, seq 1000, win 65535, length 0
+19:43:20.042000 IP 203.0.113.42.80 > 192.168.1.3.52000: Flags [S.], seq 5000, ack 1001, win 65535, length 0
+19:43:20.042300 IP 192.168.1.3.52000 > 203.0.113.42.80: Flags [.], ⟦4:ack 1⟧, win 65535, length 0
+19:43:20.042500 IP 192.168.1.3.52000 > 203.0.113.42.80: Flags [P.], seq 1:84, ack 1, win 65535, length 83: ⟦5:HTTP: GET / HTTP/1.1⟧
+</terminal>
+
+<callouts>
+1 | “Who has?” (Chapter 11), exactly as we invented it.
+2 | A name question (Chapter 14), with question number 7470. <code>A?</code> means “what’s the address?”, and the <code>+</code> means “please ask around for me”.
+3 | TCP flags (Chapter 13): <code>S</code> is SYN, <code>.</code> is ACK, <code>P</code> is PSH (“here’s data”), <code>F</code> is FIN.
+4 | After the handshake, <code>tcpdump</code> shows sequence numbers relative to the start, so “ack 1” here means byte 5001. Add <code>-S</code> to see the real numbers.
+5 | The first line of the data inside: an HTTP request (Chapter 6).
+</callouts>
+
+<terminal title="macOS">
+$ tcpdump -r sample.pcap -n -X 'dst port 80 and tcp[13] & 8 != 0'
+19:43:20.042500 IP 192.168.1.3.52000 > 203.0.113.42.80: Flags [P.], seq 1001:1084, ack 5001, …
+	0x0000:  ⟦6:4500⟧ 007b 0004 4000 ⟦7:40⟧06 3ca3 c0a8 0103  E..{..@.@.<.....
+	0x0010:  cb00 712a ⟦8:cb20 0050⟧ 0000 03e9 0000 1389  ..q*...P........
+	0x0020:  5018 ffff e8c8 0000 ⟦9:4745 5420⟧ 2f20 4854  P.......GET./.HT
+	…
+</terminal>
+
+<callouts>
+6 | The IP header starts: version 4, 20-byte header. (<code>-X</code> leaves out the Ethernet header.)
+7 | The hop limit, 0x40 = 64 (Chapter 11). The <code>06</code> right after it means “TCP inside”.
+8 | TCP ports: 0xcb20 = 52000 and 0x0050 = 80.
+9 | “GET ”, in ASCII (Chapter 5). The <a href="15.html#peel-a-real-packet">widget in Chapter 15</a> explains every one of these bytes.
+</callouts>
+</cmd>
+
+<cmd id="tshark" name="tshark" title="Wireshark’s decoder, on the command line" ch="16,37">
+<p><code>tshark</code> is the command-line half of <a href="https://www.wireshark.org">Wireshark</a>. It reads and captures the same files as <code>tcpdump</code>, but it decodes thousands of protocols, can filter on any field by name (<em>display filters</em>, after <code>-Y</code>), and can print statistics. On a Mac, <code>brew install wireshark</code> installs it (or install the Wireshark app, which includes it); on Debian and Raspberry Pi OS, <code>sudo apt install tshark</code>.</p>
+
+<os>
+== List a capture file, one line per packet
+both: tshark -r home.pcap
+== Every field of every layer, for one packet
+both: tshark -r home.pcap -Y 'frame.number == 8' -V
+== Only packets matching a display filter
+both: tshark -r home.pcap -Y 'dns.qry.name contains "cern"'
+both: tshark -r home.pcap -Y 'tcp.analysis.retransmission'
+== Print chosen fields, like a spreadsheet
+both: tshark -r home.pcap -T fields -e ip.src -e ip.dst -e frame.len
+== Count packets by protocol, and list the conversations
+both: tshark -r home.pcap -q -z io,phs
+both: tshark -r home.pcap -q -z conv,tcp
+== Capture live, with a capture filter
+mac: sudo tshark -i en0 -f 'port 53'
+linux: tshark -i wlan0 -f 'port 53'
+note: on Linux, members of the wireshark group don’t need sudo
+tip: Capture filters (<code>-f</code>) use <code>tcpdump</code>’s language and run in the kernel. Display filters (<code>-Y</code>) use Wireshark’s own language, like <code>ip.addr == 1.1.1.1 &amp;&amp; tcp.flags.syn == 1</code>, and can test anything Wireshark can decode.
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ tshark -r home.pcap -T fields -E header=y -e frame.number -e ip.src -e ip.dst -e _ws.col.Protocol -Y "dns || http"
+frame.number	ip.src	ip.dst	_ws.col.protocol
+1	192.168.1.4	192.168.1.1	DNS
+2	192.168.1.4	192.168.1.1	DNS
+3	192.168.1.1	192.168.1.4	DNS
+4	192.168.1.1	192.168.1.4	DNS
+8	192.168.1.4	188.184.67.127	HTTP
+10	188.184.67.127	192.168.1.4	HTTP
+$ tshark -r home.pcap -q -z conv,tcp
+TCP Conversations
+                                                           |       <-      | |       ->      | |     Total     |    Relative    |   Duration   |
+                                                           | Frames  Bytes | | Frames  Bytes | | Frames  Bytes |      Start     |              |
+⟦1:192.168.1.4:57426          <-> 188.184.67.127:80⟧                5 1,216 bytes       5 414 bytes      10 1,630 bytes     0.004864000         ⟦2:0.3193⟧
+</terminal>
+
+<callouts>
+1 | One TCP connection, named by its four numbers (Chapter 12).
+2 | It lasted 0.32 seconds, from SYN to the last goodbye.
+</callouts>
+</cmd>
+
+<cmd id="capinfos" name="capinfos / editcap / mergecap" title="Look inside capture files, cut them up, join them" ch="16">
+<p>These three come with Wireshark (on Debian and Raspberry Pi OS, in the <code>wireshark-common</code> package). <code>capinfos</code> summarizes a capture file, <code>editcap</code> cuts pieces out of one or converts its format, and <code>mergecap</code> joins several into one, in time order.</p>
+
+<os>
+== Summarize a capture file
+both: capinfos home.pcap
+== Keep only packets 1 to 100
+both: editcap -r big.pcap first100.pcap 1-100
+== Convert pcapng to classic pcap
+both: editcap -F pcap in.pcapng out.pcap
+== Join captures from two computers
+both: mergecap -w both.pcap laptop.pcap pi.pcap
+</os>
+
+<terminal title="Linux (Raspberry Pi)">
+$ capinfos home.pcap
+File name:           home.pcap
+File type:           Wireshark/tcpdump/... - ⟦1:pcap⟧
+File encapsulation:  Ethernet
+Packet size limit:   file hdr: 262144 bytes
+Number of packets:   18
+File size:           2,728 bytes
+Data size:           ⟦2:2,416 bytes⟧
+Capture duration:    1.340548 second
+Average packet size: 134.22 bytes
+</terminal>
+
+<callouts>
+1 | The classic format from Chapter 15, not pcapng.
+2 | The packets themselves. The other 312 bytes are the 24-byte file header and a 16-byte record header in front of each packet.
+</callouts>
+</cmd>
+
+

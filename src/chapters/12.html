@@ -1,0 +1,141 @@
+<h3>A computer with many doors</h3>
+
+<p>Alice’s packets now reach Grandpa Otto’s computer, 4.2, all the way across town. But Otto’s computer is running several programs at once: a chat program for talking to Alice, a clock that anyone can ask the time, and a chess program he uses to play Bob. When a packet arrives for 4.2, which program should get it?</p>
+
+<p>Back in Chapter 4, the operating system’s mailroom delivered messages by program <em>name</em>: <code>TO: SERVE</code>. Names are clumsy, though. They’re different lengths, so they’re awkward to put in a header. And what if Otto runs two copies of the same program, like two chess games at once? They’d both be called CHESS.</p>
+
+<h3>Numbered mailboxes</h3>
+
+<p>So instead of names, we use numbers. When a program starts, it asks the operating system for a numbered mailbox, called a <strong>port</strong>. Otto’s chat program asks for port 7, the clock for port 123, and chess for port 64 (one for each square on the board). From then on, anything that arrives addressed to port 64 is handed to the chess program.</p>
+
+<!-- @include src/figs/ch12-mailboxes.svg -->
+
+<p>How does Alice know that Otto’s chess program is at port 64? Everyone agrees in advance. Just as everyone knows the number for the fire brigade, the town agrees that chess lives at 64 and clocks live at 123. These are called <strong>well-known ports</strong>.</p>
+
+<p>Alice’s own chess program needs a port too, so that Otto’s replies can find their way back to it. But nobody needs to know it in advance, so Alice’s operating system just picks a free one at random, say 51234. The reply goes to “1.1, port 51234”.</p>
+
+<h3>One more envelope</h3>
+
+<p>The port numbers need to travel with the message, so we add one more small header, inside the packet. A message with this header is called a <strong>datagram</strong>:</p>
+
+<!-- @include src/figs/ch12-layout.svg -->
+
+<p>Now we have envelopes inside envelopes inside envelopes, and each one is read by a different part of the system:</p>
+
+<!-- @include src/figs/ch12-nesting.svg -->
+
+<h3>Four numbers make a conversation</h3>
+
+<p>Here’s something neat. Otto’s chess program plays Alice and Bob at the same time, both on port 64. How does it keep the games apart? By looking at where each datagram came <em>from</em>. A move from 1.1 port 51234 belongs to Alice’s game, and a move from 1.2 port 50999 belongs to Bob’s. If Alice opens a second chess window, it gets a different port, and that’s a third game.</p>
+
+<!-- @include src/figs/ch12-games.svg -->
+
+<p>So a conversation between two programs is named by four numbers: both addresses and both ports. Try it:</p>
+
+<div data-widget="portmail"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Nobody home</h3>
+
+<p>What if a datagram arrives for a port that no program is using? The operating system drops it, and as a courtesy, sends a short note back: “nobody home at port 99”. That’s exactly the “nobody home” from Chapter 4, now with numbers.</p>
+
+<think>
+<p>Eve could send one datagram to every port on Otto’s computer, from 1 to 65,535, and note which ones <em>don’t</em> say “nobody home”. What would she learn? Why might Otto not want her to?</p>
+<p>This is called <strong>port scanning</strong>. It tells Eve which programs Otto is running, and so which ones she might try to attack. It’s one of the first things an attacker does, and one of the first things a network defender checks for.</p>
+</think>
+
+<h3>Fire and forget</h3>
+
+<p>Datagrams are wonderfully simple. There’s no setup and no goodbye: you just send one. But they come with no promises at all:</p>
+
+<!-- @include src/figs/ch12-forget.svg -->
+
+<p>For some jobs, that’s fine. If Otto’s clock doesn’t answer within a second, Alice can just ask again. For a live game or a phone call, a late message is useless anyway, so there’s no point waiting for a resend. For other jobs, like sending a long letter, it’s not fine at all. That’s the next chapter.</p>
+
+<realworld>
+<p>Our datagram is the real <strong>User Datagram Protocol</strong>, UDP, defined in 1980 by David P. Reed in a document just three pages long. Its header is exactly our four fields: destination port, source port, length and checksum, 8 bytes in all. Port numbers are 16 bits, so they go from 0 to 65,535. Real well-known ports include 53 for looking up names (Chapter 14), 123 for clocks, and 443 for secure websites.</p>
+<p>Programs ask the operating system for ports through an interface called <strong>sockets</strong>, invented for Berkeley Unix in 1983 and now used by almost every operating system. In Python, <code>socket.socket(AF_INET, SOCK_DGRAM)</code> makes a UDP socket, <code>bind()</code> asks for a port, and <code>sendto()</code> and <code>recvfrom()</code> send and receive datagrams. On most systems, ports below 1024 are reserved for programs with administrator rights, which is why our lab uses 7012, 7064 and 7123 instead of 7, 64 and 123.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Alice wants to send Grandpa Otto her whole school report, fifty pages of it, as a few hundred datagrams. Some will be lost, some will arrive out of order, and a few might arrive twice. And if she sends them too fast, Otto’s mailbox will overflow, as you’ll see in the lab. In the next chapter, we’ll build reliable delivery on top of unreliable datagrams.</p>
+
+<lab>
+<p><code>otto.py</code> is Grandpa Otto’s computer: four programs, each with its own real UDP port on your computer. <code>dgram.py</code> sends datagrams to them. You’ll need two terminals.</p>
+
+<h4>1. Start Otto’s computer</h4>
+
+<terminal title="terminal 1">
+$ cd labs/ch12
+$ python3 otto.py
+    chat is listening on 127.0.0.1:7012
+   clock is listening on 127.0.0.1:7123
+slowpoke is listening on 127.0.0.1:7099
+   chess is listening on 127.0.0.1:7064
+Otto's computer is ready. Ctrl-C to stop.
+</terminal>
+
+<!-- @code labs/ch12/otto.py#mailboxes -->
+
+<h4>2. Send some datagrams</h4>
+
+<terminal title="terminal 2">
+$ cd labs/ch12
+$ python3 dgram.py 7123
+sent 16 bytes from 127.0.0.1:58830 to 127.0.0.1:7123
+reply from 127.0.0.1:7123: It's 19:21:27 at Otto's.
+$ python3 dgram.py 7064 e4
+sent 2 bytes from 127.0.0.1:55997 to 127.0.0.1:7064
+reply from 127.0.0.1:7064: game #1, move 1: you played e4, I play e5
+$ python3 dgram.py 7064 Nf3
+sent 3 bytes from 127.0.0.1:63496 to 127.0.0.1:7064
+reply from 127.0.0.1:7064: game #2, move 1: you played Nf3, I play e5
+$ python3 dgram.py 7064 d4 --from-port 50001
+reply from 127.0.0.1:7064: game #3, move 1: you played d4, I play e5
+$ python3 dgram.py 7064 c4 --from-port 50001
+reply from 127.0.0.1:7064: game #3, move 2: you played c4, I play Nc6
+$ python3 dgram.py 7055 hello
+sent 5 bytes from 127.0.0.1:64856 to 127.0.0.1:7055
+nobody home! Otto's operating system says no program is using that port.
+</terminal>
+
+<p>Each run of <code>dgram.py</code> gets a new random port, so every move starts a new game, until you fix the port with <code>--from-port</code>. Here are the programs, and the sending side:</p>
+
+<!-- @code labs/ch12/otto.py#programs -->
+
+<!-- @code labs/ch12/dgram.py#send -->
+
+<h4>3. Look at the mailboxes from outside</h4>
+
+<p>With <code>otto.py</code> still running, list its ports (on Linux, <code>ss -ulpn</code>), and talk to the clock with <code>nc</code>:</p>
+
+<terminal title="terminal 2 (macOS)">
+$ lsof -nP -iUDP:7000-7200
+COMMAND   PID    USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Python  84991 alice    4u  IPv4 0xf7233dd1bc41d7ed      0t0  UDP 127.0.0.1:7012
+Python  84991 alice    5u  IPv4 0xa006c17cc8e37a1c      0t0  UDP 127.0.0.1:7123
+…
+$ echo hi | nc -u -w1 127.0.0.1 7123
+It's 19:21:46 at Otto's.
+</terminal>
+
+<h4>4. Fire and forget, for real</h4>
+
+<p>Slowpoke handles each datagram slowly, and has a small mailbox. Fire 5,000 numbered datagrams at it without waiting:</p>
+
+<terminal title="terminal 2">
+$ python3 dgram.py 7099 --blast 5000
+fired 5,000 datagrams from port 51066 without waiting for anything
+reply: slowpoke got 147 of 5,000 datagrams; 4,853 never arrived (97%), 0 arrived out of order
+</terminal>
+
+<p>Nothing went wrong on the “network” (it never even left your computer). Slowpoke’s mailbox simply filled up, and the operating system threw the rest away, telling nobody. On a Raspberry Pi running Linux, only 54 got through. UDP has no way to say “slow down”.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Try <code>python3 dgram.py 7123 --host 192.168.1.250</code> (pick an address on your network where there’s no computer). Why do you get silence instead of “nobody home”?</li>
+<li>In <code>otto.py</code>, remove the <code>time.sleep</code> in slowpoke, or make its mailbox bigger (<code>SO_RCVBUF</code>). How many datagrams survive now?</li>
+<li>Run <code>otto.py</code> in a second copy. What error do you get, and why? Check with <code>lsof</code> or <code>ss</code>.</li>
+<li>Write a “weather station” that sends Otto’s chat a numbered temperature reading every second. Stop and restart <code>otto.py</code> while it runs. What happens to the readings sent while Otto was down?</li>
+</ul>
+</lab>

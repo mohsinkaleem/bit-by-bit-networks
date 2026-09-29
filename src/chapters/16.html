@@ -1,0 +1,334 @@
+<h3>A few years later</h3>
+
+<p>Alice is away at university now, studying computer science. Bob still lives at home, and has somehow become the family’s IT department. He set up the home Wi-Fi, he fixes the printer, and last month he set up a little Raspberry Pi computer for Grandpa Otto, who wanted to learn to program. One evening, Alice’s phone rings.</p>
+
+<dialogue>
+B: The internet’s broken again. My game lags every single evening, and Mum says it’s my fault for downloading things.
+A: Is it the Wi-Fi? The router? Your internet provider? The game’s servers?
+B: That’s what I’m asking <em>you</em>!
+A: Then let’s stop guessing. Everything your computers say and hear goes through their network cards, one packet at a time. We can watch them.
+B: Watch them? Like… spying?
+A: Only on yourself. It’s your network, and your packets.
+</dialogue>
+
+<p>In Part I, we invented a network. In Part II, we investigate a real one: yours. Every chapter will take one piece of the real internet apart, and the first thing we need is a way to <em>see</em> it. That’s what this chapter is about: the tools that let you watch every packet go by, and a little language for picking out the ones you care about.</p>
+
+<p>We met <code>tcpdump</code> briefly in Chapter 15. Now we’ll learn to use it properly, see how it works inside, and meet its big sibling, Wireshark.</p>
+
+<h3>Where the sniffer sits</h3>
+
+<p>A program like <code>tcpdump</code> is called a <strong>packet sniffer</strong>. It doesn’t sit on the wire, or in the air. It sits inside your own computer, at a spot called the <strong>tap</strong>, just above the network card’s driver:</p>
+
+<!-- @include src/figs/ch16-tap.svg -->
+
+<p>Every packet that comes in or goes out passes the tap, and the tap hands a <em>copy</em> of each one to a tiny filter program. If the packet matches, the copy is put in a buffer for <code>tcpdump</code> to read. The original carries on as if nothing happened. So a sniffer can’t block, change or slow down your traffic. It only watches.</p>
+
+<p>Watching needs administrator rights, because the tap sees everything: every program’s packets, including other users’ on the same computer. That’s why the commands in this chapter start with <code>sudo</code>. (On Linux, you can instead add yourself to the <code>wireshark</code> group, which lets Wireshark’s capture helper, <code>dumpcap</code>, capture without <code>sudo</code>. The Wireshark installer for macOS offers something similar.)</p>
+
+<h3>Your first capture</h3>
+
+<p>Bob logs in to Grandpa Otto’s Raspberry Pi from his laptop, starts <code>tcpdump</code> on its Wi-Fi card, and in a second window asks the Pi to fetch the very first website ever made, which is still online at <code>info.cern.ch</code>. Then he pings a server, for good measure:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo tcpdump -i wlan0 -n not port 22
+listening on wlan0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+23:04:18.521708 IP 192.168.1.4.58417 > 192.168.1.1.53: ⟦1:36514+ A? info.cern.ch.⟧ (30)
+23:04:18.521726 IP 192.168.1.4.58417 > 192.168.1.1.53: 51373+ AAAA? info.cern.ch. (30)
+23:04:18.526301 IP 192.168.1.1.53 > 192.168.1.4.58417: 36514 2/0/0 ⟦2:CNAME webafs902.cern.ch., A 188.184.67.127⟧ (77)
+23:04:18.526345 IP 192.168.1.1.53 > 192.168.1.4.58417: 51373 2/0/0 CNAME webafs902.cern.ch., AAAA 2001:1458:201:a4::100:1a0 (89)
+23:04:18.526572 IP 192.168.1.4.57426 > 188.184.67.127.80: ⟦3:Flags [S]⟧, seq 3208982406, win 64240, options [mss 1460,sackOK,TS val 2975912253 ecr 0,nop,wscale 10], length 0
+23:04:18.682216 IP 188.184.67.127.80 > 192.168.1.4.57426: Flags [S.], seq 3577108115, ack 3208982407, win 28960, options [mss 1452,sackOK,TS val 1097818944 ecr 2975912253,nop,wscale 9], length 0
+23:04:18.682238 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [.], ack 1, win 63, options [nop,nop,TS val 2975912409 ecr 1097818944], length 0
+23:04:18.682288 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [P.], seq 1:77, ack 1, win 63, options [nop,nop,TS val 2975912409 ecr 1097818944], length 76: ⟦4:HTTP: GET / HTTP/1.1⟧
+23:04:18.687248 IP 188.184.67.127.80 > 192.168.1.4.57426: Flags [.], ack 77, win 57, options [nop,nop,TS val 1097818945 ecr 2975912409], length 0
+23:04:18.841199 IP 188.184.67.127.80 > 192.168.1.4.57426: Flags [P.], seq 1:879, ack 77, win 57, options [nop,nop,TS val 1097818960 ecr 2975912409], length 878: HTTP: HTTP/1.1 200 OK
+23:04:18.841209 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [.], ack 879, win 63, options [nop,nop,TS val 2975912568 ecr 1097818960], length 0
+23:04:18.841242 IP 188.184.67.127.80 > 192.168.1.4.57426: ⟦5:Flags [F.]⟧, seq 879, ack 77, win 57, options [nop,nop,TS val 1097818960 ecr 2975912409], length 0
+23:04:18.841292 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [F.], seq 77, ack 880, win 63, options [nop,nop,TS val 2975912568 ecr 1097818960], length 0
+23:04:18.843672 IP 192.168.1.4 > 1.1.1.1: ⟦6:ICMP echo request⟧, id 15080, seq 1, length 64
+23:04:18.845883 IP 188.184.67.127.80 > 192.168.1.4.57426: Flags [.], ack 78, win 57, options [nop,nop,TS val 1097818961 ecr 2975912568], length 0
+23:04:18.857326 IP 1.1.1.1 > 192.168.1.4: ICMP echo reply, id 15080, seq 1, length 64
+^C
+</terminal>
+
+<callouts>
+1 | The Pi (192.168.1.4) asks the home router (192.168.1.1) for the address of <code>info.cern.ch</code>, using UDP to port 53 (Chapters 12 and 14). It asks for an IPv4 address (<code>A?</code>) and an IPv6 one (<code>AAAA?</code>) at the same time.
+2 | The answer, 4.6 milliseconds later: that name is really another name (a <code>CNAME</code>), whose address is 188.184.67.127.
+3 | A new TCP connection to port 80: SYN, then SYN+ACK, then ACK. Chapter 13’s three-way handshake, for real.
+4 | The request, exactly as we wrote them by hand in Chapter 6. The answer comes back 159 milliseconds later: CERN is in Switzerland, and the Pi isn’t.
+5 | Both sides say goodbye with FIN (Chapter 13).
+6 | And the ping. Everything this computer did in that second is here, in order.
+</callouts>
+
+<p>Two small things make this work. <code>-n</code> means “don’t turn addresses into names”. Without it, <code>tcpdump</code> would look up the name of every address it prints, which makes more packets, which appear in the capture. And <code>not port 22</code> is a <strong>filter</strong>. Bob is logged in to the Pi over SSH, which uses port 22, so every line <code>tcpdump</code> prints travels to Bob’s screen as an SSH packet, which <code>tcpdump</code> would print, which would travel to Bob’s screen… The filter breaks the loop.</p>
+
+<p>Each line is one packet, and they all follow the same pattern:</p>
+
+<!-- @include src/figs/ch16-anatomy.svg -->
+
+<think>
+<p>Look at the options on the two SYN packets. The Pi says <code>mss 1460</code>: “send me pieces of up to 1,460 bytes”. The answer from CERN says <code>mss 1452</code>. Remember the path MTU from Chapter 10’s lab, which was 1,492 bytes instead of 1,500 on this network. Can you connect the two numbers?</p>
+<p>1,492 − 20 bytes of IP header − 20 bytes of TCP header = 1,452. Something on the way, almost certainly the home router, noticed that bigger pieces won’t fit through the internet connection, and quietly rewrote the number as the SYN went past. That’s called <strong>MSS clamping</strong>, and we’ll meet it again in Chapter 22.</p>
+</think>
+
+<h3>Finding the needle</h3>
+
+<p>A busy computer sends and receives thousands of packets a second, so the real skill is in <em>filtering</em>. The expression after the options, like <code>not port 22</code>, is a <strong>capture filter</strong>, written in a small language of its own. Here are the words you’ll use most:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Filter</th><th>Keeps packets…</th></tr>
+<tr><td><code>host 192.168.1.1</code></td><td>to or from that address</td></tr>
+<tr><td><code>src host 192.168.1.4</code>, <code>dst host …</code></td><td>from it, or to it</td></tr>
+<tr><td><code>net 192.168.1.0/24</code></td><td>to or from anything on that network (Chapter 20 explains the <code>/24</code>)</td></tr>
+<tr><td><code>port 53</code>, <code>tcp port 80</code>, <code>udp dst port 123</code></td><td>to or from that port</td></tr>
+<tr><td><code>arp</code>, <code>icmp</code>, <code>tcp</code>, <code>udp</code>, <code>ip6</code></td><td>of that protocol</td></tr>
+<tr><td><code>ether host 2c:cf:67:5e:10:c2</code>, <code>broadcast</code></td><td>to or from that card, or sent to everyone</td></tr>
+<tr><td><code>greater 1000</code>, <code>less 100</code></td><td>bigger or smaller than that</td></tr>
+<tr><td><code>tcp[13] &amp; 2 != 0</code></td><td>whose TCP header has byte 13, bit 2 set: the SYN flag. Any byte of any header can be tested like this.</td></tr>
+<tr><td><code>not</code>, <code>and</code>, <code>or</code>, <code>( … )</code></td><td>combine the others</td></tr>
+</table>
+</div>
+
+<p>Two things catch everyone out. First, the shell treats brackets and <code>&amp;</code> specially, so put the whole filter in quotes: <code>'tcp[13] &amp; 2 != 0'</code>. Second, <code>and</code> and <code>or</code> have the <em>same</em> priority, and are read left to right. So <code>udp or icmp and host 1.1.1.1</code> means <code>(udp or icmp) and host 1.1.1.1</code>, which is probably not what you meant. When in doubt, add brackets.</p>
+
+<p>Here are the 29 packets from the Pi, including a few more from a second capture. Try some filters:</p>
+
+<div data-widget="bpfplay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>How the filter runs</h3>
+
+<p>The widget shows something odd: every filter turns into a short list of instructions like <code>ldh [12]</code> and <code>jeq #0x800</code>. That’s because the filter doesn’t run inside <code>tcpdump</code>. It runs inside the operating system’s kernel, at the tap, on every single packet, and it has to be very fast and completely safe. A buggy filter must never crash the computer.</p>
+
+<p>So <code>tcpdump</code> <em>compiles</em> your filter into a program for a tiny, simple imaginary computer, the <strong>Berkeley Packet Filter</strong>, or BPF. It has just two registers (A and X), it can only read the packet, and it can only jump forwards, so every program is guaranteed to finish. The kernel checks the program once, then runs it on every packet. You can ask <code>tcpdump</code> to show you the program with <code>-d</code>. Here’s one, running on the Pi’s “GET /” packet:</p>
+
+<!-- @include src/figs/ch16-bpf.svg -->
+
+<p>Notice how much of the filter’s work is just finding things. Offset 12 is always the frame’s type field (Chapter 8), and offset 23 is always the IP header’s protocol field, but the TCP header can start at different places, so the program has to work it out from the IP header’s length. Every decoding tool does the same job, in the same way: read a field, then use it to decide how to read the next one.</p>
+
+<realworld>
+<p><code>tcpdump</code> was written in 1988 by Van Jacobson, Craig Leres and Steven McCanne at the Lawrence Berkeley Laboratory. (Jacobson again: he also fixed TCP’s congestion collapse, in Chapter 13, and wrote <code>traceroute</code>.) The packet filter came a few years later, in a 1992 paper by McCanne and Jacobson. It was so much faster than the filters before it that it was adopted almost everywhere, and the capture part of <code>tcpdump</code> was split out into a library, <strong>libpcap</strong>, which nearly every capture tool still uses today.</p>
+<p>In 1998 Gerald Combs started writing a graphical packet analyzer called Ethereal, renamed <strong>Wireshark</strong> in 2006. It can decode thousands of protocols. And BPF itself grew up: Linux turned it into <strong>eBPF</strong>, a general-purpose, safe way to run small programs inside the kernel, which now powers firewalls, load balancers and monitoring tools. That’s in Chapter 39.</p>
+</realworld>
+
+<h3>Save it for later</h3>
+
+<p>Instead of printing packets, <code>tcpdump</code> can save them to a file with <code>-w</code>, to be read back, filtered and taken apart as often as you like with <code>-r</code>. Reading a file doesn’t need <code>sudo</code>:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo tcpdump -i wlan0 -w home.pcap not port 22
+tcpdump: listening on wlan0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+^C18 packets captured
+$ tcpdump -r home.pcap -n icmp
+reading from file home.pcap, link-type EN10MB (Ethernet), snapshot length 262144
+23:04:18.843672 IP 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15080, seq 1, length 64
+23:04:18.857326 IP 1.1.1.1 > 192.168.1.4: ICMP echo reply, id 15080, seq 1, length 64
+23:04:19.845376 IP 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15080, seq 2, length 64
+23:04:19.862256 IP 1.1.1.1 > 192.168.1.4: ICMP echo reply, id 15080, seq 2, length 64
+</terminal>
+
+<p>This is the <code>.pcap</code> format we built by hand in Chapter 15. A few more options are worth knowing:</p>
+
+<ul>
+<li><code>-s 128</code> keeps only the first 128 bytes of each packet. That’s enough for all the headers, and makes long captures much smaller. (It’s also more polite: you keep the envelopes, not the letters.)</li>
+<li><code>-C 100 -W 10</code> writes a <strong>ring buffer</strong>: files of 100 megabytes, keeping only the newest 10. Leave it running for a week, and when the problem happens, the evidence is in the last file.</li>
+<li><code>-U</code> writes each packet as soon as it arrives, instead of in big batches. You’ll need it to pipe packets into another program, as in the lab.</li>
+<li><code>-e</code> prints each frame’s MAC addresses, and <code>-X</code> prints the bytes of each packet in hex.</li>
+</ul>
+
+<p>Wireshark’s own format, <strong>pcapng</strong> (“next generation”), can also store comments, several interfaces, and which program sent each packet. Both are read by every tool in this chapter.</p>
+
+<h3>Wireshark without the windows</h3>
+
+<p>Wireshark comes with a command-line version called <code>tshark</code>. It uses the same capture filters (with <code>-f</code>), but it can decode far more protocols than <code>tcpdump</code>, and it has a second, much richer kind of filter. Here’s the same capture:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ tshark -r home.pcap
+    1   0.000000  192.168.1.4 → 192.168.1.1  DNS 72 Standard query 0x8ea2 A info.cern.ch
+    2   0.000018  192.168.1.4 → 192.168.1.1  DNS 72 Standard query 0xc8ad AAAA info.cern.ch
+    3   0.004593  192.168.1.1 → 192.168.1.4  DNS 119 Standard query response 0x8ea2 A info.cern.ch CNAME webafs902.cern.ch A 188.184.67.127
+    4   0.004637  192.168.1.1 → 192.168.1.4  DNS 131 Standard query response 0xc8ad AAAA info.cern.ch CNAME webafs902.cern.ch AAAA 2001:1458:201:a4::100:1a0
+    5   0.004864  192.168.1.4 → 188.184.67.127 TCP 74 57426 → 80 [SYN] Seq=0 Win=64240 Len=0 MSS=1460 SACK_PERM TSval=2975912253 TSecr=0 WS=1024
+    6   0.160508 188.184.67.127 → 192.168.1.4  TCP 74 80 → 57426 [SYN, ACK] Seq=0 Ack=1 Win=28960 Len=0 MSS=1452 SACK_PERM TSval=1097818944 TSecr=2975912253 WS=512
+    7   0.160530  192.168.1.4 → 188.184.67.127 TCP 66 57426 → 80 [ACK] Seq=1 Ack=1 Win=64512 Len=0 TSval=2975912409 TSecr=1097818944
+    8   0.160580  192.168.1.4 → 188.184.67.127 HTTP 142 GET / HTTP/1.1
+    …
+$ tshark -r home.pcap -Y 'frame.number == 8' -V
+⟦1:Frame 8: 142 bytes on wire (1136 bits)⟧, 142 bytes captured (1136 bits)
+⟦2:Ethernet II⟧, Src: RaspberryPi_5e:10:c2 (2c:cf:67:5e:10:c2), Dst: FibRSolGloba_40:0b:32 (14:c3:5e:40:0b:32)
+    Type: IPv4 (0x0800)
+Internet Protocol Version 4, Src: 192.168.1.4, Dst: 188.184.67.127
+    Total Length: 128
+    010. .... = Flags: 0x2, Don't fragment
+    Time to Live: 64
+    Protocol: TCP (6)
+Transmission Control Protocol, Src Port: 57426, Dst Port: 80, Seq: 1, Ack: 1, Len: 76
+    Sequence Number: 1    (relative sequence number)
+    ⟦3:Sequence Number (raw): 3208982407⟧
+    Flags: 0x018 (PSH, ACK)
+    Window: 63
+    ⟦4:[Calculated window size: 64512]⟧
+Hypertext Transfer Protocol
+    GET / HTTP/1.1\r\n
+    Host: info.cern.ch\r\n
+    User-Agent: curl/8.14.1\r\n
+    …
+</terminal>
+
+<callouts>
+1 | <code>-V</code> prints every field of every layer. This is the same tree Wireshark shows in its middle pane (it’s shortened here).
+2 | Wireshark knows who made each card. The first three bytes of a MAC address name the manufacturer, and <code>2c:cf:67</code> is Raspberry Pi (Chapter 18).
+3 | Wireshark counts bytes from the start of the connection, so sequence numbers are small and readable. The real number is still there.
+4 | Wireshark works things out that aren’t in the packet at all. The window field says 63, but the handshake said to multiply it by 1,024 (<code>WS=1024</code>, in packet 5). That’s Chapter 28.
+</callouts>
+
+<p>The filter after <code>-Y</code> is a <strong>display filter</strong>. It’s applied after decoding, so it can test any field Wireshark knows about, by name. Capture filters are fast but only understand headers. Display filters are slow, but they understand everything:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>To keep…</th><th>Capture filter (tcpdump, <code>tshark -f</code>)</th><th>Display filter (Wireshark, <code>tshark -Y</code>)</th></tr>
+<tr><td>one address</td><td><code>host 1.1.1.1</code></td><td><code>ip.addr == 1.1.1.1</code></td></tr>
+<tr><td>web traffic</td><td><code>tcp port 80</code></td><td><code>http</code> (on <em>any</em> port)</td></tr>
+<tr><td>new connections</td><td><code>'tcp[13] &amp; 2 != 0'</code></td><td><code>tcp.flags.syn == 1</code></td></tr>
+<tr><td>lookups of a name</td><td>(can’t be done)</td><td><code>dns.qry.name contains "cern"</code></td></tr>
+<tr><td>resent packets</td><td>(can’t be done)</td><td><code>tcp.analysis.retransmission</code></td></tr>
+</table>
+</div>
+
+<p><code>tshark</code> can also add things up. Here’s the whole capture, sorted into layers:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ tshark -r home.pcap -q -z io,phs
+Protocol Hierarchy Statistics
+eth                                      frames:18 bytes:2416
+  ip                                     frames:18 bytes:2416
+    udp                                  frames:4 bytes:394
+      dns                                frames:4 bytes:394
+    tcp                                  frames:10 bytes:1630
+      http                               frames:2 bytes:1086
+        data-text-lines                  frames:1 bytes:944
+    icmp                                 frames:4 bytes:392
+</terminal>
+
+<p>Envelopes inside envelopes, exactly like Chapter 15. And people often talk about these layers by number:</p>
+
+<!-- @include src/figs/ch16-osi.svg -->
+
+<p>The seven-layer diagram comes from the <strong>OSI model</strong>, a rival set of network standards from the 1980s. The internet’s protocols won, but OSI’s layer numbers stuck. So when someone says “that’s a layer 2 problem”, they mean Ethernet or Wi-Fi, and a “layer 7 load balancer” is one that reads HTTP.</p>
+
+<h3>What can you see from here?</h3>
+
+<p>A sniffer only sees the packets that reach its own network card, and that depends on where the card is:</p>
+
+<!-- @include src/figs/ch16-vantage.svg -->
+
+<p>On an old hub, or a shared cable (Chapter 8), every frame reaches every card. Network cards normally ignore frames that aren’t addressed to them, but <code>tcpdump</code> switches on <strong>promiscuous mode</strong>, which tells the card to pass everything up. On a switch (Chapter 9), frames only go where they need to, so Bob sees his own traffic plus broadcasts like “who has?”, and nothing else. That’s why network engineers set up <strong>mirror ports</strong> on switches, which get a copy of everything, or put a <strong>network tap</strong> on a cable.</p>
+
+<p>Wi-Fi is a shared medium again: every card within range hears every frame. But a card normally only passes up frames for itself, rewritten to look like Ethernet frames (that’s why <code>tcpdump</code> said <code>EN10MB (Ethernet)</code> on the Pi’s Wi-Fi). A card in <strong>monitor mode</strong> hears everything in the air, as it really is, but each laptop’s frames are encrypted with its own key. We’ll listen in properly in Chapter 19.</p>
+
+<think>
+<p>Bob’s little brother is streaming a film on the TV, which is plugged into the router by a cable. Bob runs <code>tcpdump</code> on his laptop, which is on Wi-Fi. What will he see of the film?</p>
+<p>Nothing at all. The router has a switch inside, and the film’s packets go only to the TV’s port. Bob will only see broadcasts and multicasts, like “who has?” messages and devices announcing themselves. To see the TV’s traffic, he’d have to capture on the router itself, or on a mirror port.</p>
+</think>
+
+<p>A word of warning, which matters more than anything else in this chapter: only capture on networks you own, or have permission to watch. Capturing other people’s traffic without permission is illegal in most countries, even if you can’t read it. Luckily, your own computer is interesting enough for a lifetime.</p>
+
+<h3>What’s next?</h3>
+
+<p>Bob can watch his packets now, but his lag is still a mystery, and it could be anywhere from the air in his bedroom to a game server on another continent. So we’ll start at the bottom. Chapter 17 looks at what actually carries the bits: copper, glass and radio, and why a “1 gigabit” connection never gives you a gigabit.</p>
+
+<lab>
+<p>You’ll build a tiny <code>tcpdump</code>: <code>minidump.py</code> reads a capture file, compiles a filter into a BPF-style program, runs that program on every packet, and prints the ones that pass. It comes with <code>home.pcap</code>, the 29 packets from this chapter.</p>
+
+<h4>1. Read the capture</h4>
+
+<terminal title="labs/ch16">
+$ cd labs/ch16
+$ python3 minidump.py home.pcap "tcp port 80"
+  5 23:04:18.526572 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [S], seq 3208982406, win 64240, length 0
+  6 23:04:18.682216 IP 188.184.67.127.80 > 192.168.1.4.57426: Flags [S.], seq 3577108115, ack 3208982407, win 28960, length 0
+  7 23:04:18.682238 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [.], seq 3208982407, ack 3577108116, win 63, length 0
+  8 23:04:18.682288 IP 192.168.1.4.57426 > 188.184.67.127.80: Flags [P.], seq 3208982407, ack 3577108116, win 63, length 76: HTTP: GET / HTTP/1.1
+…
+10 of 29 packets matched
+$ python3 minidump.py home.pcap "icmp or arp" -v
+ 14 23:04:18.843672 2c:cf:67:5e:10:c2 > 14:c3:5e:40:0b:32, IP (ttl 64, id 18883, length 84) 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15080, seq 1, length 64
+…
+ 19 23:06:21.939364 2c:cf:67:5e:10:c2 > ff:ff:ff:ff:ff:ff, ARP, Request who-has 192.168.1.1 tell 192.168.1.4
+ 20 23:06:21.943824 14:c3:5e:40:0b:32 > 2c:cf:67:5e:10:c2, ARP, Reply 192.168.1.1 is-at 14:c3:5e:40:0b:32
+ 21 23:06:21.943836 2c:cf:67:5e:10:c2 > 14:c3:5e:40:0b:32, IP (ttl 1, id 44429, length 84) 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15081, seq 1, length 64
+ 22 23:06:21.944948 14:c3:5e:40:0b:32 > 2c:cf:67:5e:10:c2, IP (ttl 64, id 44462, length 112) 192.168.1.1 > 192.168.1.4: ICMP time exceeded in-transit, length 92
+8 of 29 packets matched
+</terminal>
+
+<p>Packets 21 and 22 are a ping sent with a hop limit of 1. The router took one off, reached zero, and sent back “time exceeded” (Chapter 11). If you have <code>tcpdump</code>, compare: <code>tcpdump -r home.pcap -n "icmp or arp"</code> finds the same 8.</p>
+
+<h4>2. See the program</h4>
+
+<p><code>-d</code> shows the compiled program. For <code>tcp dst port 80</code> it’s identical to the real one. Compare with <code>tcpdump -r home.pcap -d "tcp dst port 80"</code>, which works without <code>sudo</code> because it’s reading a file:</p>
+
+<terminal title="labs/ch16">
+$ python3 minidump.py -d "tcp dst port 80"
+(000) ldh      [12]
+(001) jeq      #0x800           jt 2	jf 10
+(002) ldb      [23]
+(003) jeq      #0x6             jt 4	jf 10
+(004) ldh      [20]
+(005) jset     #0x1fff          jt 10	jf 6
+(006) ldxb     4*([14]&0xf)
+(007) ldh      [x + 16]
+(008) jeq      #0x50            jt 9	jf 10
+(009) ret      #262144
+(010) ret      #0
+$ python3 minidump.py home.pcap "udp port 53" --trace 3
+…
+packet 3 through the program (A and X are the registers after each step):
+   A=0x800      X=0   (000) ldh      [12]
+   A=0x800      X=0   (001) jeq      #0x800           jt 2	jf 12
+   A=0x11       X=0   (002) ldb      [23]
+   A=0x11       X=0   (003) jeq      #0x11            jt 4	jf 12
+   A=0x4000     X=0   (004) ldh      [20]
+   A=0x4000     X=0   (005) jset     #0x1fff          jt 12	jf 6
+   A=0x4000     X=20  (006) ldxb     4*([14]&0xf)
+   A=0x35       X=20  (007) ldh      [x + 14]
+   A=0x35       X=20  (008) jeq      #0x35            jt 11	jf 9
+   A=0x35       X=20  (011) ret      #262144
+   → accepted
+
+</terminal>
+
+<p>The compiler’s trick is to give every part of the filter two exits, “yes” and “no”. <code>and</code> connects the left part’s “yes” to the start of the right part, <code>or</code> connects its “no” there instead, and <code>not</code> just swaps the exits:</p>
+
+<!-- @code labs/ch16/minidump.py#compile -->
+
+<p>Ports need a little more work, because the TCP header doesn’t start at a fixed place:</p>
+
+<!-- @code labs/ch16/minidump.py#port -->
+
+<p>And here’s the virtual machine that runs the result. The real one in your kernel is written in C, but it’s not much longer:</p>
+
+<!-- @code labs/ch16/minidump.py#run -->
+
+<h4>3. Go live</h4>
+
+<p><code>minidump.py</code> can’t open your network card itself, but <code>tcpdump</code> can, and <code>-w -</code> writes the capture file to a pipe instead of to disk. Start this, then ping something in a second terminal (on Linux, use your Wi-Fi’s name, such as <code>wlan0</code>, instead of <code>en0</code>):</p>
+
+<terminal title="terminal 1">
+$ sudo tcpdump -i en0 -U -w - | python3 minidump.py - "icmp or arp"
+  1 23:10:05.317249 IP 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15082, seq 1, length 64
+  2 23:10:05.333809 IP 1.1.1.1 > 192.168.1.4: ICMP echo reply, id 15082, seq 1, length 64
+  3 23:10:06.318876 IP 192.168.1.4 > 1.1.1.1: ICMP echo request, id 15082, seq 2, length 64
+…
+</terminal>
+
+<p>Now <code>tcpdump</code> does the capturing and your code does all the filtering and decoding.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Real <code>tcpdump</code> understands <code>port 80 or 443</code>: a bare number after <code>or</code> means “the same kind of thing as before”. <code>minidump.py</code> says <code>'443' isn't an IPv4 address</code>. Teach the parser to remember the last keyword.</li>
+<li><code>python3 minidump.py -d "ip and tcp dst port 80"</code> makes 13 instructions, but <code>tcpdump -d</code> makes 11. Which instructions are wasted? Real <code>tcpdump</code> has an optimizer that removes tests whose answers are already known. Can you write a simple one?</li>
+<li>Which packets have the “don’t chop me up” flag off? Try <code>'ip[6] &amp; 0x40 = 0'</code>, and work out why those are the ones.</li>
+<li>Capture your own traffic to a file with <code>sudo tcpdump -i en0 -w mine.pcap</code> while you browse for a minute. How many packets? Now filter for <code>'tcp[tcpflags] &amp; tcp-syn != 0 and tcp[tcpflags] &amp; tcp-ack = 0'</code>. Each one is a new connection. How many did one web page open?</li>
+<li>On Linux, try capturing with <code>-i any</code> and piping into <code>minidump.py</code>. It refuses. Look up “Linux cooked capture” to find out why, and what the frames look like instead.</li>
+</ul>
+</lab>

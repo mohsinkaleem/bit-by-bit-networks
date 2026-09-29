@@ -1,0 +1,368 @@
+<h3>Half a minute of silence</h3>
+
+<p>Bob is spending the weekend at Alice’s university, revising for his exams in the library while she works. Alice has a part-time job with the university’s network team, helping Carol, the engineer who runs the campus network. Halfway through the afternoon, Bob’s video call with his study group freezes. Thirty-five seconds later it comes back, as if nothing had happened.</p>
+
+<dialogue>
+B: My call just died for half a minute. Was that you?
+A: A digger. It went straight through the fibre between the library and the main building. Carol’s out there now, shouting at a man in a hi-vis jacket.
+B: But everything’s working again.
+A: There’s another way round: from the library to the lab building, and from there to the main building. The routers found it by themselves.
+B: Like the gossiping routers we invented, years ago?
+C: Not quite. Mine don’t gossip, they draw maps. And every one of them has the same map.
+B: Then why did it take thirty-five seconds?
+C: Ah. That’s my favourite complaint.
+</dialogue>
+
+<p>In Chapter 11 we invented routers, and a way for them to share what they know. This chapter is about how real routers do it inside one organization, like a university, a company or an internet provider. First, how a router uses its table, with a rule called <strong>longest-prefix match</strong>. Then, how the table gets filled in, by the old protocol that works like ours, <strong>RIP</strong>, and the map-drawing one that replaced it, <strong>OSPF</strong>. And we’ll build a small network of real OSPF routers inside Grandpa Otto’s Raspberry Pi, and cut its cables.</p>
+
+<h3>Every computer has a routing table</h3>
+
+<p>Not just routers. Your laptop decides where to send every packet too, using a table exactly like a router’s. Here’s Bob’s:</p>
+
+<terminal title="Bob’s MacBook">
+$ netstat -rn -f inet
+Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+⟦1:default            192.168.1.1        UGScg⟧                 en0
+127                127.0.0.1          UCS                   lo0
+127.0.0.1          127.0.0.1          UH                    lo0
+169.254            link#14            UCS                   en0      !
+⟦2:192.168.1          link#14⟧            UCS                   en0      !
+192.168.1.1/32     link#14            UCS                   en0      !
+⟦3:192.168.1.1        14:c3:5e:40:0b:32  UHLWIir⟧               en0   1198
+192.168.1.3/32     link#14            UCS                   en0      !
+192.168.1.4        2c:cf:67:5e:10:c2  UHLWI                 en0    974
+192.168.1.255      ff:ff:ff:ff:ff:ff  UHLWbI                en0      !
+⟦4:224.0.0/4          link#14⟧            UmCS                  en0      !
+224.0.0.251        1:0:5e:0:0:fb      UHmLWI                en0
+255.255.255.255/32 link#14            UCS                   en0      !
+</terminal>
+
+<callouts>
+1 | The default route: anything not listed elsewhere goes to the router. <code>G</code> means “through a gateway”.
+2 | macOS leaves out the zeros: this is 192.168.1.0/24, the home network. <code>link#14</code> means “no gateway: it’s right here, on interface 14”.
+3 | A surprise: on macOS, the answers to ARP’s “who has?” questions (Chapter 21) are kept <em>in the routing table</em>, as routes to single computers with a card address as the gateway. <code>L</code> is for “link-layer”, and <code>W</code> means it was cloned from the /24 route. Linux keeps them separately, in <code>ip neigh</code>.
+4 | Multicast addresses (Chapter 22’s 224.0.0.251 is in here) go straight out on the Wi-Fi.
+</callouts>
+
+<p>Grandpa Otto’s Pi has a much shorter one, because Linux keeps its special routes in a separate table:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ ip route
+default via 192.168.1.1 dev wlan0 ⟦1:proto dhcp⟧ src 192.168.1.4 ⟦2:metric 600⟧
+192.168.1.0/24 dev wlan0 ⟦3:proto kernel⟧ scope link src 192.168.1.4 metric 600
+$ ip route show table local
+local 127.0.0.0/8 dev lo proto kernel scope host src 127.0.0.1
+local 127.0.0.1 dev lo proto kernel scope host src 127.0.0.1
+broadcast 127.255.255.255 dev lo proto kernel scope link src 127.0.0.1
+local 192.168.1.4 dev wlan0 proto kernel scope host src 192.168.1.4
+broadcast 192.168.1.255 dev wlan0 proto kernel scope link src 192.168.1.4
+</terminal>
+
+<callouts>
+1 | <code>proto</code> says who put the route there. This one came from DHCP (Chapter 22).
+2 | If two routes to the same place tie, the lower metric wins. Linux gives Wi-Fi 600 and wired Ethernet 100, so a cable is preferred when both are plugged in.
+3 | The kernel added this one itself, the moment the Wi-Fi card got its address.
+</callouts>
+
+<h3>The longest match wins</h3>
+
+<p>Look at Bob’s table again. A packet to the Pi, 192.168.1.4, matches <em>three</em> routes: the default route (which matches everything), 192.168.1.0/24, and the route for 192.168.1.4 alone. Which one does the laptop use?</p>
+
+<p>The most specific one. A route is a prefix: “every address whose first 24 bits are these”. The more bits a route pins down, the fewer addresses it covers, and the more it knows about where they are. So the rule is: of all the routes that match, use the one with the longest prefix. Here it is for an address on Carol’s campus:</p>
+
+<!-- @include src/figs/ch23-lpm.svg -->
+
+<p>This one rule does a surprising amount of work. The default route, 0.0.0.0/0, is simply the shortest possible prefix, so it loses to everything and catches whatever’s left. A /32 names a single computer, so it beats everything. And in between, you can make exceptions: the lab building handles all of 10.1.0.0/16, <em>except</em> the library’s /24, <em>except</em> one server that moved. Try it:</p>
+
+<div data-widget="lpmtable"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>A router can’t check every route one by one: an internet provider’s router holds about a million, and has a few nanoseconds per packet. This chapter’s lab stores them in a <strong>trie</strong>, a tree with one level per bit, and finds the answer by walking down it, one bit of the address at a time, remembering the last route it passed. That takes at most 32 steps, however big the table is. Real routers do the same kind of walk in special chips, or look at every route at once with a kind of memory called TCAM, which compares an address with every stored prefix in parallel.</p>
+
+<h3>Classes, and why they went away</h3>
+
+<p>It wasn’t always like this. When IP addresses were first handed out, in 1981, there was no slash. The first few bits of an address said how big its network was:</p>
+
+<!-- @include src/figs/ch23-classful.svg -->
+
+<p>It was simple, and it was a disaster. A class C was too small for almost anyone, and a class A too big for almost everyone, so everybody asked for a class B, and by the early 1990s they were running out. Worse, every network needed its own entry in every router on the internet, and the routers of the day were running out of memory. So in 1993 the classes were abolished, and replaced with <strong>classless inter-domain routing</strong>, or CIDR (said “cider”): the slash notation from Chapter 20, where the network part can be any length. Organizations could be given exactly the size they needed. And the tables could shrink:</p>
+
+<!-- @include src/figs/ch23-aggregate.svg -->
+
+<p>Aggregation only works if addresses are handed out in blocks that follow the shape of the network: an internet provider gets a big block, and gives its customers pieces of it. Every time a customer leaves and takes its addresses along, or a network announces its pieces separately to control which way traffic comes in, the table grows. That’s why the internet’s table has kept growing ever since, and is now close to a million routes. (Chapter 24 will show what happens when someone announces a more specific route for addresses that <em>aren’t</em> theirs. Longest-prefix match is happy to believe them.)</p>
+
+<h3>Who writes the table?</h3>
+
+<p>Routes get into a table in three ways. <strong>Connected</strong> routes appear by themselves: the moment an interface gets an address, the computer knows its network is right there (<code>proto kernel</code>). <strong>Static</strong> routes are typed in by someone: <code>sudo ip route add 10.9.0.0/16 via 192.168.1.50</code>. And <strong>dynamic</strong> routes are filled in by a program that talks to other routers, using a routing protocol.</p>
+
+<p>Static routes are fine for a house, where there’s only one way out. They’re hopeless for Carol’s campus, with dozens of routers and several paths between most buildings. Nobody could keep them all up to date, and when the digger struck, somebody would have had to rush round retyping them. So the routers work it out among themselves, with a protocol that runs <em>inside</em> one organization, called an <strong>interior gateway protocol</strong>. There are two kinds.</p>
+
+<h3>Gossip, revisited: RIP</h3>
+
+<p>The first kind is the one we invented in Chapter 11. Every router tells its neighbours its whole table, “network 4 is 2 hops away from me”, and each neighbour adds one and keeps the best offer. It’s called <strong>distance vector</strong> routing, and the real version is the <strong>Routing Information Protocol</strong>, RIP, which really does all the things ours did. It sends its table every 30 seconds, to UDP port 520. It counts hops. And it has the same weakness: when a network disappears, the bad news spreads slowly, and routers can count to infinity, where infinity is 16. Split horizon, which we tried in Chapter 11’s lab, is in the standard, along with “poison reverse” (tell the neighbour you learned a route from that it’s 16 hops away, rather than saying nothing).</p>
+
+<p>RIP is still found in small networks, and it’s a lovely thing to learn from. But look at what it can’t do. A network more than 15 hops across is unreachable by definition. It counts every hop the same, whether it’s a fibre or a piece of wet string. And after a failure, it can take minutes to settle. For anything bigger than a few routers, people use the other kind.</p>
+
+<h3>Drawing the whole map: link state</h3>
+
+<p>Instead of telling its neighbours what it’s <em>heard</em>, each router tells <em>everyone</em> only what it knows for sure: which cables it has, and what each one costs. That’s a <strong>link-state advertisement</strong>, or LSA. Then every router collects everyone’s, and builds a map of the whole network. Getting each advertisement to every router, without a routing table (which is what we’re trying to build), uses a trick called <strong>flooding</strong>:</p>
+
+<!-- @include src/figs/ch23-flood.svg -->
+
+<p>Each advertisement carries a <strong>sequence number</strong>. When a router’s cables change, it sends a new advertisement with the next number, and everyone replaces the old one. Advertisements also have an age, and are sent again every 30 minutes even if nothing changed, so that a router that disappears without a word is eventually forgotten.</p>
+
+<p>The cost of a cable is chosen by the network’s owner. It’s usually worked out from its speed: OSPF divides a “reference speed” by the cable’s speed, so if the reference is 100 Gb/s, a 10 Gb/s fibre costs 10, and an old 1 Gb/s cable costs 100. That’s the campus in these figures: the old cable from the lab to the sports centre is ten times as expensive as the others. The best route isn’t the one with fewest hops, but the one with the lowest total cost.</p>
+
+<h3>Dijkstra’s shortest paths</h3>
+
+<p>With the map in hand, each router works out the cheapest path to every other router, using an algorithm invented by the Dutch computer scientist Edsger Dijkstra in 1956. It grows outward from the router itself, like a ripple, always settling the closest router it hasn’t settled yet, which is guaranteed to be as close as it will ever get. The result is a <strong>shortest-path tree</strong>: the best way from here to everywhere. Only the first step of each path matters for the routing table, because the next router will work out the rest of the path for itself, from the same map, and come to the same answer.</p>
+
+<div data-widget="spf"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Try cutting the main–library cable, the one the digger found. From the main building, the library is now 20 away, through the lab. And click the lab to start from there: there’s a cable straight to the sports centre, but it costs 100, so the cheapest way is <em>away</em> from it, round through the library and the dorms, for 30. Counting hops would have picked the slow cable.</p>
+
+<p>Here’s the heart of the lab’s version. The <code>heapq</code> module keeps the frontier sorted, so the cheapest router is always first:</p>
+
+<!-- @code labs/ch23/linkstate.py#dijkstra -->
+
+<h3>OSPF, for real, in a box</h3>
+
+<p>The link-state protocol almost everyone uses inside their networks is <strong>Open Shortest Path First</strong>. To watch it for real, Alice builds a copy of the three buildings from the story inside Grandpa Otto’s Pi: three virtual routers, called <code>library</code>, <code>lab</code> and <code>main</code>, wired in a triangle with virtual cables, each running a real routing program called BIRD. (How one computer can pretend to be three is Chapter 36’s story. For now, think of them as three little routers in a box.) This chapter’s lab has the script that builds it. Here’s the library router, a minute after they were switched on:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo sh ospf_box.sh up
+three routers are up; give them a few seconds to meet, then try: sudo sh ospf_box.sh show library
+$ sudo birdc -s /tmp/ospfbox/library.ctl show ospf neighbors
+campus:
+Router ID   	Pri	     State     	DTime	Interface  Router IP
+10.255.0.3  	  1	⟦1:Full/PtP⟧  	⟦2:30.866⟧	to-main    10.0.12.2
+10.255.0.2  	  1	Full/PtP  	30.871	to-lab     10.0.31.1
+$ sudo birdc -s /tmp/ospfbox/library.ctl show ospf state
+
+area 0.0.0.0
+
+	router 10.255.0.1
+		distance 0
+		router 10.255.0.3 metric 10
+		router 10.255.0.2 metric 10
+		stubnet 10.1.1.0/24 metric 10
+		stubnet 10.0.12.0/30 metric 10
+		stubnet 10.0.31.0/30 metric 10
+
+	⟦3:router 10.255.0.2⟧
+		⟦4:distance 10⟧
+		router 10.255.0.3 metric 10
+		router 10.255.0.1 metric 10
+		stubnet 10.1.2.0/24 metric 10
+		stubnet 10.0.23.0/30 metric 10
+		stubnet 10.0.31.0/30 metric 10
+
+	router 10.255.0.3
+		distance 10
+		router 10.255.0.1 metric 10
+		router 10.255.0.2 metric 10
+		stubnet 10.1.3.0/24 metric 10
+		stubnet 10.0.12.0/30 metric 10
+		stubnet 10.0.23.0/30 metric 10
+</terminal>
+
+<callouts>
+1 | Both neighbours are fully in step: “Full”, on a point-to-point cable.
+2 | Seconds left before the library gives up on this neighbour, unless it hears another Hello. It counts down from 40, and starts again at every Hello.
+3 | The whole map, one router’s advertisement at a time. Routers are named by a <strong>router ID</strong>, which looks like an address but is just a name: 10.255.0.2 is the lab.
+4 | The lab’s distance from the library, from Dijkstra. Each router lists its neighbours, and its “stub” networks: the building’s own network, and the tiny /30 networks on each cable.
+</callouts>
+
+<p>The capture of those first seconds, from the cable between the library and the main building, shows two routers getting to know each other:</p>
+
+<!-- @include src/figs/ch23-adjacency.svg -->
+
+<p>OSPF doesn’t use TCP or UDP. It sits straight on top of IP, as protocol number 89, the way ICMP is protocol 1, and handles its own acknowledgements and retries. The lab can read the capture, and rebuild the map from the advertisements inside it:</p>
+
+<terminal title="labs/ch23">
+$ python3 linkstate.py --pcap ospf.pcap
+  0.000  10.255.0.1  Hello                 every 10s, dead after 40s; I can hear: nobody yet
+  0.005  10.255.0.3  Hello                 every 10s, dead after 40s; I can hear: nobody yet
+ 10.001  10.255.0.1  Hello                 every 10s, dead after 40s; I can hear: 10.255.0.3
+ 10.001  10.255.0.3  Database Description
+ …
+ 10.001  10.255.0.3  LS Update             router 10.255.0.3 ⟦1:#1: 0 neighbours⟧, 3 networks
+ 10.099  10.255.0.1  LS Update             router 10.255.0.1 ⟦2:#2: 2 neighbours⟧, 3 networks
+ …
+10.255.0.1's routes, worked out from the capture (compare BIRD's “show route”):
+  10.0.12.0/30   cost  10  directly connected
+  10.0.23.0/30   cost  20  via router 10.255.0.2 (lab)
+  10.0.31.0/30   cost  10  directly connected
+  10.1.1.0/24    cost  10  directly connected
+  10.1.2.0/24    cost  20  via router 10.255.0.2 (lab)
+  10.1.3.0/24    cost  20  via router 10.255.0.3 (main)
+</terminal>
+
+<callouts>
+1 | Each router’s first advertisement, from before it had any neighbours: just its own networks.
+2 | A tenth of a second after becoming neighbours, the library sends a new one, with the next sequence number, adding its two cables.
+</callouts>
+
+<p>BIRD hands the routes it works out to Linux, which uses them to forward packets. They appear in the library’s ordinary routing table, marked <code>proto bird</code>:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo ip -n library route
+10.0.12.0/30 dev to-main proto kernel scope link src 10.0.12.1
+⟦1:10.0.12.0/30 dev to-main proto bird scope link metric 32⟧
+10.0.23.0/30 proto bird metric 32
+	⟦2:nexthop via 10.0.12.2 dev to-main weight 1⟧
+	⟦2:nexthop via 10.0.31.1 dev to-lab weight 1⟧
+10.0.31.0/30 dev to-lab proto kernel scope link src 10.0.31.2
+10.0.31.0/30 dev to-lab proto bird scope link metric 32
+10.1.1.0/24 dev lan proto kernel scope link src 10.1.1.1
+10.1.1.0/24 dev lan proto bird scope link metric 32
+10.1.2.0/24 via 10.0.31.1 dev to-lab proto bird metric 32
+10.1.3.0/24 via ⟦3:10.0.12.2 dev to-main⟧ proto bird metric 32
+</terminal>
+
+<callouts>
+1 | BIRD adds its own copy of each directly connected network. Linux keeps both, and uses the kernel’s own route, whose metric (none at all, so 0) is lower than BIRD’s 32.
+2 | Two next hops for one route! The cable between main and the lab is 20 away from the library either way round, so BIRD uses both.
+3 | The main building’s network goes straight across the library–main cable.
+</callouts>
+
+<think>
+<p>The library has two equally good ways to reach 10.0.23.0/30, and uses both. That’s called <strong>equal-cost multipath</strong>, or ECMP, and big networks rely on it to use all their cables at once. But should the router alternate, sending one packet each way?</p>
+<p>No: the two paths might take slightly different times, and packets of the same conversation would arrive out of order. TCP (Chapter 28) takes out-of-order packets as a sign that something was lost, and slows down. So routers pick the path for each packet by <em>hashing</em> its addresses and port numbers: every packet of one conversation gets the same answer, and goes the same way, while different conversations spread across both. It’s also why <code>traceroute</code> sometimes shows different routers answering for the same hop (Chapter 21): each probe uses a different port, so it can take a different path.</p>
+</think>
+
+<h3>Pulling the plug</h3>
+
+<p>Now for the digger. Alice starts a ping from the library to the main building, five pings a second, and pulls out the virtual cable between them:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo ip netns exec library ping -D -i 0.2 10.1.3.1
+[1790591396.148113] 64 bytes from 10.1.3.1: icmp_seq=9 ⟦1:ttl=64⟧ time=0.014 ms
+[1790591396.352120] 64 bytes from 10.1.3.1: icmp_seq=10 ttl=64 time=0.020 ms
+[1790591397.168154] 64 bytes from 10.1.3.1: ⟦2:icmp_seq=14 ttl=63⟧ time=0.052 ms
+[1790591397.372135] 64 bytes from 10.1.3.1: icmp_seq=15 ttl=63 time=0.031 ms
+…
+$ sudo ip netns exec library traceroute -n 10.1.3.1
+traceroute to 10.1.3.1 (10.1.3.1), 30 hops max, 60 byte packets
+ 1  ⟦3:10.0.31.1⟧  0.041 ms  0.008 ms  0.006 ms
+ 2  10.1.3.1  0.018 ms  0.009 ms  0.009 ms
+</terminal>
+
+<callouts>
+1 | The answers come straight back from the main building: the reply left with a hop limit of 64 and nobody counted it down.
+2 | Pings 11, 12 and 13 were lost. Then the answers come back with a hop limit one lower: they’re taking the long way round…
+3 | …through the lab building’s router.
+</callouts>
+
+<p>Six tenths of a second. When a cable is pulled out, the routers at both ends see their interface go down, and each floods a new advertisement straight away. Every router runs Dijkstra again, and the new paths are in place before most people notice. So why did Bob lose thirty-five seconds?</p>
+
+<p>Because on the real campus, the fibre doesn’t plug straight into the routers at both ends. It goes through a switch in a cupboard on the way. When the digger cut the fibre, the router’s own cable, to the switch, was fine. Its interface stayed up. It had no way of knowing that nothing on the other side was listening any more, except that the Hellos stopped. And a router only gives up on a silent neighbour after the <strong>dead interval</strong>: 40 seconds, four missed Hellos. Alice’s script can do that too. It leaves the cable “plugged in”, but throws away everything sent across it:</p>
+
+<!-- @include src/figs/ch23-dead.svg -->
+
+<p>Thirty-five seconds, just like Bob’s call (the main router’s last Hello had arrived five seconds before the cable went quiet). You could say hello more often, but OSPF’s Hellos are handled by the router’s ordinary processor, which is busy with other things. So real networks add a separate, tiny protocol whose only job is to notice this: <strong>Bidirectional Forwarding Detection</strong>, or BFD, which sends its own tiny hellos as often as every 50 milliseconds, often handled by the network card itself, and tells OSPF the moment they stop. Carol’s complaint is that the library link was the last one without it.</p>
+
+<p>Big networks go further, and work out a backup path in advance, so that the router can switch to it the moment a link fails, before anyone has even flooded the news. It’s called <strong>fast reroute</strong>, and it can mend a broken path in less time than it takes to blink.</p>
+
+<h3>Bigger networks: areas, and IS-IS</h3>
+
+<p>Flooding and Dijkstra get expensive when a network has thousands of routers: every change is flooded to all of them, and all of them rerun the algorithm. So OSPF lets a big network be split into <strong>areas</strong>. Routers only have the full map of their own area. At the edge of an area, an “area border router” tells the rest of the network just the <em>networks</em> inside, not the detailed map, and ideally aggregates them into a few short prefixes, like the internet provider in the aggregation figure. All areas connect to a central one, area 0, the backbone, which is the “area 0.0.0.0” in BIRD’s output. A digger in one area barely troubles the others.</p>
+
+<p>Many of the biggest internet providers use a close cousin of OSPF instead, called <strong>IS-IS</strong> (“intermediate system to intermediate system”, which is what the international standards of the 1980s called a router). It floods link states and runs Dijkstra just the same. It came from a rival family of network protocols that lost to TCP/IP, but it carries IP routes perfectly well, and because it doesn’t run on top of IP itself, it could carry IPv6 routes with hardly any changes.</p>
+
+<realworld>
+<p>The ARPANET, the internet’s ancestor, started out with distance-vector routing in 1969, and suffered from its slow convergence and loops. In 1979, it switched to link-state routing, with each switching computer flooding the delays on its lines, and running Dijkstra’s algorithm. RIP followed a different path: it began as a program called <code>routed</code> in BSD Unix in 1982, and was only written down as a standard in 1988, after it was already everywhere. OSPF was designed in the late 1980s, and its current version for IPv4, OSPFv2, was published in 1998. OSPFv3 does the same job for IPv6.</p>
+<p>Dijkstra said he designed his algorithm in about twenty minutes, sitting on a café terrace in Amsterdam with his fiancée, without pencil or paper. He was looking for a problem that non-computer-people could understand, to show off a new computer, and chose the shortest road between two Dutch cities.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Inside the university, every router trusts every other one, they all share one complete map, and they all agree on what “shortest” means. None of that is true between organizations. The internet provider on the other side of Carol’s gateway doesn’t want to show her its map, and it certainly doesn’t pick routes by the cheapest cable: it picks them by who pays whom. Chapter 24 is about the protocol that holds the internet’s tens of thousands of networks together, BGP, which is part routing protocol and part diplomacy.</p>
+
+<lab>
+<p>Three programs. <code>lpm.py</code> is a routing table with longest-prefix match, and can load your computer’s real one. <code>linkstate.py</code> floods advertisements, runs Dijkstra, and reads a real OSPF capture. <code>ospf_box.sh</code> builds the three real OSPF routers from the story, if you have a Linux computer.</p>
+
+<h4>1. Longest-prefix match</h4>
+
+<terminal title="labs/ch23">
+$ cd labs/ch23
+$ python3 lpm.py
+the main building's routing table:
+  0.0.0.0/0      via 10.0.0.1 (the internet provider)
+  10.0.0.0/8     drop: private, and not ours
+  10.1.0.0/16    via 10.0.23.2 (towards the lab building)
+  10.1.1.0/24    via 10.0.12.1 (the library)
+  10.1.3.0/24    dev lan (this building)
+  10.1.3.99/32   via 10.0.12.1 (one server that moved to the library)
+
+10.1.1.20        matches 0.0.0.0/0, 10.0.0.0/8, 10.1.0.0/16, 10.1.1.0/24
+                 longest: 10.1.1.0/24  →  via 10.0.12.1 (the library)
+…
+$ python3 lpm.py mine 1.1.1.1 192.168.1.4
+your routing table:
+  0.0.0.0/0            via 192.168.1.1 dev en0  [UGScg]
+  127.0.0.0/8          via 127.0.0.1 dev lo0  [UCS]
+…
+192.168.1.4      matches 0.0.0.0/0, 192.168.1.0/24, 192.168.1.4/32
+                 longest: 192.168.1.4/32  →  via 2c:cf:67:5e:10:c2 dev en0  [UHLWIi]
+$ python3 lpm.py aggregate 10.1.0.0/24 10.1.1.0/24 10.1.2.0/24 10.1.3.0/24 10.1.5.0/24
+merging:
+  10.1.0.0/24 + 10.1.1.0/24  →  10.1.0.0/23
+  10.1.2.0/24 + 10.1.3.0/24  →  10.1.2.0/23
+  10.1.0.0/23 + 10.1.2.0/23  →  10.1.0.0/22
+5 routes became 2: 10.1.0.0/22, 10.1.5.0/24
+$ python3 lpm.py bench
+built a trie of 200,000 routes in 0.9 s
+trie:      2.3 µs per lookup (at most 32 steps)
+list:  17124.7 µs per lookup (checks every route)  →  7,300× slower
+</terminal>
+
+<p>The trie is a list of three things per node: the child for a 0 bit, the child for a 1 bit, and the route stored there, if any:</p>
+
+<!-- @code labs/ch23/lpm.py#trie -->
+
+<h4>2. Link state</h4>
+
+<terminal title="labs/ch23">
+$ python3 linkstate.py --from library -v --cut main-library
+6 routers flooded 6 advertisements using 54 messages.
+every router now has the same map: yes
+
+Dijkstra, run by library:
+  settle library  cost   0
+  settle dorms    cost  10  (first hop: dorms)
+  settle lab      cost  10  (first hop: lab)
+  settle main     cost  10  (first hop: main)
+  settle gateway  cost  11  (first hop: main)
+  settle sports   cost  20  (first hop: dorms)
+…
+✂  the main–library cable is cut. main and library each send new advertisements (sequence number 2).
+   that took 14 messages. Everyone runs Dijkstra again.
+…
+   library → gateway: was via main (cost 11), now via lab (cost 21)
+   library → main: was via main (cost 10), now via lab (cost 20)
+</terminal>
+
+<p>Flooding is only a few lines. The check for old news is what stops the flood from going round in circles for ever:</p>
+
+<!-- @code labs/ch23/linkstate.py#flood -->
+
+<p>And reading a real OSPF advertisement is just unpacking fields, the way we did with IP headers in Chapter 20:</p>
+
+<!-- @code labs/ch23/linkstate.py#ospf -->
+
+<h4>3. Real routers (Linux only)</h4>
+
+<p>On a Linux computer, install BIRD (<code>sudo apt install bird2</code>, then <code>sudo systemctl disable --now bird</code> so the copy the installer started doesn’t get in the way), and run <code>sudo sh ospf_box.sh up</code>. Wait a minute, then try <code>sudo sh ospf_box.sh show library</code>, <code>sudo sh ospf_box.sh cut library main</code>, <code>quiet library main</code> and <code>mend library main</code>, with a ping running in another window: <code>sudo ip netns exec library ping -D 10.1.3.1</code>. <code>sudo sh ospf_box.sh down</code> takes it all away. Nothing it does touches your real network.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Make the lab–sports cable cost 5 instead of 100, in <code>linkstate.py</code>’s <code>CAMPUS</code> and in the widget above. Which routes change?</li>
+<li>Give <code>dijkstra()</code> equal-cost multipath: when a second path ties with the best one, remember both first hops. From the library, which destinations get two?</li>
+<li>In <code>flood()</code>, remove the check for old news. What happens? (Press Ctrl-C.)</li>
+<li>In the OSPF box, change the library–lab cable’s cost to 30 in <code>/tmp/ospfbox/library.conf</code> and <code>lab.conf</code>, then <code>sudo birdc -s /tmp/ospfbox/library.ctl configure</code> (and the same for the lab). Watch <code>ip -n library route</code> change.</li>
+<li>Capture it yourself: <code>sudo ip netns exec main tshark -i to-library -f "proto 89"</code> while you cut and mend a cable. Which messages are flooded?</li>
+</ul>
+</lab>

@@ -1,0 +1,71 @@
+<h3>Christmas Eve</h3>
+
+<p>Years after Chapter 1, the two houses still face each other across the street. It’s Christmas Eve, and everyone has come home: Alice, and her brother Max, and Grandpa Otto on one side; Bob, and his sister Nia, and Uncle Ray, down from the farm, on the other. Somewhere in the evening, Bob finds something in the drawer of his old desk.</p>
+
+<dialogue>
+B: The flashlight. It still works.
+note: Across the street, a bedroom light goes on.
+A: Is that…? Max, where’s the codebook?
+G: You don’t need a codebook. I’ve still got it in my head. Give me that lamp.
+note: Red, red, green, green, green. A pause. Red, green, red, red, red.
+B: Ray! What did he say?
+note: Uncle Ray is already writing it down, the way he did twenty years ago.
+</dialogue>
+
+<p>Everything in this book was already in that first message. Alice, Max and Otto split the job into layers, each trusting the one below it. They agreed on a code, and on a signal for “the next letter starts now”. They found out, the hard way, that a message can be misread, and that someone needs to say “got it”. Every chapter since has been one of those ideas grown up.</p>
+
+<div data-widget="flashmessage"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>What you’ve built</h3>
+
+<!-- @include src/figs/epilogue-stack.svg -->
+
+<p>Look at the layers, and a few ideas turn up again and again, in new clothes:</p>
+
+<ul>
+<li><strong>Layers.</strong> Each layer does one job and trusts the one beneath it: the flashlight, Ethernet under IP, TCP under TLS, TLS under HTTP, bundles over whatever link works. It’s why the internet could swap copper for glass, and wires for radio, and satellites for cables, without starting again.</li>
+<li><strong>Somebody has to decide, and it’s best when nobody decides for everyone.</strong> Switches learning addresses, routers drawing maps, BGP’s treaties, a mesh counting hellos: the internet works because no one runs it.</li>
+<li><strong>Things go wrong, so check, and try again.</strong> Checksums, acknowledgements, retransmissions, the Finished message, the bundle’s CRC. Reliability is always built on top of something unreliable.</li>
+<li><strong>Remember what you can.</strong> ARP caches, DNS caches, HTTP caches, CDNs, content stores. The fastest packet is the one you never had to send.</li>
+<li><strong>Trust has to be earned, and checked.</strong> From Eve’s ARP tricks to certificates, signatures and quantum-proof locks: on a network, anyone can say anything, so the answer can’t be to believe them.</li>
+</ul>
+
+<h3>Where to go next</h3>
+
+<p>You can take any of these further; here are some good places to start.</p>
+
+<h4>Read</h4>
+<ul>
+<li><a href="https://www.networksfromscratch.com/">Computer Networks From Scratch</a> by Seth Archer Brown: the book whose style inspired this one.</li>
+<li><a href="https://book.systemsapproach.org/">Computer Networks: A Systems Approach</a> by Larry Peterson and Bruce Davie, free online: the classic textbook, with the reasoning behind each design.</li>
+<li><a href="https://hpbn.co/">High Performance Browser Networking</a> by Ilya Grigorik, free online: TCP, TLS, HTTP and wireless, from the point of view of making web pages fast.</li>
+<li><em>TCP/IP Illustrated, Volume 1</em> by W. Richard Stevens and Kevin Fall (whose delay-tolerant networking you met in Chapter 41): every protocol, taken apart packet by packet.</li>
+<li><a href="https://beej.us/guide/bgnet/">Beej’s Guide to Network Programming</a>: sockets, the way Chapter 26 used them, in C.</li>
+<li><a href="https://tls13.xargs.org/">The Illustrated TLS 1.3 Connection</a> and <a href="https://quic.xargs.org/">The Illustrated QUIC Connection</a> by Michael Driscoll: every byte of Chapters 32 and 33, annotated.</li>
+</ul>
+
+<h4>Read the source</h4>
+<p>The standards are free, and more readable than their reputation. Start with the ones this book took apart: RFC 791 (IPv4), RFC 9293 (TCP), RFC 1034 and 1035 (DNS), RFC 9110 (HTTP), RFC 8446 (TLS 1.3), RFC 9000 (QUIC), and RFC 9171 (bundles for Mars). They’re all at <a href="https://www.rfc-editor.org/">rfc-editor.org</a>. The people who write them meet at the IETF, whose mailing lists anyone can join.</p>
+
+<h4>Build</h4>
+<ul>
+<li>Turn a Raspberry Pi into your home’s router, firewall and DNS resolver, with Chapters 22, 29 and 34 as your guide.</li>
+<li>Set up WireGuard (Chapter 35) between your home and your phone, and IPv6 (Chapter 25) if your provider offers it.</li>
+<li>Build bigger virtual networks than this book’s namespaces with <a href="https://containerlab.dev/">containerlab</a>, which runs real router software in containers, or <a href="http://mininet.org/">Mininet</a>, for software-defined networks (Chapter 39).</li>
+<li>Craft your own packets in Python with Scapy, the natural next step after this book’s <code>struct.pack</code>.</li>
+</ul>
+
+<h4>Keep watching</h4>
+<p>Keep Wireshark (Chapter 16) running on your own machine now and then, and ask of every packet: who sent that, and why? And follow the people who run the real internet as they write about it: the RIPE Labs and APNIC blogs, and the engineering blogs of the big networks, are full of real detective stories like Chapter 38’s.</p>
+
+<h3>The last word</h3>
+
+<p>Back on Christmas Eve, Uncle Ray has finished writing. Five bits, five bits, five bits. He turns the paper round to show everyone.</p>
+
+<dialogue>
+note: HI BOB. MERRY CHRISTMAS. COME OVER, THERE IS CAKE.
+B: That’s the best message anyone’s ever sent me.
+note: Bob picks up the flashlight, and starts to answer.
+</dialogue>
+
+<p>Every network you’ll ever meet, however big and however clever, is somebody flashing a light, and somebody else, across the way, watching for it. Thank you for reading.</p>

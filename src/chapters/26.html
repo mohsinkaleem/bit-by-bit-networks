@@ -1,0 +1,218 @@
+<h3>The first buzzer wins</h3>
+
+<p>It’s the Christmas holidays, Alice is home, and Bob has a plan for the family quiz: a buzzer. Everyone opens a little program on their laptop or phone, and the first person to press the space bar gets to answer. He’s written it in an afternoon, it mostly works, and there’s already been an argument.</p>
+
+<dialogue>
+B: Grandpa pressed first. I saw him. But his buzz never arrived!
+A: What does your program use to send the buzz?
+B: UDP. You said TCP was for things that need to arrive in order, and a buzz is just one message.
+A: It is. But UDP doesn’t promise it’ll arrive at all. If a packet is lost on the Wi-Fi, or your laptop was too busy to read it, it’s just gone. Nobody even notices.
+B: Then how do I know whose press came first? Maybe his laptop’s clock is just slow.
+A: Everybody’s clock is slow, or fast. That’s a whole protocol of its own. It uses UDP too.
+</dialogue>
+
+<p>This chapter is about the transport protocol that does almost nothing: <strong>UDP</strong>, the User Datagram Protocol, which we invented in Chapter 12 as “fire and forget”. It adds only two things to IP, port numbers and a checksum, and that’s exactly why so many protocols are built on it. We’ll also look properly at how a program talks to the network in the first place, through the <strong>sockets API</strong>, and we’ll build a client for a protocol your computer uses every day, to find out what time it is.</p>
+
+<h3>A doorway into the kernel</h3>
+
+<p>Every lab in this book has used sockets, starting with Chapter 4. A program can’t touch the network card itself: only the operating system’s kernel can do that, for all the programs at once. So the kernel offers a set of <strong>system calls</strong>, functions a program can call to ask it for things. For networking, they were designed in 1983, for the version of Unix made at the University of California, Berkeley, and nearly every operating system has copied them since. Python’s <code>socket</code> module is a thin wrapper around them. Here’s what they do inside:</p>
+
+<!-- @include src/figs/ch26-socket.svg -->
+
+<p>A socket is two things: an entry in a table, which tells the kernel which datagrams belong to it, and a queue, where they wait until the program reads them. You can see your computer’s UDP sockets with <code>netstat</code>, or with <code>lsof</code>, which also shows which program owns each one. Here’s Bob’s MacBook, with this chapter’s time server running:</p>
+
+<terminal title="Bob’s MacBook">
+$ netstat -an -p udp | grep -E "Proto|7123|5353"
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
+udp4       0      0  ⟦1:127.0.0.1.7123⟧         *.*
+udp46      0      0  ⟦2:*.5353⟧                 *.*
+$ lsof -nP -iUDP | grep Google
+Google     4166 bob   22u  IPv4 0x12868acbc6275a15      0t0  UDP ⟦3:192.168.1.3:63095->142.251.220.110:443⟧
+Google     4166 bob   28u  IPv4 0x38b8785b18cbd0f0      0t0  UDP 192.168.1.3:61570->142.251.151.4:443
+</terminal>
+
+<callouts>
+1 | The lab’s time server, bound to port 7123 on the loopback address only, so nothing outside the MacBook can reach it. <code>Recv-Q</code> is how many bytes are waiting in its buffer.
+2 | Multicast DNS (Chapter 22), bound to every address, for IPv4 and IPv6 (<code>udp46</code>).
+3 | Google Chrome, talking UDP to Google’s servers on port 443, the HTTPS port. That’s <strong>QUIC</strong>, the newest way to fetch web pages, built on top of UDP. It gets a whole chapter of its own: Chapter 33.
+</callouts>
+
+<h3>The smallest header</h3>
+
+<p>We invented UDP’s header in Chapter 12, and the real one is exactly the same:</p>
+
+<!-- @include src/figs/ch26-header.svg -->
+
+<p>The checksum covers the header and the data, and also the source and destination IP addresses (Chapter 12’s “pseudo-header”), so that a datagram delivered to the wrong computer is noticed. The length field allows up to 65,535 bytes, which leaves room for 65,507 bytes of data inside an IPv4 packet. But anything bigger than about 1,472 bytes won’t fit in one Ethernet frame, so IP would have to cut it into fragments (Chapter 20), and if any one fragment is lost, the whole datagram is lost. So programs that use UDP almost always keep each datagram small. The lab tries a few sizes:</p>
+
+<terminal title="labs/ch26">
+$ python3 udp_lab.py big
+  1000 bytes: sent and received (1000 bytes)
+  1472 bytes: sent and received (1472 bytes)
+  1473 bytes: sent and received (1473 bytes)
+  9216 bytes: sent and received (9216 bytes)
+  ⟦1:9217 bytes: Message too long⟧
+ 65507 bytes: Message too long
+ 65508 bytes: Message too long
+macOS refuses anything bigger than its net.inet.udp.maxdgram setting: 9,216 bytes, unless you change it.
+</terminal>
+
+<callouts>
+1 | macOS has its own, lower limit. On Linux, the 65,507-byte datagram goes through, and only the 65,508-byte one fails.
+</callouts>
+
+<h3>What UDP doesn’t do</h3>
+
+<p>Here’s the whole list of what UDP does for a program: it delivers each datagram to the right socket, whole, or not at all, and it checks for damage on the way. Here’s what it doesn’t do. There’s no connection, so nobody knows whether anyone is listening. There’s no acknowledgement, so nobody knows whether a datagram arrived. There’s no numbering, so datagrams can arrive out of order, or twice. And there’s nothing to stop a sender going faster than the receiver can cope with.</p>
+
+<p>That last one surprises people. It isn’t only the network that loses datagrams. The lab sends 20,000 datagrams, as fast as it can, to a socket on the same computer, and only reads them afterwards:</p>
+
+<terminal title="labs/ch26">
+$ python3 udp_lab.py flood
+receive buffer 786,896 bytes: sent 20,000 datagrams of 1000 bytes, received ⟦1:762⟧, lost 19,238  (the kernel counted ⟦2:19,238 dropped for full buffers⟧)
+  the survivors were numbers 0 to 761: the first ones, until the buffer filled
+receive buffer 8,388,608 bytes: sent 20,000 datagrams of 1000 bytes, received 8,128, lost 11,872  (the kernel counted 11,872 dropped for full buffers)
+  the survivors were numbers 0 to 8127: the first ones, until the buffer filled
+</terminal>
+
+<callouts>
+1 | The buffer holds 786,896 bytes, but only 762 datagrams of 1,000 bytes fitted: the kernel counts its own bookkeeping for each datagram too.
+2 | The kernel keeps count of every datagram it throws away (<code>netstat -s -p udp</code> on a Mac, <code>/proc/net/snmp</code> on Linux), but nobody tells the sender. A bigger buffer only delays the problem.
+</callouts>
+
+<p>Not one datagram was damaged, and not one crossed a network. The reader was simply too slow. That’s exactly what may have happened to Grandpa Otto’s buzz: if Bob’s program was busy drawing the screen, and the buffer was full of other people’s buzzes, his was dropped. Try it:</p>
+
+<div data-widget="udpbuffer"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>So a program built on UDP has to handle all of this itself, if it cares. A game sends the players’ positions many times a second, and if one update is lost, the next one replaces it anyway, so it doesn’t care. A video call would rather show a glitch than freeze while a lost packet is sent again. DNS (Chapter 29) sends its question again if there’s no answer after a second or so. Bob’s buzzer should have done the same: send each buzz a few times, with a number, and have the quizmaster’s program acknowledge it.</p>
+
+<h3>Connected UDP sockets</h3>
+
+<p>There’s one more trick hidden in the sockets API. A UDP socket can be <em>connected</em>. Nothing is sent: <code>connect()</code> just tells the kernel “this socket only talks to that address and port”. That has two effects. The kernel throws away datagrams from anyone else, and it can now tell the program about errors:</p>
+
+<terminal title="labs/ch26">
+$ python3 udp_lab.py refused
+unconnected socket: sent fine, then silence. It never finds out nobody was there.
+connected socket:   ⟦1:ConnectionRefusedError(61, 'Connection refused')⟧
+  The other computer sent back an ICMP “port unreachable” (Chapter 21), and because this
+  socket is connected, the kernel knew which socket it was about, and told us.
+</terminal>
+
+<callouts>
+1 | “Connection refused”, from a protocol with no connections! The ICMP error arrived for both sockets, but only the connected one could be matched to it.
+</callouts>
+
+<p>Here’s the lab’s code. The only difference between the two halves is the call to <code>connect()</code>:</p>
+
+<!-- @code labs/ch26/udp_lab.py#refused -->
+
+<h3>Talking to many at once</h3>
+
+<p>UDP can do something TCP can’t: send one datagram to many computers. A socket with the <code>SO_BROADCAST</code> option can send to a network’s broadcast address, which is how DHCP’s DISCOVER works (Chapter 22). And a socket can <strong>join a multicast group</strong>, an address from 224.0.0.0/4, to receive everything sent to it. That’s how multicast DNS and Chapter 25’s neighbour discovery work, and how Bob fixes his buzzer: everyone’s program joins one group, so every buzz reaches every screen, and everyone can see who pressed first. The lab has a chat room for your whole network, in about twenty lines:</p>
+
+<!-- @code labs/ch26/udp_lab.py#chat -->
+
+<p>When a program joins a group, the computer tells the network with a protocol called IGMP, so that switches clever enough to listen (“IGMP snooping”) send the group’s frames only to the ports that want them, and not to everyone. The <code>IP_MULTICAST_TTL</code> of 1 keeps the chat on the home network: the first router will throw it away.</p>
+
+<h3>One program, many sockets</h3>
+
+<p>The chat has a problem that every network program meets: it has two things to wait for, the keyboard and the socket, and if it waits for one, it can’t notice the other. So it hands both to <code>select()</code>, a system call that waits for <em>any</em> of a list of sockets (or files, or keyboards) to have something ready, and says which. Its descendants, <code>poll()</code>, <code>epoll</code> on Linux and <code>kqueue</code> on macOS, do the same for tens of thousands of sockets at once, and they’re how a single web server handles every visitor at the same time. Python’s <code>asyncio</code> is built on top of them.</p>
+
+<h3>What time is it?</h3>
+
+<p>Now for Bob’s other question. Whose clock is right?</p>
+
+<p>Computers keep time with a quartz crystal, like a wristwatch, and like Chapter 2’s flashlights, no two crystals tick at exactly the same speed. A typical computer clock drifts by a second or so a day. Grandpa Otto’s Raspberry Pi doesn’t even have a battery for its clock, so every time it’s switched on, it has no idea what year it is. So every computer asks the network, using the <strong>Network Time Protocol</strong>, NTP, on UDP port 123.</p>
+
+<p>NTP servers form a hierarchy. At the top, called stratum 0, are real clocks: atomic clocks, and GPS receivers, which get the time from the atomic clocks in the satellites. Servers connected directly to one are stratum 1. Servers that get their time from those are stratum 2, and so on. Here’s this chapter’s lab asking five of them:</p>
+
+<terminal title="labs/ch26">
+$ python3 ntp.py
+time.apple.com         17.253.60.45     stratum 2  offset   +92.85 ms  delay  98.43 ms   synchronized to 17.253.68.253
+time.google.com        216.239.35.12    stratum 1  offset   +70.37 ms  delay  54.70 ms   ⟦1:GOOG (a clock of its own)⟧
+time.cloudflare.com    162.159.200.1    stratum 3  offset   +64.97 ms  delay  15.08 ms   synchronized to 10.198.8.4
+pool.ntp.org           172.236.180.15   stratum 5  offset   +65.32 ms  delay  22.89 ms   synchronized to 40.81.94.65
+ntp.ubuntu.com         91.189.91.157    stratum 2  offset   +60.43 ms  delay 275.37 ms   synchronized to 132.163.96.1
+</terminal>
+
+<callouts>
+1 | A stratum 1 server names its reference clock instead of a server. Google’s just says “GOOG”; others say “GPS” or “PPS”.
+</callouts>
+
+<p>Every server agrees: Bob’s MacBook is about 65 milliseconds slow. (The Mac’s own tool, <code>sntp time.apple.com</code>, said <code>+0.065679</code>.) But how can a client measure the difference between two clocks, when the answer spends an unknown time travelling across the network? With four timestamps:</p>
+
+<!-- @include src/figs/ch26-ntp.svg -->
+
+<p>The one assumption is that the journey takes as long in each direction. When it doesn’t, the answer is off by half the difference, which is why the servers with the longest delays disagree the most. Real NTP programs, like <code>chronyd</code> on Linux and <code>timed</code> on macOS, ask several servers, many times, keep the answers with the shortest delays, and throw out any server that disagrees with the rest. And they don’t jump the clock (programs get very confused when time goes backwards): they <em>slew</em> it, running it slightly faster or slower until it catches up. Over the internet, NTP keeps a clock within a few milliseconds. Inside data centres, where it matters more, a cousin called the Precision Time Protocol uses timestamps taken by the network cards themselves, and gets within a millionth of a second.</p>
+
+<p>The request is 48 bytes, sent in one datagram, and the answer comes back the same way:</p>
+
+<!-- @code labs/ch26/ntp.py#query -->
+
+<think>
+<p>Why does NTP use UDP, and not TCP, which would make sure the answer arrives?</p>
+<p>Because a late answer is worse than no answer. If a TCP packet is lost, TCP waits, and sends it again, and the answer arrives much later than it should, with no way to tell. The client would get a wildly wrong offset. With UDP, a lost request just means no answer, and the client asks again. The same goes for anything where timing matters more than completeness: voice, video, games. And a TCP connection would need three extra packets before the first question, for a conversation that’s one datagram each way.</p>
+</think>
+
+<realworld>
+<p>UDP was defined in 1980, in a document just three pages long, the shortest of all the internet’s main standards. Its author was David P. Reed, who wanted a way to use IP for things that didn’t fit TCP, like speech. Today it carries DNS, DHCP, NTP, multicast DNS, voice and video calls, online games, most VPNs (Chapter 35), and, since QUIC arrived, a large share of all web traffic.</p>
+<p>NTP is even older. David L. Mills started working on it in the early 1980s, and kept improving it for the rest of his career. Its timestamps count seconds from 1 January 1900, in 32 bits, which means they will overflow on 7 February 2036. The protocol was designed with that in mind, and most software will cope, but some old devices will get very confused about the date.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>UDP is fire and forget, and the program has to cope with everything else. For most of what we do, loading web pages, sending email, copying files, we want every byte, in order, with nothing lost and nothing added. That’s what Chapter 13’s reliable delivery gave us, and its real version is the protocol that carries most of the internet’s traffic: TCP. Chapter 27 takes it apart, starting with a real capture of a connection that lost packets and recovered.</p>
+
+<lab>
+<p>Two programs. <code>ntp.py</code> asks time servers what time it is, and runs one of its own. <code>udp_lab.py</code> has four small experiments with UDP sockets.</p>
+
+<h4>1. What time is it?</h4>
+
+<terminal title="labs/ch26">
+$ cd labs/ch26
+$ python3 ntp.py time.apple.com --explain
+asked time.apple.com (17.253.60.45), stratum 2, synchronized to 17.253.68.253
+  t1 = 16:55:20.689401   we sent the request (by our clock)
+  t2 = 16:55:20.783039   it arrived (by the server's clock)
+  t3 = 16:55:20.783048   the reply left (by the server's clock)
+  t4 = 16:55:20.741058   the reply arrived (by our clock)
+  round trip, minus the server's thinking time: (t4 - t1) - (t3 - t2) = 51.65 ms
+  our clock is off by ((t2 - t1) + (t3 - t4)) / 2 = +67.81 ms   (+ means we're behind)
+$ python3 ntp.py serve
+a time server +600 s wrong is listening on 127.0.0.1:7123 (Ctrl-C to stop)
+</terminal>
+
+<p>Then, in another window, <code>python3 ntp.py 127.0.0.1:7123 --explain</code> asks the wrong server, and finds your clock 600 seconds behind. The server is just a loop around <code>recvfrom()</code> and <code>sendto()</code>:</p>
+
+<!-- @code labs/ch26/ntp.py#serve -->
+
+<h4>2. UDP’s limits</h4>
+
+<p><code>python3 udp_lab.py refused</code>, <code>flood</code> and <code>big</code> are the experiments from this chapter. Here’s the flood: note that there’s nothing in the sender’s loop that could ever slow it down.</p>
+
+<!-- @code labs/ch26/udp_lab.py#flood -->
+
+<h4>3. Chat with everyone</h4>
+
+<p>Run <code>python3 udp_lab.py chat Alice</code> in one window and <code>python3 udp_lab.py chat Bob</code> in another, or on two computers on the same network:</p>
+
+<terminal title="labs/ch26">
+$ python3 udp_lab.py chat Bob
+chatting on 239.255.42.99:7199. Type a line and press Enter; Ctrl-C to leave.
+  [192.168.1.3] Alice joined
+  [192.168.1.3] Bob joined
+hi Alice
+  [192.168.1.3] Bob: hi Alice
+  [192.168.1.3] Alice: anyone home?
+</terminal>
+
+<p>(You hear your own messages too: multicast is delivered to every member of the group, including the sender’s own computer.)</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Fix Bob’s buzzer: turn the chat into a buzzer where each press is sent three times with a sequence number, and each program ignores copies it has already seen.</li>
+<li>In <code>flood()</code>, add <code>time.sleep(0.0001)</code> to the sender’s loop. How much slower does it have to go before nothing is lost?</li>
+<li>Run <code>ntp.py</code> ten times against the same server. How much does the offset jump around? Keep only the answer with the smallest delay, as real NTP does. Is it steadier?</li>
+<li>On Linux, <code>strace -e trace=network python3 ntp.py time.google.com</code> shows every system call the lab makes. Can you match them to the figure at the top of this chapter?</li>
+</ul>
+</lab>

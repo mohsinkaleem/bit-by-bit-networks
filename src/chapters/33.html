@@ -1,0 +1,336 @@
+<h3>Eighty photos</h3>
+
+<p>Grandpa Otto has discovered the photo gallery. His garden website now has a page with eighty pictures of beans, and it’s the page he shows everyone, on his phone, standing at the allotment where the mobile signal comes and goes.</p>
+
+<dialogue>
+B: The page itself is fast now, with caching. But look at the waterfall in the developer tools: the photos load six at a time. The rest just sit there, “queued”.
+A: That’s HTTP/1.1. One request at a time on each connection, and the browser won’t open more than six to one site.
+B: Couldn’t it send all eighty requests down one connection?
+A: It could send them, but the answers would have to come back in order, one whole photo after another. One slow photo holds up everything behind it.
+B: So what we want is one connection, with all eighty photos coming back at the same time, mixed together.
+A: Chopped into pieces, with a label on each piece saying which photo it belongs to. That’s HTTP/2. And then there’s the problem of the signal at the allotment…
+</dialogue>
+
+<p>Chapter 30’s HTTP/1.1 is still spoken everywhere, but most requests from a modern browser now use one of its two successors. <strong>HTTP/2</strong> keeps everything HTTP means (methods, headers, status codes, caching) but sends it as binary <em>frames</em>, so many requests can share one connection. <strong>HTTP/3</strong> goes further and replaces TCP itself, with a new transport protocol called <strong>QUIC</strong>, built on UDP, with TLS 1.3 inside. In this chapter we take both apart, and build clients for each, from scratch.</p>
+
+<!-- @include src/figs/ch33-stacks.svg -->
+
+<h3>HTTP/1.1’s traffic jam</h3>
+
+<p>An HTTP/1.1 connection is a conversation where only one question can be in the air at a time. A response must be completely sent before the next can start, because there’s nothing in the bytes to say which response they belong to. That’s <strong>head-of-line blocking</strong>: the response at the front of the line holds up everything behind it.</p>
+
+<p>Browsers work around it by opening several connections to the same site, up to six, each with its own TCP handshake, TLS handshake and slow start (Chapter 28). Websites worked around it with tricks: spreading files over several domain names to get six connections each, gluing small images into one big one, and pasting scripts and styles straight into the page. HTTP/2 made all of those unnecessary.</p>
+
+<h3>Frames and streams</h3>
+
+<p>An HTTP/2 connection starts like any HTTPS connection, except that in the TLS handshake, the browser’s ALPN extension (Chapter 32) offers <code>h2</code>, and the server accepts. After that, everything is <strong>frames</strong>, each with a 9-byte header:</p>
+
+<!-- @include src/figs/ch33-frame.svg -->
+
+<p>The <strong>stream number</strong> is the label on each piece. Each request and its response is a stream: the client picks a new odd number for each request (1, 3, 5…), sends a HEADERS frame with the request’s headers, and the response comes back as HEADERS and DATA frames with the same number. Frames of different streams can be mixed together in any order. Here’s this chapter’s lab, an HTTP/2 client written directly on top of Python’s TLS, asking example.org for its page:</p>
+
+<terminal title="labs/ch33">
+$ python3 h2client.py example.org --hpack
+TLS connected to example.org; ALPN chose ⟦1:'h2'⟧
+
+   0.0 ms → (preface)        24 bytes: ⟦2:b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n'⟧
+   0.1 ms → SETTINGS       stream 0     12 bytes  ENABLE_PUSH=0, ⟦3:INITIAL_WINDOW_SIZE=16777216⟧
+   0.1 ms → WINDOW_UPDATE  stream 0      4 bytes  +16,711,681 bytes may be sent
+   0.2 ms → HEADERS        stream 1     31 bytes  ⟦4:GET /  (31 bytes of compressed headers)⟧
+  23.3 ms ← SETTINGS       stream 0     18 bytes  ⟦5:MAX_CONCURRENT_STREAMS=100⟧, INITIAL_WINDOW_SIZE=65536, MAX_FRAME_SIZE=16777215
+  23.3 ms → SETTINGS       stream 0      0 bytes  ACK: “got your settings”
+  23.4 ms ← WINDOW_UPDATE  stream 0      4 bytes  +2,147,418,112 bytes may be sent
+  50.1 ms ← SETTINGS       stream 0      0 bytes  ACK: “got your settings”
+  60.9 ms ← HEADERS        stream 1    150 bytes  :status 200, 11 headers
+            1 bytes  :status: 200                                      ⟦6:index 8 (static table)⟧
+           24 bytes  date: Mon, 28 Sep 2026 16:40:44 GMT               name from index 33, value Huffman-coded; added to the dynamic table
+           20 bytes  content-type: text/html; charset=utf-8            name from index 31, value Huffman-coded; added to the dynamic table
+            9 bytes  server: cloudflare                                name from index 54, value Huffman-coded; added to the dynamic table
+           …
+  61.0 ms ← DATA           stream 1    713 bytes
+  61.0 ms ← DATA           stream 1      0 bytes  ⟦7:END_STREAM⟧
+  61.1 ms → GOAWAY         stream 0      8 bytes  GOAWAY: we're finished, no error
+</terminal>
+
+<callouts>
+1 | The TLS handshake agreed on HTTP/2.
+2 | The <strong>preface</strong>: a string that looks like a strange HTTP/1.1 request. A server that doesn’t really speak HTTP/2 will choke on it immediately, instead of misunderstanding what follows.
+3 | Stream 0 is for the connection itself. SETTINGS says how we want to be talked to: no “server push” (below), and a 16 MB <strong>flow-control window</strong> per stream: how much the server may send before waiting for a WINDOW_UPDATE. It’s the same idea as TCP’s receive window (Chapter 28), but for each stream separately, so one big download can’t hog the connection.
+4 | The whole request, headers and all, in one frame of 31 bytes. We didn’t wait for the server’s SETTINGS: a client may start straight away.
+5 | The server’s settings: at most 100 requests in flight at once on this connection.
+6 | The response’s headers, decompressed. Most took far fewer bytes than their text (next section).
+7 | An empty DATA frame with the END_STREAM flag: that’s the end of this response. The stream is finished, and the connection stays open for more.
+</callouts>
+
+<h3>Many streams, one connection</h3>
+
+<p>Now ask for three pages at once. All three requests go out together, and the answers come back interleaved:</p>
+
+<terminal title="labs/ch33">
+$ python3 h2client.py en.wikipedia.org /wiki/HTTP/2 /wiki/HTTP/3 /wiki/QUIC
+   0.1 ms → HEADERS        stream 1     46 bytes  GET /wiki/HTTP/2  (46 bytes of compressed headers)
+   0.1 ms → HEADERS        stream 3     ⟦1:17 bytes⟧  GET /wiki/HTTP/3  (17 bytes of compressed headers)
+   0.2 ms → HEADERS        stream 5     15 bytes  GET /wiki/QUIC  (15 bytes of compressed headers)
+ 103.7 ms ← HEADERS        stream 5   6153 bytes  :status 200, 29 headers
+ 263.7 ms ← HEADERS        stream 3   6143 bytes  :status 200, 28 headers
+ 263.9 ms ← HEADERS        stream 1   6142 bytes  :status 200, 28 headers
+
+stream 1: /wiki/HTTP/2  →  200, 410,154 bytes
+stream 3: /wiki/HTTP/3  →  200, 278,871 bytes
+stream 5: /wiki/QUIC  →  200, 388,641 bytes
+
+the DATA frames, in the order they arrived (each digit is the stream it belonged to):
+  ⟦2:5555555555555555⟧3311553311553155311553135511335513551313131131311313311313311313311313311111111111
+</terminal>
+
+<callouts>
+1 | The second request’s headers are a third the size of the first’s, because most of them were the same (next section).
+2 | The QUIC page happened to be ready first (probably already in a cache), so its frames came first; then all three took turns.
+</callouts>
+
+<!-- @include src/figs/ch33-multiplex.svg -->
+
+<p>A few more frame types do the housekeeping. <code>RST_STREAM</code> cancels one request (you scrolled away from a photo) without closing the connection. <code>PING</code> checks the connection is alive and measures the round trip. <code>GOAWAY</code> closes the connection politely, saying which streams were handled. And browsers can say which responses matter most, so that the page’s stylesheet comes before a photo at the bottom. HTTP/2 also had <strong>server push</strong>, letting a server send files the browser hadn’t asked for yet, but it was hard to use well, often sent files the browser already had, and browsers have since removed it.</p>
+
+<h3>Squeezing the headers</h3>
+
+<p>Every request carries much the same headers: the same site, the same <code>user-agent</code>, the same cookies. HTTP/2 compresses them with <strong>HPACK</strong>, which works three ways:</p>
+
+<ul>
+<li>A <strong>static table</strong> of 61 common headers, built into the standard: <code>:method: GET</code> is entry 2, <code>:status: 200</code> is entry 8. Sending one costs a single byte.</li>
+<li>A <strong>dynamic table</strong> that both ends build as the connection goes on: a header sent once can be added to it, and later referred to by number.</li>
+<li>A <strong>Huffman code</strong> for the text that remains, which gives common characters (like lowercase letters and digits) shorter bit patterns than rare ones, like Chapter 1’s Morse code.</li>
+</ul>
+
+<terminal title="labs/ch33">
+$ python3 hpack.py
+request 1: 50 bytes of headers (about 129 as HTTP/1.1 text)
+     1 bytes  :method: GET                  ⟦1:index 2⟧
+     1 bytes  :scheme: https                index 7
+    14 bytes  :authority: en.wikipedia.org  ⟦2:name index 1, value Huffman-coded, remembered⟧
+    12 bytes  :path: /wiki/HTTP/2           name index 4, value Huffman-coded, remembered
+    13 bytes  user-agent: bitbybit-h2/1.0   name index 58, value Huffman-coded, remembered
+     9 bytes  accept: text/html             name index 19, value Huffman-coded, remembered
+
+request 2: ⟦3:17 bytes of headers⟧ (about 129 as HTTP/1.1 text)
+     1 bytes  :method: GET                  index 2
+     1 bytes  :scheme: https                index 7
+     1 bytes  :authority: en.wikipedia.org  ⟦4:index 65⟧
+    12 bytes  :path: /wiki/HTTP/3           name index 4, value Huffman-coded, remembered
+     1 bytes  user-agent: bitbybit-h2/1.0   index 64
+     1 bytes  accept: text/html             index 63
+</terminal>
+
+<callouts>
+1 | In the static table: one byte.
+2 | The name is in the static table, the value isn’t, so it’s sent as Huffman-coded text (16 letters in 13 bytes), and both sides add the whole header to their dynamic tables.
+3 | The second request is a third the size: only the path is new.
+4 | Dynamic table entries are numbered from 62, newest first.
+</callouts>
+
+<p>The headers look like a detail, but they add up: a page that makes a hundred requests with a kilobyte of cookies each would send 100 KB of headers, before any content. The design is also careful about security. HTTP/2’s predecessor, SPDY, compressed headers with ordinary gzip, until an attack called CRIME showed that an attacker who could add text to your requests could guess your cookies, a letter at a time, by watching whether the compressed size shrank. HPACK only reuses whole headers, never pieces of them, and lets sensitive ones be marked “never index”.</p>
+
+<h3>The jam moves down a layer</h3>
+
+<p>HTTP/2 fixed head-of-line blocking in HTTP. But it’s all on one TCP connection, and TCP delivers one stream of bytes, strictly in order. If one packet is lost, every byte after it waits in the receiver until the resend arrives, even bytes that belong to completely different responses. At the allotment, where Grandpa’s phone loses packets all the time, HTTP/2 can actually do <em>worse</em> than HTTP/1.1 with six connections. Try it:</p>
+
+<div data-widget="holblock"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>The fix needs a transport that knows about streams, and can hand over each one’s data as soon as that stream is complete, whatever’s missing from the others. And while we’re replacing TCP, we could fix the other thing the widget shows: two round trips of handshakes before the first request.</p>
+
+<h3>QUIC: TCP, rebuilt on top of UDP</h3>
+
+<p>Why not just improve TCP? Because TCP lives in the operating system of every computer, phone and router, and changes to it take a decade to spread. Worse, the middleboxes of Chapter 32, firewalls and NATs and “helpful” accelerators, look inside TCP headers, and drop anything that doesn’t look like the TCP they know. New TCP options have been designed that simply don’t work on much of the internet.</p>
+
+<p>So <strong>QUIC</strong> starts from UDP, which middleboxes let through untouched (Chapter 26: just ports and a length), and builds everything else on top, in the application itself: connections, streams, reliable delivery, flow control and congestion control (it uses the same ideas as Chapter 28: slow start, CUBIC or BBR). TLS 1.3 isn’t layered on top, it’s built in: the TLS handshake messages travel inside QUIC’s own packets, and the keys it produces encrypt every packet. And QUIC encrypts almost all of its own header too, so no middlebox can come to depend on it:</p>
+
+<!-- @include src/figs/ch33-visible.svg -->
+
+<p>A QUIC connection has three stages, each with its own keys and its own kind of packet: <strong>Initial</strong> packets carry the ClientHello and ServerHello; <strong>Handshake</strong> packets carry the rest of the TLS handshake; and <strong>1-RTT</strong> packets carry everything after. Inside each packet are <strong>frames</strong>, much like HTTP/2’s: CRYPTO frames for TLS messages, STREAM frames for data, ACK frames for acknowledgements, and a few more. HTTP/3 then sends its own small frames (HEADERS and DATA) on QUIC’s streams, with the header compression reworked into <strong>QPACK</strong>, because streams can now arrive out of order.</p>
+
+<h3>A QUIC connection, packet by packet</h3>
+
+<p>This chapter’s <code>quic.py</code> is a complete, if simple, QUIC and HTTP/3 client, in plain Python, using Chapter 32’s TLS code for the handshake. Here it is fetching Google’s <code>robots.txt</code>:</p>
+
+<terminal title="labs/ch33">
+$ python3 quic.py get www.google.com /robots.txt
+QUIC to www.google.com (142.251.154.119) UDP port 443; our connection ID 9dfb5f5e7c1ab25c, theirs for now b54c72376e2e4dc1
+
+    4.1 ms →  ⟦1:1200 bytes⟧  Initial #0: CRYPTO ClientHello (206 bytes), PADDING
+   21.0 ms ←  1200 bytes  Initial #1: ACK 0, CRYPTO 90 bytes, PADDING×1058
+          ServerHello: X25519 key share → handshake keys (ChaCha20-Poly1305)
+   25.4 ms →  1200 bytes  ⟦2:Initial #2: ACK (and padding)⟧
+   37.0 ms ←  1200 bytes  Handshake #2: CRYPTO 1154 bytes
+          EncryptedExtensions: ALPN 'h3'; the server’s transport parameters:
+             ⟦3:original_destination_connection_id = b54c72376e2e4dc1⟧
+             max_idle_timeout = 240000
+             max_udp_payload_size = 1472
+             initial_max_data = 196608
+             …
+   38.5 ms ←  1200 bytes  Handshake #3: CRYPTO 1153 bytes
+   41.4 ms ←  1200 bytes  Handshake #4: CRYPTO 1153 bytes
+   42.0 ms ←   447 bytes  Handshake #5: CRYPTO 327 bytes
+          Certificate: 3 certificates; #0 is *.google.com (ECDSA P-256), from WE2
+          CertificateVerify: VALID
+          Finished: matches
+   51.0 ms →   166 bytes  ⟦4:Handshake #0: ACK, CRYPTO Finished  +  1-RTT #0: STREAM 2 (control: SETTINGS), STREAM 0 (HEADERS: GET /robots.txt) FIN⟧
+                 +        1-RTT #6: STREAM 3: 45 bytes
+          stream 3 is the server’s control stream
+          SETTINGS: QPACK_MAX_TABLE_CAPACITY=65536, MAX_FIELD_SECTION_SIZE=65536, QPACK_BLOCKED_STREAMS=100, …
+   63.9 ms ←   128 bytes  1-RTT #7: ⟦5:HANDSHAKE_DONE, NEW_TOKEN, NEW_CONNECTION_ID⟧
+   91.5 ms ←    32 bytes  1-RTT #8: ACK 0–2
+  118.9 ms ← … and 7 more 1-RTT packets of STREAM 0 data (7,006 bytes), each acknowledged (-v shows them all)
+
+          HTTP/3 HEADERS (376 bytes, QPACK):
+             :status: 200                                                   1 bytes, static index 25
+             content-type: text/plain                                       1 bytes, static index 53
+             content-length: 6624                                           5 bytes, name from static index 4, value Huffman-coded
+             ⟦6:alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000⟧       39 bytes, name from static index 83, value Huffman-coded
+             …
+          HTTP/3 DATA: 6,624 bytes of body, starting “User-agent: *”
+
+  119.5 ms →    36 bytes  1-RTT #10: ACK, CONNECTION_CLOSE (no error)
+</terminal>
+
+<callouts>
+1 | The first packet is padded to 1,200 bytes. That proves the path can carry packets that big, and it’s a defence: a QUIC server may send at most three times as many bytes as it has received from an address it hasn’t verified yet, so nobody can use it to flood a forged address with big replies.
+2 | So the server’s certificate chain (3.8 KB) doesn’t fit in its allowance. Our padded acknowledgement raises it. (Against a server 175 ms away, the lab shows the server pausing, waiting for exactly this.)
+3 | QUIC’s own settings travel inside TLS, so they’re encrypted and tamper-proof. This one proves the server saw the connection ID we first sent.
+4 | One round trip after our hello: our Finished and the HTTP/3 request, in one 166-byte datagram. A TCP and TLS connection would still be halfway through its handshakes.
+5 | The server confirms the handshake is over, gives us a token for next time (to skip the address check), and a spare connection ID.
+6 | The server advertises HTTP/3 again, for 30 days (<code>ma</code> is “max age”), including an old draft version called h3-29.
+</callouts>
+
+<p>Two things about QUIC are surprising. The first is that the Initial packets are encrypted with keys that anyone can work out: they come from the connection ID in the packet itself, and a “salt” printed in the standard. They don’t hide anything from Eve; they’re there so that nothing in the middle can read or quietly change QUIC’s first packets, and come to depend on what’s inside. The real secrecy starts with the Handshake packets, whose keys come from the X25519 exchange, exactly as in Chapter 32:</p>
+
+<!-- @code labs/ch33/quic.py#keys -->
+
+<p>The second is how little of a packet stays readable. Even the packet number is hidden, by XORing it with bytes computed from a sample of the encrypted payload:</p>
+
+<!-- @code labs/ch33/quic.py#protect -->
+
+<h3>What the network sees</h3>
+
+<p>Here’s a real browser-grade client, <code>curl</code>, fetching the same kind of page over HTTP/3, captured on Grandpa’s Pi. Without the keys, Wireshark knows it’s QUIC, but little else:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ curl --http3-only -s -o /dev/null https://cloudflare.com/
+$ tshark -r h3.pcap
+    1 0.000000  192.168.1.4 → 104.16.133.229 QUIC 1242 Initial, DCID=d44671b599117cb6, PKN: 0, CRYPTO
+    2 0.000016  192.168.1.4 → 104.16.133.229 QUIC 1242 ⟦1:Initial, DCID=d44671b599117cb6, PKN: 1, CRYPTO, PADDING⟧
+    3 0.010448 104.16.133.229 → 192.168.1.4  QUIC 1242 Initial, SCID=01fe385848c3f561e4fcc6585fc4bd61e4650dc6, PKN: 0, ACK
+    …
+    8 0.017748 104.16.133.229 → 192.168.1.4  QUIC 1242 ⟦2:Handshake, SCID=01fe385848c3f561e4fcc6585fc4bd61e4650dc6⟧
+   11 0.020099  192.168.1.4 → 104.16.133.229 QUIC 151 Handshake, DCID=01fe385848c3f561e4fcc6585fc4bd61e4650dc6
+   12 0.020205  192.168.1.4 → 104.16.133.229 QUIC 101 ⟦3:Protected Payload (KP0), DCID=01fe385848c3f561e4fcc6585fc4bd61e4650dc6⟧
+   13 0.020224  192.168.1.4 → 104.16.133.229 QUIC 86 Protected Payload (KP0), DCID=01fe385848c3f561e4fcc6585fc4bd61e4650dc6
+</terminal>
+
+<callouts>
+1 | curl’s ClientHello needs <em>two</em> Initial packets. It offers a post-quantum key share (Chapter 32’s X25519MLKEM768), which is over a kilobyte by itself. Wireshark can decode Initial packets, because anyone can compute their keys.
+2 | From here on, not even the packet number is readable…
+3 | …and 1-RTT packets show nothing but a connection ID. (With curl’s <code>SSLKEYLOGFILE</code>, as in Chapter 32, Wireshark decrypts all of it: frame 15 turns out to be “STREAM(0), HEADERS: GET /”.)
+</callouts>
+
+<h3>Finding HTTP/3</h3>
+
+<p>A browser can’t know in advance that a server speaks QUIC: it’s a different protocol, on UDP instead of TCP. There are two ways to find out. The server can say so in a header over an ordinary HTTPS connection, <code>Alt-Svc: h3=":443"</code>, as Google did above, and the browser remembers it for next time. Or the site’s DNS can say so up front, in the HTTPS record from Chapter 29:</p>
+
+<terminal title="labs/ch29">
+$ python3 dig.py cloudflare.com HTTPS @8.8.8.8 --tcp
+cloudflare.com.  300  HTTPS  1 . ⟦1:alpn=h3,h2⟧ ipv4hint=104.16.132.229,104.16.133.229 ipv6hint=2606:4700::6810:84e5,2606:4700::6810:85e5
+</terminal>
+
+<callouts>
+1 | “I speak HTTP/3 and HTTP/2.” The browser can try QUIC on its very first visit.
+</callouts>
+
+<p>Browsers still race a TCP connection alongside, in case UDP is blocked, which it often is on company and school networks, whose firewalls only understand TCP. On Bob’s MacBook, with Chrome open, you can see its QUIC connections as plain UDP sockets:</p>
+
+<terminal title="Bob’s MacBook">
+$ lsof -nP -iUDP:443
+COMMAND    PID    USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Google    4166     bob   28u  IPv4 0x85341639900c6d90      0t0  UDP 192.168.1.3:56167->142.251.106.101:443
+Google    4166     bob   31u  IPv4 0xc087d50ace64687e      0t0  UDP 192.168.1.3:50461->142.251.153.4:443
+</terminal>
+
+<h3>Changing networks mid-sentence</h3>
+
+<p>Because a QUIC connection is named by its connection ID, and not by addresses and ports, it can survive something no TCP connection can: moving to a different network.</p>
+
+<!-- @include src/figs/ch33-migration.svg -->
+
+<h3>Is it faster?</h3>
+
+<p>The honest answer: it depends on the path. QUIC saves one round trip on every new connection (and returning visitors can send their request in the very first packet, with 0-RTT, subject to the same replay caveat as Chapter 32), and it stops one lost packet from stalling every stream:</p>
+
+<!-- @include src/figs/ch33-handshakes.svg -->
+
+<p>On a short, clean path the saving disappears into the noise: from the Pi to Cloudflare, 10 ms away, HTTP/2 and HTTP/3 both deliver the first byte in about 70 ms, most of it the server thinking. Across 175 ms, the saved round trip is worth a hundred milliseconds on every new connection, and on lossy mobile networks the difference in stalls matters more still. On the other side of the scales, QUIC costs more processing: TCP is handled in the operating system, often with help from the network card, while QUIC encrypts every packet header in the application. Big websites think it’s worth it, which is why a large share of the web’s traffic now travels over QUIC.</p>
+
+<think>
+<p>QUIC is built on UDP, which means every QUIC packet carries an 8-byte UDP header that does almost nothing. Why not make QUIC its own protocol, with its own number in the IP header, next to TCP (6) and UDP (17)?</p>
+<p>Because it wouldn’t get through. Home routers’ NAT (Chapter 22) needs ports to know which device a packet belongs to, and only knows how to find them in TCP and UDP. Firewalls block protocols they don’t recognise. This has been tried: a protocol called SCTP, standardized in 2000 with many of QUIC’s ideas (several streams in one connection, and several addresses), works well inside telephone networks, and almost nowhere on the public internet. UDP is QUIC’s disguise, and eight bytes is a small price.</p>
+</think>
+
+<realworld>
+<p>Google designed SPDY (“speedy”) in 2009 and tested it in Chrome against its own servers, where it could change both ends at once. It became the basis of HTTP/2, standardized in 2015. Google then started on QUIC in 2012, again testing in Chrome and on YouTube and Search, and in 2016 handed it to the standards body, which reworked it heavily, most visibly by replacing Google’s own cryptography with TLS 1.3. QUIC version 1 was published in 2021, and HTTP/3 in 2022.</p>
+<p>QUIC isn’t only for the web. DNS can run over it (“DNS over QUIC”), so can SSH-like remote shells, and video calls and games use its “unreliable datagram” extension, for data that’s useless if it arrives late.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Look at who answered every request in this chapter and the last: <code>server: cloudflare</code>, Google’s <code>sffe</code>, headers like <code>cf-cache-status: HIT</code>. Hardly any of them came from the website’s own computer. Between Bob and almost every website sit machines that answer on its behalf, cache its pages, spread its visitors across hundreds of servers, and stop attacks before they arrive. Chapter 34 meets the middlemen: proxies, load balancers, content delivery networks and firewalls.</p>
+
+<lab>
+<p>Four programs, all standard library only. <code>hpack.py</code> compresses headers the HTTP/2 and HTTP/3 ways. <code>h2client.py</code> speaks HTTP/2 over Python’s TLS. <code>aesgcm.py</code> is AES and GCM, which QUIC’s first packets need. <code>quic.py</code> is a QUIC and HTTP/3 client, which uses Chapter 31’s and 32’s code, so keep the lab folders side by side.</p>
+
+<h4>1. HTTP/2 by hand</h4>
+
+<p>Run <code>python3 hpack.py --test</code> (it checks the examples in the HPACK standard) and <code>python3 hpack.py</code>, then <code>h2client.py</code> against any site you like. Each frame is a 9-byte header and a payload:</p>
+
+<!-- @code labs/ch33/h2client.py#frame -->
+
+<p>and the whole conversation is a loop that reads frames and does what each one says:</p>
+
+<!-- @code labs/ch33/h2client.py#loop -->
+
+<p>HPACK’s decoder is one loop over the header block, looking at the top bits of each byte to see what kind of field comes next:</p>
+
+<!-- @code labs/ch33/hpack.py#decode -->
+
+<h4>2. QUIC and HTTP/3</h4>
+
+<terminal title="labs/ch33">
+$ python3 quic.py --test
+RFC 9000/9001 examples: all match
+$ python3 quic.py versions www.google.com
+→ 1200 bytes to www.google.com port 443, claiming to speak version 0x1a2a3a4a
+← 35 bytes from 142.251.156.119: Version Negotiation (version field 0x00000000). The server speaks:
+   0x00000001  QUIC version 1 (RFC 9000)
+   0xff00001d  a draft version
+   0xba8a9a7a  (reserved: a random “GREASE” value, to keep clients honest)
+$ python3 quic.py get cloudflare.com /
+$ python3 quic.py get quic.nginx.org / -v
+</terminal>
+
+<p>If <code>get</code> reports silence, your network is probably blocking UDP port 443. Numbers in QUIC use a neat trick: the first two bits say how many bytes the number takes:</p>
+
+<!-- @code labs/ch33/quic.py#varint -->
+
+<p>The ClientHello is Chapter 32’s, with QUIC’s transport parameters added as a TLS extension, and no fake session ID, because QUIC has no old middleboxes to fool:</p>
+
+<!-- @code labs/ch33/quic.py#hello -->
+
+<p>And the HTTP/3 request, once the handshake is done: a control stream announcing our settings, and the request on stream 0:</p>
+
+<!-- @code labs/ch33/quic.py#request -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Try <code>python3 quic.py get www.facebook.com /</code>. The server hangs up at once, with error 0x128: a TLS alert, number 40, “handshake failure”. Its QUIC servers don’t offer ChaCha20, the only cipher the lab speaks. Adding AES-128-GCM for every stage, using <code>aesgcm.py</code>, is a good project: the key schedule stays the same, but keys are 16 bytes, and header protection uses AES instead of ChaCha20.</li>
+<li>In <code>h2client.py</code>, request one path twenty times. How big are the HEADERS frames after the first? How many streams can you have open at once before the server says no?</li>
+<li>Make <code>quic.py</code> skip the padded ACK after the ServerHello. Against quic.nginx.org (far away, with a long chain), what happens to the handshake, and why?</li>
+<li>Use <code>curl -w</code> (see the Field Guide) to compare <code>--http2</code> and <code>--http3-only</code> timings to a nearby site and a faraway one. Where does the round trip QUIC saves show up?</li>
+</ul>
+</lab>

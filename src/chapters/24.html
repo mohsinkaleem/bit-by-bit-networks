@@ -1,0 +1,357 @@
+<h3>A second way out</h3>
+
+<p>After the digger, Carol’s next project is the one she’s been asking for for years. The whole university reaches the internet through one connection, to the national research network. If that fails, twenty thousand students are cut off. So the university is buying a second connection, from a commercial internet provider called Northnet, and Alice gets to help.</p>
+
+<dialogue>
+C: The easy bit is the cable. The hard bit is telling the rest of the internet that it can reach us two ways.
+B: Can’t your routers just run OSPF with Northnet’s? Share the map?
+C: Would you give the neighbours a plan of your house, with where you keep the keys? Northnet has thousands of customers. It isn’t going to show us its network, and we don’t want every router in it knowing ours.
+A: And they don’t choose the <em>shortest</em> way, do they? They choose the cheapest.
+C: Exactly. So between networks, there’s a different protocol. Every network says which addresses it can reach, and which networks it would pass through to get there. And then each one decides for itself which offer to believe.
+B: Decides how?
+C: Mostly? By who’s paying.
+</dialogue>
+
+<p>This chapter is about the <strong>Border Gateway Protocol</strong>, BGP, which connects the internet’s separate networks to each other. Every other protocol in this book is about getting packets somewhere. BGP is about <em>agreements</em>: who will carry whose traffic, and who pays. It has almost no security, it’s driven by business deals nobody publishes, and it holds the whole internet together.</p>
+
+<h3>Networks of networks</h3>
+
+<p>The internet isn’t one network. It’s tens of thousands of them, each run by one organization: internet providers, universities, big companies, cloud providers, governments. Each one is called an <strong>autonomous system</strong>, or AS, because inside it, it can run things however it likes, with OSPF or anything else (Chapter 23). To the outside world, each one has a number. CERN’s is 513:</p>
+
+<terminal title="Bob’s MacBook">
+$ whois -h whois.cymru.com " -v 188.184.67.127"
+⟦1:AS⟧      | IP               | ⟦2:BGP Prefix⟧          | CC | Registry | Allocated  | AS Name
+513     | 188.184.67.127   | 188.184.0.0/16      | CH | ripencc  | 2009-06-09 | CERN - CERN - European Organization for Nuclear Research, CH
+$ whois -h whois.cymru.com " -v 1.1.1.1"
+13335   | 1.1.1.1          | 1.1.1.0/24          | AU | apnic    | 2011-08-11 | CLOUDFLARENET - Cloudflare, Inc., US
+</terminal>
+
+<callouts>
+1 | The autonomous system that announces this address to the rest of the internet.
+2 | The route it announces: the whole of 188.184.0.0/16, which the info.cern.ch server from Chapter 16 is part of.
+</callouts>
+
+<p>AS numbers used to be 16 bits, which allows 65,536 of them. Like IPv4 addresses, they began to run out, and since 2007 they’ve been 32 bits. And like addresses, some are set aside: 64512 to 65534 are for private use, and 64496 to 64511 are for examples in books, which is where most of this chapter’s come from. Here’s the size of the whole thing today, from this chapter’s lab, which asks RIPE’s route collectors (servers with BGP sessions to hundreds of networks around the world, which record everything they’re told):</p>
+
+<terminal title="labs/ch24">
+$ python3 asinfo.py --table
+a full IPv4 routing table: about 979,745 prefixes
+a full IPv6 routing table: about 227,483 prefixes
+autonomous systems seen by RIPE's collectors: 87,899
+</terminal>
+
+<p>Almost a million IPv4 routes, as Chapter 23 promised. Every router in the core of the internet has all of them.</p>
+
+<h3>Paths, not distances</h3>
+
+<p>BGP is a close relative of the distance-vector routing we invented in Chapter 11: each network tells its neighbours what it can reach, and they pass it on. But instead of a distance, each announcement carries the whole list of networks it has passed through:</p>
+
+<!-- @include src/figs/ch24-pathvector.svg -->
+
+<p>The AS path does three jobs at once. It stops loops, since nobody accepts a route that already has their own number in it. It gives a rough idea of distance, since a shorter path usually means fewer networks in the way. And it tells every network exactly whose hands its traffic would pass through, which matters a great deal when those hands belong to competitors, or to a country you don’t trust.</p>
+
+<p>Notice what BGP <em>doesn’t</em> say: anything about the inside of each network. An AS path of three numbers might cross three countries or three buildings. That’s on purpose. Each network hides its internal map, and only says which addresses it can reach, and through whom.</p>
+
+<h3>Follow the money</h3>
+
+<p>Which routes a network passes on, and to whom, is decided by business relationships, and there are two main kinds:</p>
+
+<!-- @include src/figs/ch24-asmap.svg -->
+
+<p>Peering happens in two ways: with a private cable between two networks, or at an <strong>internet exchange point</strong>, a building (often a big room full of switches) where hundreds of networks plug into one shared Ethernet, and set up BGP sessions with each other across it. The biggest, in Frankfurt, Amsterdam and London, carry more traffic than most countries’ entire internet connections.</p>
+
+<p>These deals are private. Nobody publishes who pays whom, although it can often be guessed from the routes. Some networks do publish their <em>policies</em>, in public databases called Internet Routing Registries. Here’s a piece of CERN’s:</p>
+
+<terminal title="Bob’s MacBook">
+$ whois -h whois.ripe.net -r AS513
+aut-num:        AS513
+as-name:        CERN
+import:         ⟦1:from AS174 accept ANY⟧
+import:         from AS293 accept ANY
+import:         from AS559 accept ANY
+import:         ⟦2:from AS1103 accept AS1103⟧
+…
+export:         ⟦3:to AS174 announce AS-CERNEXT⟧
+…
+</terminal>
+
+<callouts>
+1 | CERN accepts every route Cogent (AS174) offers: Cogent is one of its transit providers, and sells it a route to everywhere.
+2 | From SURF, the Dutch research network, CERN only accepts SURF’s own addresses. That’s a peering arrangement.
+3 | And to everyone, it announces only its own networks (a list called AS-CERNEXT). Its policy lists 48 neighbours.
+</callouts>
+
+<h3>Choosing a route</h3>
+
+<p>A network with several neighbours usually hears several routes to the same prefix, and picks exactly one, its best, which is the only one it uses and the only one it passes on. BGP routers compare routes in a fixed order, stopping at the first thing that’s different:</p>
+
+<ol>
+<li><strong>Local preference</strong>: a number the network sets itself, by policy. Almost everyone uses it for money: routes from customers (who pay us) get the highest, then peers (free), then providers (who we pay).</li>
+<li><strong>The shortest AS path</strong>.</li>
+<li>A few tie-breakers: where the route originally came from, a hint from the neighbour about which of its entrances to use (the “MED”), and routes from outside the network over ones from inside it.</li>
+<li>The closest exit: of two routes through different neighbours, the one whose border router is fewest internal hops away, using the OSPF costs from Chapter 23. Get the traffic out of our network as soon as possible, and let someone else carry it. It’s called <strong>hot-potato routing</strong>.</li>
+<li>If everything else is equal, the neighbour with the lowest router ID.</li>
+</ol>
+
+<p>Notice the order. Money comes first, and path length only second. A network will happily send traffic the long way round, through a customer, rather than the short way through a provider it has to pay. Here are ten networks following these rules. Click Tier1-West, for example: it hears the university from its customer Northnet, and from its peer Tier1-East, and the customer wins.</p>
+
+<div data-widget="bgpworld"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Steering the traffic that comes in</h3>
+
+<p>Choosing a route only controls the traffic a network <em>sends</em>. What about the traffic coming in? Carol’s university wants its research traffic to arrive through the research network, which it pays a flat fee for, and only use Northnet, which charges by the gigabyte, as a backup. But it doesn’t get to choose: every other network picks its own best route.</p>
+
+<p>It can nudge them, though. The simplest trick is <strong>AS path prepending</strong>: when announcing its addresses to Northnet, the university puts its own number in the path two or three times. Anyone comparing a path through Northnet with a path through the research network sees the Northnet one as longer, and, all else being equal, chooses the other. Try it in the widget above. (And notice that it doesn’t always work: prepending only matters when the local preferences are equal, and money comes first.)</p>
+
+<p>Real networks do exactly this. Here’s CERN, as the world’s networks see it:</p>
+
+<terminal title="labs/ch24">
+$ python3 asinfo.py 188.184.67.127
+188.184.67.127 is inside 188.184.0.0/16
+  announced by AS513: CERN CERN - European Organization for Nuclear Research
+  RPKI: valid  (ROA: 188.184.0.0/16 max /16 by AS513)
+
+363 routes to 188.184.0.0/16, seen from 23 collectors. A few of them:
+  from London, United Kingdom   15692 174 ⟦1:513 513⟧
+  from London, United Kingdom   8218 21320 ⟦2:513⟧
+  from London, United Kingdom   36924 1299 25091 513 513
+  from London, United Kingdom   48070 25091 513 513
+  from London, United Kingdom   6894 2603 21320 513
+…
+how many networks away (not counting repeats): 2: 29, 3: 226, 4: 89, 5: 15, 6: 4
+the origin's neighbours on those paths (its providers and peers):
+  AS25091   175 routes   IP-Max IP-Max SA
+  AS21320    80 routes   GEANT_IAS_VRF GEANT Vereniging
+  AS174      37 routes   COGENT-174 - Cogent Communications, LLC
+  AS29222    28 routes   Infomaniak-AS Infomaniak Network SA
+  AS6939     18 routes   HURRICANE - Hurricane Electric LLC
+  AS6730      7 routes   SUNRISE Sunrise GmbH
+247 of the routes have the origin's number more than once: it's prepending, to make those paths look longer.
+</terminal>
+
+<callouts>
+1 | Through Cogent, a commercial transit provider, CERN’s number appears twice…
+2 | …but through GÉANT, Europe’s research network, only once.
+</callouts>
+
+<p>Sorting all 363 routes by CERN’s neighbour shows the pattern clearly:</p>
+
+<!-- @include src/figs/ch24-cern.svg -->
+
+<p>There are more tricks. A network can announce <strong>more specific</strong> prefixes through the connection it prefers: longest-prefix match beats everything, so traffic for those addresses will always come that way. (That’s one reason the internet’s table keeps growing.) And it can attach <strong>communities</strong> to a route, little numbered tags like <code>174:21101</code>, which ask the neighbour to do something with it: “don’t pass this on in Asia”, “prepend three times when you tell your peers”, or, in an emergency, “throw away all traffic for this address”, which is how networks stop a flood of attack traffic from reaching a victim (at the cost of cutting the victim off completely).</p>
+
+<h3>What BGP says on the wire</h3>
+
+<p>Compared with OSPF, the protocol itself is refreshingly simple. Two BGP routers open an ordinary TCP connection to port 179 (Chapter 13 does all the hard work of reliability for it), and exchange just four kinds of message. This chapter’s lab has a tiny BGP speaker. It plays both the university and Northnet, on your own computer, and shows the conversation from the university’s side:</p>
+
+<terminal title="labs/ch24">
+$ python3 bgp_speaker.py
+→ ⟦1:OPEN⟧          version 4, my AS 65001, ⟦2:hold time 90 s⟧, id 10.255.1.1, I can do: IPv4 unicast, 4-byte AS numbers
+← OPEN          version 4, my AS 64510, hold time 90 s, id 10.255.10.1, I can do: IPv4 unicast, 4-byte AS numbers
+← ⟦3:KEEPALIVE⟧
+→ KEEPALIVE
+← UPDATE        announce ⟦4:0.0.0.0/0⟧: origin IGP, AS path 64510, next hop 10.0.1.2
+← UPDATE        announce 198.51.100.0/24: origin IGP, AS path 64510 64500 64496, next hop 10.0.1.2
+← UPDATE        ⟦5:end of the initial routes (an empty update)⟧
+→ UPDATE        announce 10.1.0.0/16: origin IGP, AS path 65001, ⟦6:next hop 10.0.1.1⟧
+…the session stays open, with a KEEPALIVE every 30 seconds. Later:
+→ UPDATE        ⟦7:withdraw 10.1.0.0/16⟧
+→ NOTIFICATION  cease: administrative shutdown
+
+Saved the session to bgp.pcap. Try: tcpdump -r bgp.pcap -n -v
+</terminal>
+
+<callouts>
+1 | “Hello, I’m AS 65001.” Each side checks the other is the AS it expected, and they agree on what they both understand (the “capabilities”).
+2 | If either side hears nothing for 90 seconds, it assumes the other is dead, and throws away every route it learned from it. To prevent that, each sends a KEEPALIVE every third of the hold time.
+3 | A KEEPALIVE after the OPENs means “agreed”. The session is <strong>established</strong>.
+4 | Northnet offers a default route: “send me anything you don’t have a better route for”. A provider can instead send its customer the full table of a million routes.
+5 | An empty update says “that’s everything, for now”. After this, only changes are sent.
+6 | “Send traffic for these addresses to 10.0.1.1”: the university’s end of the cable between them.
+7 | A withdrawal: “I can’t reach this any more”. Every router that chose this route has to pick another one, and tell its neighbours.
+</callouts>
+
+<p>Everything is in the UPDATE. Here’s the university’s announcement, all 46 bytes of it:</p>
+
+<!-- @include src/figs/ch24-update.svg -->
+
+<p>BGP doesn’t send its routes over and over like RIP, or refresh them every half hour like OSPF. It sends everything once, when the session starts, and after that only the changes. That’s efficient, but it means that when a session breaks and comes back, a million routes have to be sent again, and every router that heard them has to think about all of them. The famous “BGP storms” are exactly that.</p>
+
+<p>Inside a big network, there are usually several border routers, each with its own BGP sessions to the outside, and they need to tell each other what they’ve heard. They do it with BGP too, over sessions inside the network, called <strong>internal BGP</strong> (iBGP). OSPF carries the network’s own addresses, and iBGP carries the outside world’s routes on top. That’s how a router in the middle of Carol’s campus knows that traffic for CERN should leave through the research network’s border router, and OSPF tells it how to get to that router.</p>
+
+<think>
+<p>If announcing a more specific prefix always wins, why doesn’t every network announce a separate /32 for every one of its servers? Then nobody could ever out-announce them.</p>
+<p>Because nobody would listen. A million routes are already a strain on routers’ memory, and a /32 for every server would be billions. So by long-standing agreement, almost every network ignores IPv4 announcements more specific than a /24 (and IPv6 ones more specific than a /48). A /24, 256 addresses, is the smallest piece of the internet you can route on its own. It also means that anyone who announces your /24 can only be beaten by… announcing it too, and hoping. Or by the protection in the next section.</p>
+</think>
+
+<h3>When the treaty breaks</h3>
+
+<p>Here is BGP’s great weakness. When a network announces a prefix, its neighbours have no way to check that it’s allowed to. The protocol just believes it. Mistakes and lies spread across the internet in seconds:</p>
+
+<!-- @include src/figs/ch24-youtube.svg -->
+
+<p>That’s a <strong>hijack</strong>: announcing addresses that belong to somebody else. Most hijacks are mistakes, like a typo in a router’s configuration, but some are deliberate, to steal traffic, send spam from someone else’s addresses, or intercept cryptocurrency. Try it in the widget: choose “Eve also announces 10.1.1.0/24”, and watch almost every arrow turn red. Even the university itself sends traffic for its own library server to Eve, unless it has thought to filter out announcements of its own addresses.</p>
+
+<p>The other common failure is a <strong>route leak</strong>, where a network breaks the export rules by accident. In June 2019, a small internet provider in Pennsylvania ran software that generated more specific routes for traffic engineering inside its own network. A configuration mistake sent them to one of its providers, the network of a metals company, which passed them to a much bigger one, which believed them, because they came from a customer and were more specific. For hours, a large share of traffic to Cloudflare, Amazon and others was squeezed through a small company’s connections, and most of it was lost. Choose the leak in the widget to see the same thing in miniature.</p>
+
+<h3>Signing the map: RPKI</h3>
+
+<p>The fix that’s finally spreading is the <strong>Resource Public Key Infrastructure</strong>, or RPKI. The organizations that hand out addresses (the regional registries, like RIPE NCC in Europe) give each address holder a cryptographic certificate saying which addresses are theirs. The holder uses it to sign a <strong>route origin authorization</strong>, or ROA: “only AS 513 may announce 188.184.0.0/16, and nothing longer than /16”. Routers download all the ROAs in the world, and check each announcement’s origin, the last number in its AS path, against them. The lab showed CERN’s: <code>valid</code>. Here are two checks of Cloudflare’s 1.1.1.0/24, one with its real AS, and one pretending to be a private AS that has no right to it:</p>
+
+<terminal title="Bob’s MacBook">
+$ curl -s "https://stat.ripe.net/data/rpki-validation/data.json?resource=13335&prefix=1.1.1.0/24" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["status"])'
+⟦1:valid⟧
+$ curl -s "https://stat.ripe.net/data/rpki-validation/data.json?resource=64512&prefix=1.1.1.0/24" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["status"])'
+⟦2:invalid_asn⟧
+</terminal>
+
+<callouts>
+1 | Cloudflare’s own AS, 13335, is allowed to announce it.
+2 | Any other origin is <strong>invalid</strong>. A network doing “route origin validation” throws such a route away. Eve’s /24 in the widget is invalid for a different reason: the university’s ROA says nothing longer than /16.
+</callouts>
+
+<p>Tick the RPKI box in the widget. The tier-1 networks and Northnet now drop Eve’s route, which protects them, and everyone who reaches the university through them. But Southnet doesn’t check, so its customers are still fooled. RPKI only protects the networks that use it, and the ones behind them. Most of the world’s biggest networks now do, and more than half of all routes have ROAs.</p>
+
+<p>RPKI only checks the <em>origin</em>, though. Eve could still announce a path that ends in the university’s number, “65066 65001”, and pass the check, since it can’t tell a real path from a made-up one. Newer additions deal with that: one lets networks sign each hop of the path (BGPsec, which is slow and rarely used), and another, called ASPA, lets each network publish a list of its providers, so that impossible paths can be spotted.</p>
+
+<realworld>
+<p>BGP was designed in January 1989, by Kirk Lougheed of Cisco and Yakov Rekhter of IBM, sketched out over lunch at an engineering meeting in Austin, Texas, on the back of a few napkins. It’s still sometimes called “the napkin protocol”. The version used today, BGP-4, arrived in 1994 with CIDR (Chapter 23), and the text that defines it was last revised in 2006.</p>
+<p>On 4 October 2021, Facebook, Instagram and WhatsApp disappeared from the internet for about six hours. During routine maintenance, a command accidentally cut the links between Facebook’s data centres. Facebook’s name servers are designed to stop announcing their own addresses by BGP when they can’t reach a data centre, as a safety measure, so they all did, at once. With no routes to Facebook’s name servers, nobody could look up <code>facebook.com</code>, including Facebook’s own engineers, whose tools and door badges depended on the same systems.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Both chapters about routing have been full of the same problem, seen from different sides: there aren’t enough IPv4 addresses. Networks announce tiny pieces of them, trade them, share them through NAT (Chapter 22), and the table keeps growing. The regional registries handed out their last big blocks between 2011 and 2019. The real fix was designed in the 1990s, and it’s been slowly taking over ever since: a new version of IP, with addresses four times as long. Chapter 25 is about IPv6.</p>
+
+<lab>
+<p>Four programs. <code>bgp_sim.py</code> is the ten networks from the widget. <code>asinfo.py</code> asks RIPE’s route collectors about any address. <code>bgp_speaker.py</code> speaks real BGP. And <code>bgp_box.sh</code> (Linux, with <code>sudo</code>) runs five real BGP routers on one computer.</p>
+
+<h4>1. Ten networks</h4>
+
+<terminal title="labs/ch24">
+$ cd labs/ch24
+$ python3 bgp_sim.py --prepend 2
+AS           best path                                      traffic for 10.1.1.1 ends up at
+Tier1-West   10.1.0.0/16: 64510 65001 65001 65001 (customer) University
+Tier1-East   10.1.0.0/16: 64520 65001 (customer)            University
+…
+$ python3 bgp_sim.py --hijack --rov
+…
+Southnet     10.1.0.0/16: 64500 64510 65001 (provider)
+             10.1.1.0/24: 65066 (customer)                  Eve   ← HIJACKED
+Northnet     10.1.0.0/16: 65001 (customer)                  University
+…
+$ python3 bgp_sim.py --leak --why Tier1-East
+Tier1-East heard these routes to 10.8.0.0/16:
+  from SmallCo      (customer) 65077 64500 64530 65088  ★ best
+  from Tier1-West   (peer    ) 64500 64530 65088
+</terminal>
+
+<p>The whole of BGP’s behaviour is in two small functions. <code>propagate()</code> keeps telling neighbours about each network’s best route, following the export rule, until nothing changes. <code>choose()</code> is the decision process, cut down to its two most important steps:</p>
+
+<!-- @code labs/ch24/bgp_sim.py#propagate -->
+
+<h4>2. The real internet’s routes</h4>
+
+<p><code>python3 asinfo.py</code> followed by any address (a website’s, or your own public one from Chapter 22) shows who announces it, whether RPKI says they may, and the paths the world’s networks use to reach it. Everything comes from RIPEstat, a free public service, in a few lines of code:</p>
+
+<!-- @code labs/ch24/asinfo.py#ask -->
+
+<h4>3. Speak BGP</h4>
+
+<p><code>python3 bgp_speaker.py --hex</code> shows every byte, and <code>tcpdump -r bgp.pcap -n -v</code> decodes the saved session (reading a file doesn’t need <code>sudo</code>). Building an UPDATE is a matter of packing the attributes one after another:</p>
+
+<!-- @code labs/ch24/bgp_speaker.py#build -->
+
+<h4>4. Five real routers</h4>
+
+<p><code>bgp_box.sh</code> builds this chapter’s story out of network namespaces (Chapter 36, where they’re explained properly) on a Linux computer such as a Raspberry Pi, and runs BIRD, a real routing daemon used by internet exchanges, in each one (<code>sudo apt install bird2</code>). The university, Northnet, a research network, “the world” and Eve are five autonomous systems, joined by virtual cables:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo sh bgp_box.sh up
+five autonomous systems are up; in a few seconds try: sudo sh bgp_box.sh show world
+$ sudo sh bgp_box.sh show world
+BIRD 2.17.5 ready.
+Name       Proto      Table      State  Since         Info
+device1    Device     ---        up     19:30:22.515
+direct1    Direct     ---        up     19:30:22.515
+kernel1    Kernel     master4    up     19:30:22.515
+northnet   BGP        ---        up     19:30:26.438  ⟦1:Established⟧
+research   BGP        ---        up     19:30:27.278  Established
+eve        BGP        ---        up     19:30:27.417  Established
+BIRD 2.17.5 ready.
+Table master4:
+10.1.0.0/16          unicast [northnet 19:30:27.060] ⟦2:*⟧ (100) [AS65001i]
+	via 10.0.3.1 on to-northnet
+	Type: BGP univ
+	BGP.origin: IGP
+	BGP.as_path: 65010 65001
+	BGP.next_hop: 10.0.3.1
+	BGP.local_pref: 100
+                     unicast [research 19:30:27.278] (100) [AS65001i]
+	via 10.0.4.1 on to-research
+	Type: BGP univ
+	BGP.origin: IGP
+	BGP.as_path: 65020 65001
+	BGP.next_hop: 10.0.4.1
+	BGP.local_pref: 100
+$ sudo sh bgp_box.sh prepend
+uni now prepends 65001 65001 towards northnet
+$ sudo sh bgp_box.sh show world
+…
+10.1.0.0/16          unicast [research 19:30:27.278] * (100) [AS65001i]
+	via 10.0.4.1 on to-research
+	…
+	BGP.as_path: 65020 65001
+	…
+                     unicast [northnet 19:30:42.599] (100) [AS65001i]
+	via 10.0.3.1 on to-northnet
+	…
+	BGP.as_path: ⟦3:65010 65001 65001 65001⟧
+	…
+$ sudo sh bgp_box.sh hijack
+eve is announcing 10.1.1.0/24
+$ sudo sh bgp_box.sh show world
+Table master4:
+⟦4:10.1.1.0/24          unicast [eve 19:30:55.650] * (100) [AS65066i]⟧
+	via 10.0.5.1 on to-eve
+	…
+$ sudo ip netns exec world ip route get 10.1.1.1
+10.1.1.1 via 10.0.5.1 ⟦5:dev to-eve⟧ src 10.0.5.2 uid 0
+    cache
+$ sudo sh bgp_box.sh rov
+world now checks route origins
+$ sudo sh bgp_box.sh show world
+…
+10.1.0.0/16          unicast [northnet 19:30:50.602] * (100) [AS65001i]
+	via 10.0.3.1 on to-northnet
+	…
+$ sudo ip netns exec world ip route get 10.1.1.1
+10.1.1.1 via 10.0.3.1 ⟦6:dev to-northnet⟧ src 10.0.3.2 uid 0
+    cache
+</terminal>
+
+<callouts>
+1 | Three BGP sessions, each a TCP connection to port 179, open and exchanging routes.
+2 | Two paths to the university; the star marks the one chosen. Both are two ASes long, so BIRD went down its list of tie-breakers to the last one: the neighbour with the lower router ID, Northnet.
+3 | After prepending, the Northnet path looks two ASes longer, and the world switches to the research network.
+4 | Eve announces a more specific /24 inside the university’s /16. Longest prefix match (Chapter 23) wins over everything else…
+5 | …so the world’s traffic for the library’s server now goes to Eve.
+6 | With route origin validation switched on, the world rejects Eve’s announcement, because AS 65066 isn’t allowed to originate that address block. Traffic goes back to the university.
+</callouts>
+
+<p>Each router’s configuration is written by one shell function:</p>
+
+<!-- @code labs/ch24/bgp_box.sh#config -->
+
+<p><code>sudo sh bgp_box.sh down</code> takes it all away again.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>In <code>bgp_box.sh</code>, give the world a <code>local_pref</code> of 200 for routes from the research network (<code>import filter { bgp_local_pref = 200; accept; };</code> on that session). Now what does prepending change, and why? (Local preference comes first in the decision process.)</li>
+<li>In <code>bgp_sim.py</code>, make Northnet and Southnet peers. Which paths change? Does Bob’s ISP still need two providers?</li>
+<li>Try <code>asinfo.py</code> on 8.8.8.8 and 1.1.1.1. Why are their paths so much shorter than CERN’s? (Chapter 34 has the answer.)</li>
+<li>Add a “MED” step to <code>choose()</code>: between two routes from the <em>same</em> neighbouring AS, prefer the one with the lower MED. Where would you need it?</li>
+<li>In the widget, turn RPKI on, and find the smallest set of networks that must check origins to protect everyone from Eve.</li>
+</ul>
+</lab>

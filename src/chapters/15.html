@@ -1,0 +1,186 @@
+<h3>Looking back</h3>
+
+<p>It started with two kids, two bedroom windows and a flashlight. Alice wanted to ask Bob whether the coast was clear, and everything else followed from that one small wish, one problem at a time.</p>
+
+<p>The flashlight couldn’t say much, so we invented codes. Light was unreliable, so we used a wire, and had to invent ways to keep the two ends in step. Both kids talked at once, so we invented turn-taking, frames and acknowledgments. Computers joined in, then bytes, pages and links. More houses meant sharing a cable, then switches, then packets with checks on them. More neighborhoods meant routers and addresses with parts. More programs meant ports. Unreliable datagrams led to reliable connections, and numbers led to names.</p>
+
+<p>We invented all of it ourselves, and we called things whatever made sense at the time. The real internet was invented by thousands of people over about fifty years, and they faced the same problems, and very often came up with the same answers. They just gave them different names. It’s time to put the two side by side.</p>
+
+<h3>The Rosetta Stone</h3>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Ch.</th><th>What we invented</th><th>What the real world calls it</th><th>See it with</th></tr>
+<tr><td>1</td><td>on/off flashes, the 5-bit codebook</td><td>bits, character codes (Baudot, then ASCII)</td><td><a href="field-guide.html#cmd-xxd"><code>xxd -b</code></a></td></tr>
+<tr><td>2</td><td>voltages on a wire, clock drift, the mid-bit flip</td><td>the physical layer, line codes (Manchester)</td><td><a href="field-guide.html#cmd-link"><code>ethtool</code></a></td></tr>
+<tr><td>3</td><td>taking turns, <code>~S</code>…<code>~E</code>, ACK and NAK</td><td>half and full duplex, framing, ARQ</td><td><a href="field-guide.html#cmd-link"><code>ethtool</code></a></td></tr>
+<tr><td>4</td><td>the operating system’s mailroom</td><td>the network stack, sockets</td><td><a href="field-guide.html#cmd-nc"><code>nc</code></a></td></tr>
+<tr><td>5</td><td>bytes, hex, lengths up front, magic numbers</td><td>octets, <code>Content-Length</code>, file signatures</td><td><a href="field-guide.html#cmd-file"><code>file</code></a></td></tr>
+<tr><td>6</td><td>markup, links, TTP</td><td>HTML, hyperlinks, HTTP</td><td><a href="field-guide.html#cmd-curl"><code>curl -v</code></a></td></tr>
+<tr><td>7</td><td>pages that write themselves, remembered visitors</td><td>web applications, query strings, cookies</td><td><a href="field-guide.html#cmd-curl"><code>curl -c</code></a></td></tr>
+<tr><td>8</td><td>the shared cable, card addresses, listen-then-talk</td><td>Ethernet, MAC addresses, CSMA/CD</td><td><a href="field-guide.html#cmd-ifconfig"><code>ip link</code></a></td></tr>
+<tr><td>9</td><td>the learning box, pruning loops</td><td>Ethernet switches, MAC tables, spanning tree</td><td><a href="field-guide.html#cmd-netstat-i"><code>netstat -i</code></a></td></tr>
+<tr><td>10</td><td>pieces with labels, remainders as fingerprints</td><td>packets, the CRC-32 frame check, the Internet checksum</td><td><a href="field-guide.html#cmd-crc"><code>cksum</code></a></td></tr>
+<tr><td>11</td><td>network.host addresses, routers, “who has?”, gossiping tables, hop limits</td><td>IP addresses, routers, ARP, RIP, TTL and ICMP, traceroute</td><td><a href="field-guide.html#cmd-routes"><code>ip route</code></a></td></tr>
+<tr><td>12</td><td>numbered mailboxes, fire-and-forget datagrams</td><td>ports, UDP</td><td><a href="field-guide.html#cmd-lsof"><code>lsof -i</code></a></td></tr>
+<tr><td>13</td><td>numbers, windows, adaptive timeouts, hello and goodbye</td><td>TCP: sequence numbers, sliding windows, RTO, congestion control, SYN and FIN</td><td><a href="field-guide.html#cmd-tcp-info"><code>ss -ti</code></a></td></tr>
+<tr><td>14</td><td>the tree of names, resolvers, remembering</td><td>DNS, recursive resolvers, caching and TTLs</td><td><a href="field-guide.html#cmd-dig"><code>dig +trace</code></a></td></tr>
+</table>
+</div>
+
+<p>Some of our inventions match the real ones almost exactly. Chapter 11’s gossiping routers really are how RIP works, down to 16 meaning “unreachable”. Chapter 13’s timeout formula is TCP’s. Others are simplified: real IP addresses aren’t split neatly at a dot, and real Ethernet frames have a few more fields. But the <em>reasons</em> for every one of them are the reasons you now know.</p>
+
+<h3>Layers, for real</h3>
+
+<p>Back in Chapter 1, Alice split the job of signaling between Max, Grandpa Otto and her uncle, and each only had to understand their own part. The internet is organized the same way, into <strong>layers</strong>. Each layer adds its own header, reads only its own header at the other end, and trusts the layer below to deliver:</p>
+
+<!-- @include src/figs/ch15-layers.svg -->
+
+<p>This is why the internet can change so much without falling apart. Wi-Fi replaced cables for most people without TCP noticing. Fiber replaced copper without IP noticing. The web was invented in 1989 on top of TCP, which was already fifteen years old. Each layer can be improved on its own, as long as it keeps its promises to the layers above and below.</p>
+
+<p>You’ll often see a different diagram, with seven layers instead of five, called the <strong>OSI model</strong>. It comes from a rival set of standards from the 1980s that lost out to the internet’s, but its layer numbers stuck around. Network engineers still say “layer 2” for the link layer and “layer 3” for IP. Chapter 16 compares the two.</p>
+
+<h3>One click, every layer</h3>
+
+<p>Let’s follow a single, ordinary event all the way through: Alice opens a web page. Grandpa Otto has moved his web page to a real server on the internet, called <code>grandpa-otto.example</code>, and Alice types its address into her browser.</p>
+
+<!-- @include src/figs/ch15-journey.svg -->
+
+<p>Every step there is something we built. And every step really happened: the lab for this chapter contains a recording of exactly these packets.</p>
+
+<h3>Peel a real packet</h3>
+
+<p>Here’s the fourth step up close: the actual bytes of the frame carrying Alice’s request, as a network card would see them. Click around. Every byte has a job, and every job is something you’ve met:</p>
+
+<div data-widget="onion"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Notice the proportions. Alice’s request is 83 bytes, and it takes 54 bytes of envelopes to get it there: 14 for the frame, 20 for the packet and 20 for the connection. Plus 4 more for the frame’s CRC, and 8 before the frame to get the receiver in step, which network cards check and strip before anything else sees them. For a big download, with 1,460 bytes of data in every packet, the envelopes are only about 5% of the total. For tiny messages, they’re most of it.</p>
+
+<realworld>
+<p>A recording of network traffic is called a <strong>packet capture</strong>, and the program that makes one is a <strong>packet sniffer</strong>. The classic one is <code>tcpdump</code>, written in 1988 by Van Jacobson (yes, him again), Craig Leres and Steven McCanne. <strong>Wireshark</strong> reads the same files and shows them with a friendly interface, and it knows how to decode thousands of protocols.</p>
+<p>Capturing live traffic needs administrator rights, because a sniffer can see everything that crosses your network card, including other people’s traffic on a shared network. Only capture on networks you own, or have permission to watch. These days, most of what you’d see is encrypted anyway: nearly all web traffic uses HTTPS, which wraps the HTTP layer in encryption so that a sniffer sees only scrambled bytes (Chapters 31 and 32).</p>
+</realworld>
+
+<h3>What we left out</h3>
+
+<p>Part I invented a network that works, but the real internet has a few more tricks, and a few more problems. Here are some of the things Part II will add:</p>
+
+<ul>
+<li><strong>Where addresses come from.</strong> We handed them out by hand. Real computers ask for one when they join a network (Chapter 22).</li>
+<li><strong>Home routers that rewrite addresses.</strong> In our capture, Alice’s packets go out with her address, 192.168.1.3. In reality, her home router swaps that for its own public address on the way out, and swaps it back for the replies. That’s called NAT, and it’s why billions of devices can share far fewer addresses (Chapter 22).</li>
+<li><strong>Running out of addresses.</strong> 32 bits isn’t enough for the world. IPv6 has 128 (Chapter 25).</li>
+<li><strong>Routing between tens of thousands of networks</strong>, run by companies that don’t always trust each other (Chapter 24).</li>
+<li><strong>Secrets.</strong> Everything we built can be read, and changed, by Eve. Part II adds cryptography, and then HTTPS (Chapters 31 and 32).</li>
+</ul>
+
+<h3>What’s next?</h3>
+
+<p>That’s the end of Part I. You’ve invented a working computer network, from flashing lights to web pages, and you know why every piece of it is there.</p>
+
+<p>In Part II, “Networks as They Are”, we stop inventing and start investigating. We’ll take each layer of the real internet apart, on your own computer: capturing real packets, reading real headers, and building real clients and servers from raw sockets. Chapter 16 starts where this one ends: with a proper toolkit for capturing and filtering live packets on your own network.</p>
+
+<lab>
+<p>This lab has two programs. <code>make_sample.py</code> builds <code>sample.pcap</code>, a recording of the thirteen packets from this chapter’s journey. It builds every byte by hand, using real header layouts and real checksums, so that standard tools can read it. <code>peel.py</code> is a packet decoder, written from scratch, that peels each packet apart using this book’s words.</p>
+
+<h4>1. Make the capture, and list it</h4>
+
+<terminal title="labs/ch15">
+$ cd labs/ch15
+$ python3 make_sample.py
+wrote sample.pcap: 13 frames, 1200 bytes
+$ python3 peel.py sample.pcap
+  1     0.0 ms    42 bytes  who has? (ARP): who has 192.168.1.1? tell 192.168.1.3
+  2     1.2 ms    42 bytes  who has? (ARP): 192.168.1.1 is card 14:c3:5e:40:0b:32
+  3     2.0 ms    80 bytes  name question (DNS): #7470: what's the address of grandpa-otto.example?
+  4    17.1 ms    96 bytes  name answer (DNS): #7470: grandpa-otto.example is 203.0.113.42 (good for 3600 s)
+  5    17.7 ms    54 bytes  connection (TCP): from port 52000 to port 80, SYN, byte #1000, acknowledging #0, room for 65535, check ✓
+  6    42.0 ms    54 bytes  connection (TCP): from port 80 to port 52000, SYN+ACK, byte #5000, acknowledging #1001, room for 65535, check ✓
+  7    42.3 ms    54 bytes  connection (TCP): from port 52000 to port 80, ACK, byte #1001, acknowledging #5001, room for 65535, check ✓
+  8    42.5 ms   137 bytes  data (HTTP): 83 bytes: 'GET / HTTP/1.1'
+  9    68.6 ms   193 bytes  data (HTTP): 139 bytes: 'HTTP/1.1 200 OK'
+ 10    69.0 ms    54 bytes  connection (TCP): from port 52000 to port 80, ACK, byte #1084, acknowledging #5140, room for 65535, check ✓
+ 11    69.9 ms    54 bytes  connection (TCP): from port 52000 to port 80, ACK+FIN, byte #1084, acknowledging #5140, room for 65535, check ✓
+ 12    93.7 ms    54 bytes  connection (TCP): from port 80 to port 52000, ACK+FIN, byte #5140, acknowledging #1085, room for 65535, check ✓
+ 13    93.9 ms    54 bytes  connection (TCP): from port 52000 to port 80, ACK, byte #1085, acknowledging #5141, room for 65535, check ✓
+</terminal>
+
+<p>Who has? Name lookup. Hello, hello, hello. Request, reply, goodbye. The whole book in thirteen lines.</p>
+
+<h4>2. Peel one packet</h4>
+
+<terminal>
+$ python3 peel.py sample.pcap -v -n 4
+packet 4, at    17.1 ms, 96 bytes
+└ frame (Ch. 8): to e2:5f:b1:3c:77:0a, from 14:c3:5e:40:0b:32; inside: an IP packet
+  └ packet (IP) (Ch. 11): to 192.168.1.3, from 192.168.1.1, hops left 64, header check ✓
+    └ datagram (UDP) (Ch. 12): from port 53 to port 53123, 54 bytes of data, check ✓
+      └ name answer (DNS) (Ch. 14): #7470: grandpa-otto.example is 203.0.113.42 (good for 3600 s)
+$ python3 peel.py sample.pcap --hex -n 8
+packet 8, at    42.5 ms, 137 bytes
+└ frame (Ch. 8): to 14:c3:5e:40:0b:32, from e2:5f:b1:3c:77:0a; inside: an IP packet
+    14 c3 5e 40 0b 32 e2 5f b1 3c 77 0a 08 00
+  └ packet (IP) (Ch. 11): to 203.0.113.42, from 192.168.1.3, hops left 64, header check ✓
+      45 00 00 7b 00 04 40 00 40 06 3c a3 c0 a8 01 03
+      cb 00 71 2a
+    └ connection (TCP) (Ch. 13): from port 52000 to port 80, ACK+PSH, byte #1001, acknowledging #5001, room for 65535, check ✓
+        cb 20 00 50 00 00 03 e9 00 00 13 89 50 18 ff ff
+        e8 c8 00 00
+      └ data (HTTP) (Ch. 6): 83 bytes: 'GET / HTTP/1.1'
+          47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a
+          …
+</terminal>
+
+<p>Every check is verified with the Internet checksum from Chapter 10. Here’s how a capture file is read. It’s just Chapter 5’s trick again: a fixed header, then a length before each record:</p>
+
+<!-- @code labs/ch15/peel.py#pcap -->
+
+<p>And here’s the peeling itself. Each layer reads its own header, says what it found, and hands the rest to the next one in:</p>
+
+<!-- @code labs/ch15/peel.py#peel -->
+
+<h4>3. A second opinion</h4>
+
+<p><code>tcpdump</code> can read the same file, no administrator rights needed:</p>
+
+<terminal>
+$ tcpdump -r sample.pcap -n
+reading from file sample.pcap, link-type EN10MB (Ethernet)
+19:43:20.000000 ARP, Request who-has 192.168.1.1 tell 192.168.1.3, length 28
+19:43:20.001200 ARP, Reply 192.168.1.1 is-at 14:c3:5e:40:0b:32, length 28
+19:43:20.002000 IP 192.168.1.3.53123 > 192.168.1.1.53: 7470+ A? grandpa-otto.example. (38)
+19:43:20.017100 IP 192.168.1.1.53 > 192.168.1.3.53123: 7470 1/0/0 A 203.0.113.42 (54)
+19:43:20.017700 IP 192.168.1.3.52000 > 203.0.113.42.80: Flags [S], seq 1000, win 65535, length 0
+…
+</terminal>
+
+<p>If you have Wireshark, open <code>sample.pcap</code> in it too. The <a href="field-guide.html#cmd-tcpdump">Field Guide</a> explains <code>tcpdump</code>’s output line by line.</p>
+
+<h4>4. Capture your own</h4>
+
+<p>Now record something real. Start Chapter 7’s server, and in a second terminal start capturing traffic to its port on the loopback interface. This needs your password, because of <code>sudo</code>:</p>
+
+<terminal title="terminal 1">
+$ python3 ../ch07/dynserver.py
+</terminal>
+
+<terminal title="terminal 2">
+$ sudo tcpdump -i lo0 -w mine.pcap port 7007
+# on Linux, use -i lo instead of -i lo0
+</terminal>
+
+<p>In a third terminal, fetch a page with <code>curl http://localhost:7007/dice</code>, then go back to terminal 2 and press Ctrl-C. Now peel your own capture:</p>
+
+<terminal>
+$ python3 peel.py mine.pcap -v
+</terminal>
+
+<p>You’ll see the handshake, your request, the reply and the goodbye, just like the sample. On a Mac, the first layer will say “loopback” instead of “frame”: these packets never left your computer, so they never needed card addresses.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Damage the sample: change one byte in the middle of packet 8 (<code>data = bytearray(open("sample.pcap","rb").read()); data[650] ^= 1</code>, then write it back to a new file). Which check does <code>peel.py</code> say is bad? Which byte would you have to change to fool it?</li>
+<li>Add ICMP to <code>peel.py</code> (protocol 1), then capture a <code>ping</code> and decode it. The type byte says whether it’s a question (8) or an answer (0).</li>
+<li>Capture Chapter 12’s chess game (<code>port 7064</code>) and teach <code>peel.py</code> to print the moves.</li>
+<li>Work out the envelope overhead for every packet in <code>sample.pcap</code>: header bytes divided by total bytes. Which packets are nearly all envelope?</li>
+</ul>
+</lab>

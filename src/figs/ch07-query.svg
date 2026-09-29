@@ -1,0 +1,6 @@
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 120" role="img" aria-label="A path followed by a question mark and two name=value parameters">
+<rect x="110" y="30" width="83" height="40" rx="6" class="t-yellow" stroke="var(--line)"/><text x="151.5" y="57" class="mid mono xl b">/dice</text><path d="M151.5,72 l0,14" class="line thin s-muted"/><text x="151.5" y="104" class="mid hand">path</text><rect x="196" y="30" width="31" height="40" rx="6" class="f-none" stroke="var(--line)"/><text x="211.5" y="57" class="mid mono xl b">?</text><rect x="230" y="30" width="122" height="40" rx="6" class="t-green" stroke="var(--line)"/><text x="291" y="57" class="mid mono xl b">sides=20</text><path d="M291.0,72 l0,14" class="line thin s-muted"/><text x="291" y="104" class="mid hand">a parameter</text><rect x="355" y="30" width="31" height="40" rx="6" class="f-none" stroke="var(--line)"/><text x="370.5" y="57" class="mid mono xl b">&amp;</text><rect x="389" y="30" width="57" height="40" rx="6" class="t-green" stroke="var(--line)"/><text x="417.5" y="57" class="mid mono xl b">n=3</text><path d="M417.5,72 l0,14" class="line thin s-muted"/><text x="417.5" y="104" class="mid hand">another</text><text x="520" y="57" class="mono b">→  { sides: 20, n: 3 }</text>
+</svg>
+<figcaption>After the ?, name=value pairs, separated by &amp;.</figcaption>
+</figure>

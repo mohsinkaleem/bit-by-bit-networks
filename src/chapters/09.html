@@ -1,0 +1,173 @@
+<h3>Every house gets its own cable</h3>
+
+<p>One Saturday, Dave’s dad digs a new flower bed and cuts straight through the shared cable in front of their house. The whole street goes offline. Alice can’t reach Bob, Carol can’t reach anyone, and it takes all afternoon to find the break, because nothing tells you <em>where</em> a shared cable is broken, only that it is.</p>
+
+<p>So they rewire. Instead of one long cable past every house, each house gets its own cable, and they all run to a box in Bob’s garage. It uses more cable than the bus did (though still far less than a full mesh), but every connection is now separate. If Dave’s cable gets cut, only Dave goes offline, and everyone knows exactly which cable to check.</p>
+
+<p>This layout is called a <strong>star</strong>, for obvious reasons. The interesting question is what goes in the box in the middle.</p>
+
+<h3>The dumb box</h3>
+
+<p>The simplest possible box is called a <strong>hub</strong>. Whenever a signal comes in on one of its cables, it copies it out onto <em>all</em> the others. That’s all it does. It doesn’t read the frames, and it doesn’t know what an address is.</p>
+
+<p>So, electrically, a hub is just the shared bus from Chapter 8 folded up into a box. Every frame still reaches every computer. Two computers sending at once still collide. Everyone still shares one wire’s worth of capacity. And Eve still hears everything. The only improvement is that a cut cable takes out one house instead of the whole street.</p>
+
+<p>We can do much better, because the box in the middle is in a unique position: every frame passes through it.</p>
+
+<h3>The smart box</h3>
+
+<p>Suppose the box actually <em>read</em> each frame’s “to” address, and knew which cable led to that address. Then it could send each frame out on just that one cable. Alice’s frame for Bob would go to Bob and nowhere else. Carol and Dave wouldn’t even know it happened.</p>
+
+<p>A box that does this is called a <strong>switch</strong>, and it changes everything:</p>
+
+<!-- @include src/figs/ch09-star.svg -->
+
+<ul>
+<li><strong>No more collisions between different cables.</strong> A switch receives a whole frame into its memory before sending it on. This is called <strong>store-and-forward</strong>. If two frames need the same output cable at the same moment, the switch doesn’t let them collide. It keeps one in memory and sends it right after the other.</li>
+<li><strong>Everyone gets the full speed.</strong> Alice→Bob and Carol→Dave can happen <em>at the same time</em>, because they use different cables. On a hub they’d have taken turns.</li>
+<li><strong>No collisions at all, in fact.</strong> Each cable now connects exactly two things: one computer and one switch port. Give each cable two pairs of wires, one for each direction, and we’re back to the <em>full duplex</em> two-lane road from Chapter 3. Nobody ever shares a lane, so collisions simply can’t happen. All that CSMA/CD machinery from the last chapter isn’t needed any more.</li>
+<li><strong>A little more privacy.</strong> Eve’s card no longer sees frames between other people. But don’t mistake this for security, as we’re about to see.</li>
+</ul>
+
+<h3>A table that fills itself in</h3>
+
+<p>For this to work, the switch needs a table saying which address is on which port. Bob could type it in by hand, but then he’d have to update it every time someone got a new computer or plugged into a different socket. It would be much better if the switch could work it out by itself.</p>
+
+<p>And it can, thanks to a lovely trick. Every frame carries a “from” address. So when a frame from <code>0a:11</code> arrives on port 1, the switch has just learned something: <code>0a:11</code> must live somewhere out of port 1. Every frame that passes through teaches the switch where its sender is. The whole algorithm is three rules:</p>
+
+<ol>
+<li><strong>Learn.</strong> When a frame arrives, write down “this frame’s <em>from</em> address lives on the port it came in on”.</li>
+<li><strong>Forward.</strong> If the table says where the <em>to</em> address lives, send the frame out of that port only.</li>
+<li><strong>Flood.</strong> If the address isn’t in the table yet (or it’s the broadcast address), send the frame out of every port except the one it came in on, just like a hub. The destination will get it, and when it replies, rule 1 will teach the switch where it is.</li>
+</ol>
+
+<p>Try it. The switch starts out knowing nobody. Send a few frames and watch it learn:</p>
+
+<div data-widget="switchlearn"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Notice that the very first frame to a stranger always gets flooded, and that’s fine. After that, the reply teaches the switch where the stranger is, and from then on their frames go straight there. In real life a switch learns nearly its whole table within a second or two of being switched on.</p>
+
+<p>There’s one more detail. People unplug computers and move them. So every table entry has an expiry time, typically five minutes. If the switch hasn’t heard from an address in that long, it forgets it, and the next frame for it gets flooded again. That’s called <strong>aging</strong>, and it means the table can never stay wrong for long.</p>
+
+<!-- @code labs/ch09/switch_sim.py#learn -->
+
+<h3>Switches plugged into switches</h3>
+
+<p>Carol’s family ends up with three computers, and she doesn’t want to run three cables up the street to Bob’s garage. So she puts a small switch in her own house, plugs her family’s computers into it, and runs a single cable from her switch to Bob’s.</p>
+
+<p>Does learning still work? Beautifully. When a frame from Carol arrives at Bob’s switch on the port that leads to Carol’s house, Bob’s switch writes down “Carol is out of that port”. When a frame from her brother arrives on the same port, it writes down “Carol’s brother is out of that port” too. Bob’s switch doesn’t know or care that there’s another switch at the other end. It only needs to know which way to send things.</p>
+
+<!-- @include src/figs/ch09-two.svg -->
+
+<p>You can keep going like this, with switches plugged into switches plugged into switches, and build a network of hundreds of computers. Every switch learns the direction to every computer, and frames follow a path from switch to switch to their destination.</p>
+
+<h3>Going around in circles</h3>
+
+<p>Dave, who never wants to be offline again, has a clever idea. He runs a second cable from his house straight to Carol’s, as a backup. Now if the cable to Bob’s garage breaks, his frames can still go the long way round through Carol’s switch.</p>
+
+<p>Within a minute of plugging it in, the whole network grinds to a halt. Every light on every switch is flashing constantly, and nothing gets through. What happened? Dave created a <strong>loop</strong>. Here’s the same problem with three switches, which is a little easier to follow:</p>
+
+<!-- @include src/figs/ch09-storm.svg -->
+
+<p>The trouble is that frames have no memory. A switch can’t tell a brand-new broadcast from a copy of one it flooded a moment ago that came back around the loop. So it floods it again, and again, forever. It doesn’t just happen to broadcasts, either: any frame for an address the switches haven’t learned yet gets flooded, and loops the same way.</p>
+
+<h3>Pruning the loops</h3>
+
+<p>Backup cables are a genuinely good idea. We just can’t have them all switched on at the same time. What we need is for the switches to agree to switch off just enough ports that no loops remain, while everything stays connected. And if a cable breaks, they should switch one of the spare ports back on.</p>
+
+<p>The switches work this out together, by exchanging little messages among themselves:</p>
+
+<ol>
+<li>They elect a leader, called the <strong>root</strong>. Every switch has a unique ID number (usually based on its own card address), and the lowest ID wins.</li>
+<li>Each switch works out its shortest path to the root, and keeps the port on that path switched on.</li>
+<li>Any link between switches that isn’t on somebody’s shortest path to the root gets <strong>blocked</strong>: switched off for ordinary frames, but kept on standby.</li>
+</ol>
+
+<!-- @include src/figs/ch09-stp.svg -->
+
+<p>What’s left is a <strong>tree</strong>. In a tree there’s exactly one path between any two points, so there are no loops. Because it reaches (“spans”) every switch, it’s called a <strong>spanning tree</strong>. The switches keep exchanging messages, and if a link on the tree fails, they notice the silence, recompute, and unblock a spare link. Dave gets his backup cable after all, and it waits patiently until it’s needed.</p>
+
+<realworld>
+<p>The spanning tree protocol was invented in 1985 by Radia Perlman, then an engineer at Digital Equipment Corporation, who reportedly designed it in a matter of days. She was so pleased with it that she wrote a short poem about it, called “Algorhyme”, which is well worth looking up. It’s still in use today (in a faster version called Rapid Spanning Tree), and she’s often called the “mother of the internet” for this and her later work on routing.</p>
+<p>The first commercial Ethernet switch came out in 1990, from a company called Kalpana. Through the 1990s, switches replaced hubs almost everywhere, and full duplex made collisions a thing of the past. Ethernet at 10 gigabits per second and faster doesn’t even <em>support</em> the shared, half-duplex mode any more. The CSMA/CD from Chapter 8 lives on in the standard mostly as history. (It came back in a different form in Wi-Fi, where everyone really does share the same air, as we’ll see in Chapter 19.)</p>
+<p>A switch’s address table is usually called its <strong>MAC address table</strong> (or CAM table), and the default aging time on most switches is 300 seconds. There’s a well-known attack called <strong>MAC flooding</strong>: send thousands of frames with made-up “from” addresses until the switch’s table is full. Many switches then fall back to flooding <em>everything</em>, like a hub, and Eve can hear it all again.</p>
+</realworld>
+
+<h3>What switches can’t fix</h3>
+
+<p>Switches are wonderful, and the neighborhood network grows to dozens of houses. But two problems keep growing with it.</p>
+
+<p><strong>Broadcasts still go everywhere.</strong> Every broadcast (every “who’s there?”) still reaches every computer on the network, and floods to unknown addresses do too. With a hundred computers each broadcasting occasionally, every computer is kept busy listening to a steady trickle of messages that aren’t for it.</p>
+
+<p><strong>Every switch has to know everyone.</strong> A switch keeps one table entry for every computer it has heard from. That’s fine for a neighborhood, but imagine connecting every computer in the <em>world</em> this way. Every switch would need a table with billions of entries, and every broadcast would reach billions of computers. The problem is that card addresses are <strong>flat</strong>. <code>0a:11:…</code> says nothing about <em>where</em> Alice is, the way a street address does. It’s like a postal service that delivers letters addressed only by the recipient’s fingerprint: it works in a village, and fails completely for a country.</p>
+
+<p>Fixing that is the next big step, and it comes in Chapter 11. Before we get there, though, there’s a more immediate problem to deal with.</p>
+
+<h3>What’s next?</h3>
+
+<p>Bob has recorded a two-hour video of the school play, and he wants to send it to Carol. It’s a <em>huge</em> file. While it’s being sent, it hogs the link to Carol’s house, and everyone else’s messages wait behind it. And then, an hour and fifty minutes in, a burst of noise flips a single bit, and the whole video is damaged, with no way of knowing which part.</p>
+
+<p>In the next chapter we’ll chop big messages into small pieces, and learn to spot damaged bits before they cause trouble.</p>
+
+<lab>
+<p><code>switch_sim.py</code> builds small networks of switches and computers, sends frames through them, and prints every decision each switch makes, plus its table afterwards.</p>
+
+<h4>1. Watch one switch learn</h4>
+
+<terminal title="labs/ch09">
+$ cd labs/ch09
+$ python3 switch_sim.py learn
+
+A sends a frame to B
+    S1: don't know B yet, flood out of ports [2, 3, 4]
+    B receives A→B ✓
+    C ignores A→B
+    D ignores A→B
+  S1 table: A→port 1
+
+B sends a frame to A
+    S1: A is on port 1, forward there
+    A receives B→A ✓
+  S1 table: A→port 1, B→port 2
+…
+</terminal>
+
+<p>The first frame is flooded (C and D see it and ignore it), and every frame after that goes straight to its destination. Try your own list with <code>--send</code>, for example <code>--send A:B,A:B,A:B</code>. Why is the <em>second</em> A:B frame still flooded, even though A has already sent one? (Hint: who has the switch heard <em>from</em>?)</p>
+
+<h4>2. Two switches</h4>
+
+<terminal>
+$ python3 switch_sim.py two
+</terminal>
+
+<p>Follow the first frame from A to D. It’s flooded by S1 (which has never heard of D) and then by S2 (which hasn’t either). Look at the tables at the end: both of S1’s entries for C and D point at port 9, the cable to S2.</p>
+
+<h4>3. A storm, and a tree</h4>
+
+<terminal>
+$ python3 switch_sim.py storm
+A sends a frame to ff (broadcast)
+    S1: broadcast, flood out of ports [2, 3]
+    S2: broadcast, flood out of ports [1, 2]
+    S3: broadcast, flood out of ports [1, 3]
+    B receives A→ff ✓
+    S3: A moved from port 2 to port 3?!
+    …
+    A receives A→ff ✓
+    …
+  💥 still 3 copies of that frame bouncing around after 60 hops. Giving up: this is a BROADCAST STORM.
+$ python3 switch_sim.py storm --stp
+spanning tree: root is S1. Blocked: S2 port 2, S3 port 3
+</terminal>
+
+<p>In the storm, notice Alice receiving <em>her own</em> broadcast, and the switches getting confused about which port Alice is on (“A moved from port 2 to port 3?!”). With <code>--stp</code>, one link is blocked, and every frame arrives exactly once. Here’s the spanning tree calculation:</p>
+
+<!-- @code labs/ch09/switch_sim.py#stp -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Change S3’s ID from 3 to 0 in <code>build()</code>. Which switch becomes the root now, and which link gets blocked?</li>
+<li>Add a <code>--hub</code> option that makes every switch flood every frame, ignoring its table. Count how many “ignores” lines you get for the <code>learn</code> scenario compared with a real switch. That’s wasted work for every computer on the network.</li>
+<li>Our switches never forget. Add aging: store a timestamp with each table entry (count frames as “time”) and drop entries older than 10 frames. Then make a host “move” by recabling it to a different port halfway through a run. How long does it take the switch to notice?</li>
+</ul>
+</lab>

@@ -1,0 +1,276 @@
+<h3>Running out of room</h3>
+
+<p>Carol has drawn a volcano for Alice’s class presentation. It’s a good volcano, with smoke puffing out of the top. Alice wants to send it to Bob so he can add it to their slides, and she immediately hits a wall.</p>
+
+<p>Our computers still speak the codebook from Chapter 1: 26 capital letters, a space, four punctuation marks and a squiggle. That’s all 5 bits can hold. There are no lowercase letters and no digits. Carol’s name has no <em>é</em> in it, but plenty of names do. And the codebook has no way at all to describe a picture.</p>
+
+<p>We need a much bigger vocabulary. Fortunately, Chapter 1 already told us how to get one. Every extra bit doubles the number of things we can say:</p>
+
+<ul>
+<li>6 bits: 64 symbols. Enough for upper and lowercase, but not much else.</li>
+<li>7 bits: 128 symbols. Room for letters, digits, punctuation and some control codes.</li>
+<li>8 bits: 256 symbols. All of that, with room to spare.</li>
+</ul>
+
+<h3>Eight is great</h3>
+
+<p>Computers settled on <strong>8 bits</strong> as their basic unit, and a group of 8 bits is called a <strong>byte</strong>. Why 8? Partly because it’s a power of two, which makes the hardware simpler: 8 bits split neatly into two halves of 4, and those split into 2s. Partly because 256 values turned out to be enough for a character set, a pixel’s brightness or a small number, all at once. And partly, honestly, because one very influential computer did it that way and everybody followed.</p>
+
+<p>From now on, when our computers send data, they send bytes: 8 bits at a time. Here’s a byte to play with. Flip the bits and watch the number and the character change (we’ll get to the character table in a moment):</p>
+
+<div data-widget="bits" data-bits="8"></div>
+
+<p>You’ll bump into bytes, and multiples of bytes, everywhere:</p>
+
+<div class="table-scroll">
+<table class="data" style="max-width:620px">
+<tr><th>Unit</th><th>Size</th><th>Roughly…</th></tr>
+<tr><td>1 byte</td><td>8 bits</td><td>one letter</td></tr>
+<tr><td>1 kilobyte (kB)</td><td>1,000 bytes</td><td>a short email</td></tr>
+<tr><td>1 megabyte (MB)</td><td>1,000,000 bytes</td><td>a photo, or a novel’s text</td></tr>
+<tr><td>1 gigabyte (GB)</td><td>1,000,000,000 bytes</td><td>an hour of HD video</td></tr>
+</table>
+</div>
+
+<realworld>
+<p>The word <em>byte</em> was coined by Werner Buchholz at IBM in 1956, spelled with a “y” so nobody would confuse it with <em>bit</em>. Early computers had bytes of all sorts of sizes, and 6 bits was common. IBM’s hugely successful System/360 settled on 8 in 1964, and the rest of the industry followed. Networking standards still often say <strong>octet</strong> when they mean “exactly 8 bits, no arguments”.</p>
+<p>Watch out for one trap you’ll meet constantly. Network speeds are measured in <em>bits</em> per second, but file sizes are in <em>bytes</em>. A “100 Mbit/s” internet connection moves at most 100 ÷ 8 = 12.5 megabytes per second. And you may also see <em>kibibytes</em> (KiB), which are 1,024 bytes instead of 1,000, because 1,024 is a power of two.</p>
+</realworld>
+
+<h3>Hex marks the spot</h3>
+
+<p>Writing bytes in binary gets tiresome fast. <code>01001000 01101001</code> is only two bytes, and it’s already hard to read. Decimal is shorter (72, 105), but you can’t see the bits in it any more.</p>
+
+<p>Programmers use a compromise called <strong>hexadecimal</strong>, or <strong>hex</strong>: base 16. Chop a byte into two halves of 4 bits. Each half has 16 possible values, from <code>0000</code> to <code>1111</code>, so it can be written as a single “digit”. We only have ten digit symbols, so we borrow letters for the rest: A means 10, B means 11, and so on up to F for 15.</p>
+
+<!-- @include src/figs/ch05-hex.svg -->
+
+<p>So every byte is exactly two hex digits, from <code>00</code> to <code>FF</code> (255). Hex numbers are often written with a <code>0x</code> in front, like <code>0x48</code>, so you don’t mistake them for decimal. You’ll see hex everywhere in networking: in addresses, packet dumps, colors and error codes. It’s worth getting comfortable with.</p>
+
+<h3>A table everyone agrees on</h3>
+
+<p>Remember what made the codebook work: Alice and Bob had the <em>same</em> table. With 256 possible byte values, the whole world needs the same table, or a byte sent from one computer will turn into a different letter on another.</p>
+
+<p>The table almost everyone agreed on is called <strong>ASCII</strong>, the American Standard Code for Information Interchange, from 1963. It uses the first 128 values (7 bits’ worth), and here it all is:</p>
+
+<!-- @include src/figs/ch05-ascii.svg -->
+
+<p>A few things worth noticing:</p>
+
+<ul>
+<li>The first 32 codes aren’t printable characters at all. They’re <strong>control codes</strong> from the teleprinter era, with exactly the jobs our <code>~</code> codes had: STX and ETX (start and end of text), ACK and NAK, LF (line feed, our <code>~L</code>), even BEL, which rang a real bell on the teleprinter.</li>
+<li>Digits are in order and start at <code>0x30</code>, so the digit 7 is <code>0x37</code>. The <em>character</em> “7” and the <em>number</em> 7 are different bytes!</li>
+<li>“A” is <code>0x41</code> and “a” is <code>0x61</code>. They differ by exactly 32, a single bit. Flipping that one bit switches between upper and lowercase, which made case-insensitive comparison easy for 1960s hardware.</li>
+<li>Our trusty <code>~</code> is <code>0x7E</code>, or <code>01111110</code> in binary. That happens to be the same byte PPP uses as its frame marker (Chapter 3). A lucky coincidence, but a fitting one.</li>
+</ul>
+
+<h3>Café, 日本, 👋</h3>
+
+<p>ASCII is great for English, but it has no é, no ñ, no Greek, Arabic, Hindi or Chinese, and certainly no emoji. For decades, different countries filled bytes 128–255 with their own letters, which meant a document written on a Russian computer came out as gibberish on a French one. And 256 slots were never going to be enough for Chinese, which has tens of thousands of characters.</p>
+
+<p>The fix came in two parts. First, <strong>Unicode</strong> gives every character in every writing system a number of its own, called its <strong>code point</strong>. “A” is U+0041 (the same as ASCII), é is U+00E9, 日 is U+65E5, and 👋 is U+1F44B. There are over 150,000 of them so far.</p>
+
+<p>Second, <strong>UTF-8</strong> is a clever way of turning those numbers into bytes. Small numbers (the ASCII characters) take one byte, exactly as before, so old English text is still valid UTF-8. Bigger numbers take two, three or four bytes, and the first bits of each byte say how many bytes the character uses:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Code points</th><th>Bytes</th><th>Bit pattern</th><th>Example</th></tr>
+<tr><td>U+0000 – U+007F</td><td>1</td><td><code>0xxxxxxx</code></td><td>A → <code>41</code></td></tr>
+<tr><td>U+0080 – U+07FF</td><td>2</td><td><code>110xxxxx 10xxxxxx</code></td><td>é → <code>C3 A9</code></td></tr>
+<tr><td>U+0800 – U+FFFF</td><td>3</td><td><code>1110xxxx 10xxxxxx 10xxxxxx</code></td><td>日 → <code>E6 97 A5</code></td></tr>
+<tr><td>U+10000 and up</td><td>4</td><td><code>11110xxx 10xxxxxx 10xxxxxx 10xxxxxx</code></td><td>👋 → <code>F0 9F 91 8B</code></td></tr>
+</table>
+</div>
+
+<p>Notice that a byte starting with <code>10</code> is always a “continuation” byte, never the start of a character. So if a receiver joins in partway through a stream, it can skip forward to the next byte that <em>doesn’t</em> start with <code>10</code> and be back in sync. It’s a little like the start pulses from Chapter 2, built into the encoding itself.</p>
+
+<div data-widget="utf8"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<realworld>
+<p>UTF-8 was designed by Ken Thompson and Rob Pike in 1992. The story goes that they sketched it on a placemat in a New Jersey diner. Today about 98% of all web pages are UTF-8. One practical consequence: “how long is this text?” has more than one answer. <code>"👋"</code> is 1 character, 1 code point and 4 bytes. Some characters are even built from several code points: é can be stored as one code point, or as “e” plus a separate combining accent. Networks move bytes, so when a protocol says a field can be “at most 255 long”, always check whether it means characters or bytes.</p>
+</realworld>
+
+<h3>Pictures are just numbers</h3>
+
+<p>Now for Carol’s volcano. A picture on a screen is a grid of tiny squares called <strong>pixels</strong>. To send a picture, we just need to describe every pixel with a number, row by row.</p>
+
+<p>The simplest pictures are black and white: each pixel is either dark or light. That’s one bit per pixel, so a row of 8 pixels fits exactly into one byte. Try it:</p>
+
+<div data-widget="pixels"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Grayscale pictures use a whole byte per pixel: 0 for black, 255 for white, and 254 shades in between. Color pictures use three bytes per pixel, one each for how much <strong>r</strong>ed, <strong>g</strong>reen and <strong>b</strong>lue light to mix, from <code>00</code> (none) to <code>FF</code> (full). Mixing those three gives 256 × 256 × 256, about 16.7 million colors:</p>
+
+<!-- @include src/figs/ch05-rgb.svg -->
+
+<p>That adds up quickly. A photo on a typical HD screen is 1920 × 1080 pixels × 3 bytes, over 6 megabytes. That’s why pictures are usually <strong>compressed</strong>. PNG files squeeze out repetition without losing anything (Carol’s volcano, with its big flat areas, shrinks enormously). JPEG files go further by quietly throwing away detail your eye won’t miss. Either way, it’s still just bytes.</p>
+
+<h3>Where does a picture end?</h3>
+
+<p>Alice tries to send the volcano with our trusty protocol from Chapter 4, and it goes horribly wrong. Bob gets a picture that stops a third of the way down.</p>
+
+<p>The problem is framing. Our messages end with the control code <code>~E</code>. But a picture is just bytes, and <em>any</em> byte value can turn up in it, including <code>0x7E</code>, the byte for <code>~</code>. The first time the picture happens to contain <code>~E</code>, Bob’s computer thinks the message is over.</p>
+
+<p>Escaping still works, since we can double every <code>~</code> byte. But it has costs. The sender has to inspect every single byte to find the <code>~</code>s, the receiver has to inspect every byte again to undo it, and the message gets longer by an amount you can’t predict in advance. For big pictures and videos, that’s a lot of fiddling.</p>
+
+<p>There’s a much simpler approach: <em>say how long the data is before sending it</em>. If the message begins with “944 bytes are coming”, the receiver doesn’t need to look for an end marker at all. It counts 944 bytes and stops. The data can contain anything whatsoever.</p>
+
+<!-- @include src/figs/ch05-framing.svg -->
+
+<p>The catch is that the sender needs to know the length before it starts, which is fine for a file on disk but awkward for something being generated on the fly (we’ll meet a fix in Chapter 7). For files, the length approach wins.</p>
+
+<p>Since our messages now carry several pieces of information about the data (its length, and in a moment its type), Alice and Bob tidy up the format. From now on, a reply looks like this: a status line, then any number of <strong>header</strong> lines of the form <code>Name: value</code>, then a blank line, and then exactly <code>Length</code> bytes of <strong>body</strong>.</p>
+
+<msg title="the new reply format">
+status | OK
+header | Type: image/png
+header | Length: 944
+blank | (an empty line: headers are over)
+body | 89 50 4E 47 0D 0A 1A 0A 00 00 00 0D 49 48 44 52 … (944 bytes)
+</msg>
+
+<p>Because headers are just lines of text, it’s easy to add new ones later, and a receiver can simply skip any header it doesn’t understand. That flexibility will matter a lot.</p>
+
+<h3>Which end first?</h3>
+
+<p>There’s a second, quieter question hiding in “Length: 944”. We wrote the length as text, the three characters “9”, “4”, “4”. Many protocols instead store numbers directly as binary, which is shorter and faster for computers to handle. But 944 is bigger than 255, so it doesn’t fit in one byte. It needs two: <code>0x03</code> and <code>0xB0</code>. Which one do you send first?</p>
+
+<!-- @include src/figs/ch05-endian.svg -->
+
+<p>Either order works, as long as both sides agree. Sending the “big end” first, the way we write numbers, is called <strong>big-endian</strong>. Sending the small end first is <strong>little-endian</strong>. Awkwardly, most computers today store numbers little-endian in memory, while internet protocols send them big-endian. So every networked program is constantly flipping bytes around, and forgetting to is a classic bug: 1000 read in the wrong order comes out as 59,395.</p>
+
+<realworld>
+<p>The terms come from <em>Gulliver’s Travels</em>, where the empires of Lilliput and Blefuscu go to war over which end of a boiled egg to crack. Computer scientist Danny Cohen borrowed them in a 1980 note titled “On Holy Wars and a Plea for Peace”, arguing that the choice matters far less than everybody agreeing. The internet agreed on big-endian, which is why it’s also called <strong>network byte order</strong>.</p>
+</realworld>
+
+<h3>What am I looking at?</h3>
+
+<p>One last problem. Bob receives 8 bytes: <code>48 45 4C 4C 4F 21 21 21</code>. Is that the text “HELLO!!!”, or an 8×8 black-and-white picture? Load the “HELLO!!!” preset into the pixel editor above: it’s both! The bytes themselves don’t say what they mean. Only the sender knows.</p>
+
+<p>So the sender has to <em>tell</em> the receiver, with one more header: <code>Type</code>. Rather than invent our own names, we’ll use the same scheme the internet does, a general category, a slash, and a specific format:</p>
+
+<ul>
+<li><code>text/plain</code>: plain text (and it’s polite to say which encoding: <code>text/plain; charset=utf-8</code>)</li>
+<li><code>image/png</code>, <code>image/jpeg</code>: pictures in those formats</li>
+<li><code>audio/mpeg</code>: an MP3 file</li>
+<li><code>application/octet-stream</code>: “just bytes; I don’t know what they are either”</li>
+</ul>
+
+<p>With <code>Type</code> and <code>Length</code>, Bob’s computer knows exactly how many bytes to read and what to do with them: show text, display a picture, play a sound.</p>
+
+<realworld>
+<p>These names are called <strong>media types</strong>, or MIME types. They were invented in 1992 so that email could carry attachments (MIME stands for Multipurpose Internet Mail Extensions), and the web adopted them wholesale. Every web page your browser loads arrives with a <code>Content-Type</code> header.</p>
+<p>Many file formats also label <em>themselves</em>, by starting with a few fixed bytes called a <strong>magic number</strong>. Every PNG file begins with <code>89 50 4E 47</code> (the last three are “PNG” in ASCII). JPEGs start with <code>FF D8 FF</code>, PDFs with <code>%PDF</code>, and ZIP files with <code>PK</code>, the initials of Phil Katz, who created the format. The <code>file</code> command on your Mac identifies files this way.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Our computers now speak in bytes. They can send text in any language, pictures, sounds, or anything else, with headers saying how long the data is and what it is. Carol’s volcano makes it into the slides, and it’s a hit.</p>
+
+<p>Which brings us back to the problem from the end of the last chapter. Bob’s report says “see SCHEDULE”, and Alice has to fetch it by hand. She doesn’t even know what files Bob has. In the next chapter we’ll fix that by letting documents point at each other, and in the process build something that will look very familiar.</p>
+
+<lab>
+<p>Three small programs this time, all in <code>labs/ch05</code>: one for looking at bytes, one that turns a drawing into a real PNG image file, and a file server that uses the new <code>Type</code> and <code>Length</code> headers so it can send anything at all.</p>
+
+<h4>1. Look at bytes</h4>
+
+<!-- @code labs/ch05/bytes_lab.py#inspect -->
+
+<terminal title="labs/ch05">
+$ cd labs/ch05
+$ python3 bytes_lab.py inspect "Hé 👋"
+  char  code point  UTF-8 bytes (hex)   bits
+     H      U+0048  48                  01001000
+     é      U+00E9  C3 A9               11000011 10101001
+            U+0020  20                  00100000
+     👋     U+1F44B  F0 9F 91 8B         11110000 10011111 10010001 10001011
+
+4 characters became 8 bytes: 48 C3 A9 20 F0 9F 91 8B
+$ python3 bytes_lab.py endian 1000
+1000 in 2 bytes:  big-endian (network order) 03 E8          little-endian E8 03
+1000 in 4 bytes:  big-endian (network order) 00 00 03 E8    little-endian E8 03 00 00
+</terminal>
+
+<p>Look at the <code>bits</code> column for é and 👋 and find the UTF-8 patterns from the table: <code>110</code>/<code>10</code> for é, <code>11110</code>/<code>10</code>/<code>10</code>/<code>10</code> for the wave. Try your own name, a word in another language, and a flag emoji (flags are secretly two code points each).</p>
+
+<p>Your Mac also has a real hexdump tool built in, <code>xxd</code>. Compare it with ours:</p>
+
+<terminal>
+$ echo "Hi Bob!" | xxd
+00000000: 4869 2042 6f62 210a                      Hi Bob!.
+$ python3 bytes_lab.py ascii
+</terminal>
+
+<p>That final <code>0a</code> is the line feed that <code>echo</code> adds, ASCII control code 10.</p>
+
+<h4>2. Draw a picture in bytes</h4>
+
+<p><code>pixels.py</code> turns ASCII art (<code>#</code> = dark) into 1-bit-per-pixel bytes, then writes a real PNG file you can open:</p>
+
+<terminal>
+$ python3 pixels.py
+32 x 16 pixels, 1 bit each = 64 bytes:
+
+  ································   00 00 00 00
+  ··············█··█··············   00 02 40 00
+  ·············█·██·█·············   00 05 A0 00
+  …
+  ████████████████████████████████   FF FF FF FF
+
+wrote volcano.png (944 bytes). On a Mac: open volcano.png
+$ open volcano.png
+$ file volcano.png
+volcano.png: PNG image data, 384 x 192, 8-bit/color RGB, non-interlaced
+$ python3 bytes_lab.py hexdump volcano.png
+00000000  89 50 4e 47 0d 0a 1a 0a 00 00 00 0d 49 48 44 52  .PNG........IHDR
+00000010  00 00 01 80 00 00 00 c0 08 02 00 00 00 82 8a 23  ...............#
+</terminal>
+
+<p>The PNG writer is only a dozen lines, and it’s worth a look, because PNG uses the <em>length-first</em> framing from this chapter:</p>
+
+<!-- @code labs/ch05/pixels.py#png -->
+
+<p>Read the hexdump with that in mind. After the 8-byte magic number comes <code>00 00 00 0d</code>, a big-endian length (13), then <code>49 48 44 52</code>, the chunk type “IHDR”. The next 13 bytes include the width, <code>00 00 01 80</code> (384) and the height, <code>00 00 00 c0</code> (192). Every chunk also ends with a 4-byte CRC, a checksum we’ll build ourselves in Chapter 10.</p>
+
+<p>Make your own drawing in a text file (use <code>#</code> for dark pixels) and run <code>python3 pixels.py mydrawing.txt</code>.</p>
+
+<h4>3. A server that can send anything</h4>
+
+<!-- @code labs/ch05/bytewire.py#serve -->
+
+<p>In one terminal, share the <code>shared</code> folder. Copy your <code>volcano.png</code> into it first:</p>
+
+<terminal title="terminal 1">
+$ cp volcano.png shared/
+$ python3 bytewire.py serve shared
+sharing shared/ on port 7005. Ctrl+C to stop.
+</terminal>
+
+<terminal title="terminal 2">
+$ python3 bytewire.py fetch volcano.png
+OK
+  type: image/png
+  length: 944
+saved downloads/volcano.png  sha256=b49751c883d268d7…
+$ cmp volcano.png downloads/volcano.png && echo "identical, byte for byte"
+identical, byte for byte
+$ python3 bytewire.py fetch hello.txt
+</terminal>
+
+<p>Now skip the client and look at the raw reply with <code>nc</code>. The headers are readable text, and the body is raw bytes:</p>
+
+<terminal title="terminal 2">
+$ printf 'GET volcano.png\n' | nc localhost 7005 | xxd | head -3
+00000000: 4f4b 0a54 7970 653a 2069 6d61 6765 2f70  OK.Type: image/p
+00000010: 6e67 0a4c 656e 6774 683a 2039 3434 0a0a  ng.Length: 944..
+00000020: 8950 4e47 0d0a 1a0a 0000 000d 4948 4452  .PNG........IHDR
+</terminal>
+
+<p>Can you find the blank line (<code>0a 0a</code>) where the headers end and the PNG begins?</p>
+
+<p>Experiments:</p>
+<ul>
+<li>Change the server to send a <code>Length</code> that’s 100 bytes <em>too big</em>. What does the client do? (Hint: <code>read_exactly</code>.) Now 100 bytes too small: what does the client end up saving? A server can’t be trusted just because it sent a header.</li>
+<li>What happens if a malicious server says <code>Length: 99999999999</code>? Add a sensible limit to the client.</li>
+<li>Change the server so that <code>.txt</code> files are sent as <code>Type: image/png</code>. The bytes are unchanged, but what does the client do with them now?</li>
+</ul>
+</lab>

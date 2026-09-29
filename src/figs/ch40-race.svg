@@ -1,0 +1,6 @@
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 200" role="img" aria-label="Bars comparing one-way time London to New York: straight fibre about 28 ms, lasers in space about 23 ms">
+<text x="20" y="24" class="sm b">London to New York: 5,570 km along the ground. One way, at best:</text><text x="20" y="58" class="xs b">a perfectly straight fibre, through the sea</text><rect x="20" y="66" width="278.715" height="22" rx="4" class="t-blue" stroke="var(--blue)" stroke-width="1.2"/><text x="304.715" y="82" class="xs mono">5,570 km at two-thirds of the speed of light: 27.9 ms</text><text x="20" y="116" class="xs b">lasers in space, 550 km up, plus the trips up and down</text><rect x="20" y="124" width="238.543" height="22" rx="4" class="t-red" stroke="var(--red)" stroke-width="1.2"/><text x="264.543" y="140" class="xs mono">7,151 km at the speed of light: 23.9 ms</text><text x="20" y="172" class="xs">Light in glass travels at about 200,000 km/s (Chapter 17); in a vacuum, 300,000. Over long enough distances, the longer</text><text x="20" y="188" class="xs">path through space wins. Real cables aren’t straight, which makes the gap bigger still.</text>
+</svg>
+<figcaption>Why some people want to send long-distance traffic through space, even when there’s a cable.</figcaption>
+</figure>

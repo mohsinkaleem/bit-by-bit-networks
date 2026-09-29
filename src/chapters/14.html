@@ -1,0 +1,217 @@
+<h3>Numbers are for computers</h3>
+
+<p>Alice keeps a page at the back of her notebook: Grandpa Otto is 4.2, the library catalog is 3.1, the school newsletter is 2.7. It works, mostly. But she has to copy the list onto every computer she uses, she keeps mistyping 2.7 as 7.2, and when the library gets a second computer she has no idea it exists.</p>
+
+<p>People are good at names and bad at numbers. Computers are the other way round. So let’s give every computer a name as well as a number, and teach the network to translate one into the other. It sounds like a small convenience, but doing it well, for a whole town and eventually the whole world, is a surprisingly deep problem.</p>
+
+<h3>Everyone keeps a list</h3>
+
+<p>The simplest plan is for every computer to keep its own list of names and numbers, and look names up in it. When Alice types <code>otto</code>, her computer looks in its list, finds 4.2, and sends the packets there.</p>
+
+<!-- @include src/figs/ch14-lists.svg -->
+
+<p>It’s fine for a handful of computers. But every time a computer is added, renamed or renumbered, somebody has to update every list in town, and in the meantime the lists disagree. And who decides what the names are? If Otto and a boy at school both want to be called <code>otto</code>, whose list wins?</p>
+
+<h3>One big phone book</h3>
+
+<p>Better: keep one list, on one computer, and let everyone ask it. When Alice’s computer needs Otto’s number, it sends a question to the <strong>name server</strong>: “what’s the number for otto?”, and gets back “4.2”. Now there’s only one list to update, and one place that decides who gets which name.</p>
+
+<p>That’s a big improvement, and it fixes the town for a while. But look at what happens as the town grows:</p>
+
+<ul>
+<li>Every question from every computer goes to the same place, so the name server gets busier and busier.</li>
+<li>If it breaks, nobody can find anybody, even though the network itself is fine.</li>
+<li>Every new name, from every school, library and house in town, has to be added by whoever looks after that one computer. They become a bottleneck, and a very powerful person.</li>
+</ul>
+
+<p>We’ve seen this shape of problem before. In Chapter 11, one flat list of card addresses didn’t scale, and the fix was to give addresses parts: a network part and a host part. Let’s do the same for names.</p>
+
+<h3>Names with parts</h3>
+
+<p>We give every name a family name. Otto’s computer is <code>otto.seaside</code>, the school newsletter is <code>newsletter.school</code>, and Alice is <code>alice.street</code>. Now the names form a tree:</p>
+
+<!-- @include src/figs/ch14-tree.svg -->
+
+<p>Here’s the clever part: each piece of the tree is looked after by whoever owns it. The town looks after the very top, called the <strong>root</strong>, but all it keeps is a short list saying who is in charge of each second part: “for anything ending in <code>.seaside</code>, ask Otto’s town’s name server”. Otto’s town runs that name server itself, and can add <code>harbor.seaside</code> or <code>cafe.seaside</code> whenever it likes, without asking anybody. Handing over a piece of the tree like this is called <strong>delegation</strong>.</p>
+
+<p>Nobody has to know every name any more. Each name server only knows its own little part, plus where to find the parts below it.</p>
+
+<h3>Asking around</h3>
+
+<p>Finding a name now takes several questions: first the root, then whoever the root points to, and so on. Alice’s computer could do all that asking itself, but instead each street runs a helpful name server whose job is to do the asking for everyone. It’s called a <strong>resolver</strong>, and every computer on the street is told its address when it joins the network.</p>
+
+<!-- @include src/figs/ch14-resolve.svg -->
+
+<p>Step 5 is what makes the whole system work. Most answers come straight out of the resolver’s memory, so the root and the other name servers only hear a tiny fraction of the questions people ask.</p>
+
+<h3>Remembering, and forgetting</h3>
+
+<p>Every answer comes with a “good for” time, chosen by its owner. Otto’s town says <code>otto.seaside</code> is 4.2, good for one hour. The root says “ask seaside’s server”, good for two days, because that almost never changes. The resolver remembers each answer until its time runs out, then forgets it. This is called <strong>caching</strong>, and the “good for” time is its <strong>time to live</strong>, or TTL (the same idea, and the same name, as the hop limit from Chapter 11).</p>
+
+<p>Caching has a price. Try it:</p>
+
+<div data-widget="dnscache"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>If Otto moves while resolvers still remember his old number, people will be sent to the wrong place until those memories expire. The owner of a name has to pick a balance: long TTLs mean fewer questions and faster answers, short TTLs mean changes spread quickly. A good trick, if you know a move is coming, is to shorten the TTL a day or two before you move.</p>
+
+<h3>More than addresses</h3>
+
+<p>Once there’s a system for looking things up by name, it turns out to be useful for more than addresses. Each entry in a name server is a <strong>record</strong>, and there are several kinds:</p>
+
+<table class="data">
+<tr><th>Kind</th><th>Means</th><th>Example</th></tr>
+<tr><td><code>A</code></td><td>this name’s address</td><td>otto.seaside → 4.2</td></tr>
+<tr><td><code>NS</code></td><td>the name server in charge of this part of the tree</td><td>seaside → seaside’s server</td></tr>
+<tr><td><code>MX</code></td><td>where to deliver mail for this name</td><td>seaside → post.seaside</td></tr>
+<tr><td><code>CNAME</code></td><td>this name is just another name for that one</td><td>news.school → newsletter.school</td></tr>
+<tr><td><code>TXT</code></td><td>any bit of text the owner wants to publish</td><td>“mail from seaside only comes from post.seaside”</td></tr>
+</table>
+
+<h3>Can you believe the answer?</h3>
+
+<p>Every question sent to a name server is just a datagram, and so is every answer. There’s no connection, no handshake, nothing to prove where the answer came from. Resolvers match an answer to their question by a question number. So Eve has an opening:</p>
+
+<!-- @include src/figs/ch14-poison.svg -->
+
+<p>This is called <strong>cache poisoning</strong>, and it’s nasty: one successful fake answer misleads everyone on the street for as long as the TTL Eve chose. The defenses are all about making Eve guess:</p>
+
+<ul>
+<li>Pick a <strong>random question number</strong> each time, not 1, 2, 3…</li>
+<li>Send each question from a <strong>random port</strong> (Chapter 12). Eve now has to guess the port too.</li>
+<li>Only accept an answer that comes from the server you actually asked.</li>
+</ul>
+
+<p>With 65,536 possible question numbers and tens of thousands of possible ports, Eve has to guess right among billions of combinations, in the fraction of a second before the real answer arrives. In the lab you’ll watch her succeed against a naive resolver and fail against a careful one. The complete fix is for name servers to <em>sign</em> their answers, so that forgeries can be detected, but that needs the cryptography of Part II.</p>
+
+<realworld>
+<p>The real system is the <strong>Domain Name System</strong>, DNS, invented by Paul Mockapetris in 1983. Before it, the whole internet really did use one list: a file called <code>HOSTS.TXT</code>, kept by the Network Information Center at Stanford Research Institute. Every computer downloaded a fresh copy now and then, and to add a name you phoned or emailed the NIC. By the early 1980s the file was changing faster than people could download it.</p>
+<p>Real names are read right to left, just like ours. In <code>www.example.com</code>, the root delegates <code>com</code> to one organization, which delegates <code>example.com</code> to whoever registered it, who can then create <code>www.example.com</code> or anything else ending in <code>.example.com</code>. There are 13 root server names, from <code>a.root-servers.net</code> to <code>m.root-servers.net</code>, run by 12 different organizations, but each name is really hundreds of machines spread around the world, all answering to the same address (a trick called anycast). Name servers listen on port 53, over UDP for ordinary questions and TCP for big answers.</p>
+<p>Your computer’s resolver is usually your home router, which passes questions on to your internet provider’s resolvers. Some people use public ones instead, like Cloudflare’s <code>1.1.1.1</code> or Google’s <code>8.8.8.8</code>. And the list-on-every-computer idea never died: every computer still has a small one, in <code>/etc/hosts</code>, which it checks first.</p>
+<p>In 2008, Dan Kaminsky found a way to make cache poisoning dramatically faster, and the world’s DNS software was quietly updated in a coordinated effort before he revealed it. The main fix was random ports for questions. Signed answers, called <strong>DNSSEC</strong>, are Chapter 29’s story.</p>
+<p>Names ending in <code>.local</code> work differently. There’s no name server at all: your computer broadcasts the question to your own network, like Chapter 11’s “who has?”, and the computer with that name answers for itself. This is <strong>multicast DNS</strong>, and it’s how <code>ssh raspberrypi.local</code> finds a Raspberry Pi with no setup at all.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Look back at how far we’ve come. We started with a flashlight in a bedroom window, and now Alice can type <code>otto.seaside</code> into a program and send her grandpa a fifty-page report, reliably, across a town of networks, through routers that work out the routes for themselves, with every bit checked on the way.</p>
+
+<p>Along the way, we invented a lot of things and gave them names. The real internet invented the same things, and gave them different names. In the last chapter of Part I, we’ll line them all up, and then follow one real message through every layer, using the tools on your own computer.</p>
+
+<lab>
+<p><code>names.py</code> runs the town’s whole naming system on your computer: a root server, a name server for each part of town, and a resolver, all using real UDP datagrams. <code>lookup.py</code> asks questions, and <code>eve.py</code> tries to cause trouble. You’ll need two or three terminals.</p>
+
+<h4>1. Start the name servers</h4>
+
+<terminal title="terminal 1">
+$ cd labs/ch14
+$ python3 names.py
+    root name server on port 7053: seaside, school, library, street
+ seaside name server on port 7054: otto.seaside, harbor.seaside, cafe.seaside
+  school name server on port 7055: newsletter.school, teacher.school
+ library name server on port 7056: catalog.library
+  street name server on port 7057: alice.street, bob.street, carol.street
+resolver on port 7050
+Ready. Ctrl-C to stop.
+</terminal>
+
+<p>The root only knows who’s in charge of each part of town. Each part’s server knows its own names:</p>
+
+<!-- @code labs/ch14/names.py#zones -->
+
+<h4>2. Look things up</h4>
+
+<terminal title="terminal 2">
+$ cd labs/ch14
+$ python3 lookup.py otto.seaside
+otto.seaside is 4.2   (fresh, good for 30s; answered in 1.1 ms)
+   the resolver asked root (port 7053) about otto.seaside
+   the resolver asked seaside (port 7054) about otto.seaside
+$ python3 lookup.py otto.seaside
+otto.seaside is 4.2   (remembered, 30s left; answered in 0.6 ms)
+$ python3 lookup.py harbor.seaside
+harbor.seaside is 4.8   (fresh, good for 30s; answered in 0.7 ms)
+   the resolver remembered that seaside is served on port 7054
+   the resolver asked seaside (port 7054) about harbor.seaside
+$ python3 lookup.py nowhere.moon
+nowhere.moon: no such name   (0.5 ms)
+   the resolver asked root (port 7053) about nowhere.moon
+</terminal>
+
+<p>The second lookup came straight from memory. For <code>harbor.seaside</code>, the resolver skipped the root, because it remembered who runs <code>seaside</code>. (The TTLs in this lab are 30 seconds, so you don’t have to wait an hour to see them expire.) Here’s the resolver:</p>
+
+<!-- @code labs/ch14/names.py#resolve -->
+
+<h4>3. Do the resolver’s job yourself</h4>
+
+<terminal title="terminal 2">
+$ python3 lookup.py otto.seaside --trace
+1. port 7053 says: I don't know otto.seaside, but port 7054 is in charge of “seaside”
+2. port 7054 says: otto.seaside is 4.2 (good for 30 seconds)
+</terminal>
+
+<h4>4. Otto moves</h4>
+
+<terminal title="terminal 2">
+$ python3 lookup.py otto.seaside
+otto.seaside is 4.2   (fresh, good for 30s; answered in 1.0 ms)
+   …
+$ python3 lookup.py --update otto.seaside 4.9
+told the seaside name server: otto.seaside is now 4.9
+$ python3 lookup.py otto.seaside
+otto.seaside is 4.2   (remembered, 29s left; answered in 0.6 ms)
+$ python3 lookup.py otto.seaside --trace | tail -1
+2. port 7054 says: otto.seaside is 4.9 (good for 30 seconds)
+</terminal>
+
+<p>The resolver is confidently wrong. Seaside’s server knows the new number, but the resolver won’t ask again until its memory expires. Wait 30 seconds and try again.</p>
+
+<h4>5. Eve poisons the resolver</h4>
+
+<p>Stop <code>names.py</code> and restart it with <code>--naive</code>. The naive resolver numbers its questions 1, 2, 3…, always asks from port 7051, and believes any answer with the right number. Start Eve, and within a few seconds, look up a name the resolver hasn’t seen yet:</p>
+
+<terminal title="terminal 1">
+$ python3 names.py --naive
+</terminal>
+
+<terminal title="terminal 3">
+$ python3 eve.py harbor.seaside 6.66
+Eve is sending fake answers “harbor.seaside is 6.66” to port 7051 for 10 seconds...
+</terminal>
+
+<terminal title="terminal 2">
+$ python3 lookup.py harbor.seaside
+harbor.seaside is 6.66   (fresh, good for 3600s; answered in 1.1 ms)
+   the resolver asked root (port 7053) about harbor.seaside
+$ python3 lookup.py harbor.seaside
+harbor.seaside is 6.66   (remembered, 3600s left; answered in 0.8 ms)
+</terminal>
+
+<p>Poisoned, for an hour. Eve’s fake answer arrived before the root had even replied, and look at how simple her program is:</p>
+
+<!-- @code labs/ch14/eve.py#eve -->
+
+<p>Now restart <code>names.py</code> <em>without</em> <code>--naive</code> and try again. Eve sends over 200,000 fake answers, and the resolver doesn’t notice a single one: it asks from a random port that Eve doesn’t know, with random question numbers, and only listens to the server it asked.</p>
+
+<!-- @code labs/ch14/names.py#ask -->
+
+<h4>6. The real thing</h4>
+
+<p>Now ask the real DNS. (If <code>dig</code> just times out, as it did on the network these examples came from, add <code>+tcp</code>.)</p>
+
+<terminal>
+$ dig +short example.com
+104.20.23.154
+172.66.147.243
+$ dig +trace example.com
+</terminal>
+
+<p>The <a href="field-guide.html#cmd-dig">Field Guide</a> takes a real <code>dig +trace</code> apart line by line: the root, then the <code>com</code> servers, then <code>example.com</code>’s own servers, just like <code>otto.seaside</code>. It also shows how to see which resolver your computer uses, and how <code>.local</code> names are found.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Add a new part of town, <code>moon</code>, with its own name server on port 7058 and a couple of names. What do you have to change in the root’s zone?</li>
+<li>Add an alias record kind: <code>("C", "newsletter.school", 30)</code> for <code>news.school</code>, and teach the resolver to follow it.</li>
+<li>Make <code>eve.py</code> guess random question numbers from 0 to 65,535 instead of 1 to 49, against the naive resolver. How long does she need now?</li>
+<li>Look up your own computer’s name with <code>dscacheutil -q host -a name $(hostname)</code> on a Mac, or <code>getent hosts $(hostname)</code> on Linux. Where did the answer come from?</li>
+</ul>
+</lab>

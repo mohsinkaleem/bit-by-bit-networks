@@ -1,0 +1,252 @@
+<h3>Slugs at midnight</h3>
+
+<p>Something is eating Grandpa Otto’s lettuces at night. He has taped a camera to the Pi, pointed it at the vegetable bed, and asked Bob to make it so he can watch from Alice’s house, where he plays cards on Thursdays.</p>
+
+<dialogue>
+B: The Pi has a private address, 192.168.1.4. From Alice’s house, that address means nothing: it’s some other house’s printer, or nobody.
+A: You could forward a port on Grandpa’s router to the camera, like we did for the game in Chapter 22.
+B: Then everyone on the internet can watch the lettuces. Including Eve.
+E: Especially Eve.
+A: So don’t send packets <em>to</em> the camera across the internet. Send them to Grandpa’s router, in a sealed envelope. Inside the envelope, write the camera’s private address. Something at Grandpa’s end opens it, and delivers what’s inside, as if it had come from his own house.
+B: A packet inside a packet?
+A: A tunnel.
+</dialogue>
+
+<p>A <strong>tunnel</strong> carries packets of one network inside packets of another. It’s how a laptop on a café’s Wi-Fi joins its office network, how a company joins two offices into one network, how cloud providers give every customer a private network on shared machines, and, with encryption added, what people mean by a <strong>VPN</strong>, a virtual private network. This chapter builds tunnels on the Pi, and then a WireGuard VPN client in Python that talks to the real WireGuard inside Linux.</p>
+
+<h3>A packet inside a packet</h3>
+
+<!-- @include src/figs/ch35-nest.svg -->
+
+<p>The simplest tunnels don’t even encrypt. <strong>GRE</strong>, generic routing encapsulation, puts a 4-byte header and a new IP header in front of a packet, and that’s all. This chapter’s <code>tunnel_box.sh</code> builds two “houses” on the Pi (two network namespaces, which Chapter 36 explains; think of them as two separate computers), joins them with a cable playing the part of the internet, and runs a tunnel between them. Here’s one ping, captured on the “internet”:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./tunnel_box.sh gre
+== the tunnel interface in Alice's house
+   5: tun0@NONE: <POINTOPOINT,NOARP,UP,LOWER_UP> ⟦1:mtu 1476⟧ …
+       link/gre 192.0.2.1 peer 192.0.2.2 …
+== what crossed the internet
+       1 0.000000000    10.99.0.1 → 10.99.0.2    ICMP ⟦2:122⟧ Echo (ping) request  id=0x1b89, seq=1/256, ttl=64
+       2 0.000037315    10.99.0.2 → 10.99.0.1    ICMP 122 Echo (ping) reply    id=0x1b89, seq=1/256, ttl=64 (request in 1)
+== one of those packets, layer by layer
+   Ethernet II, Src: a6:f6:b8:c8:f2:9d, Dst: a2:64:22:b7:09:20
+   Internet Protocol Version 4, ⟦3:Src: 192.0.2.1, Dst: 192.0.2.2⟧
+       Protocol: Generic Routing Encapsulation (47)
+   Generic Routing Encapsulation (IP)
+       Protocol Type: IP (0x0800)
+   Internet Protocol Version 4, ⟦4:Src: 10.99.0.1, Dst: 10.99.0.2⟧
+       Protocol: ICMP (1)
+   Internet Control Message Protocol
+       Type: 8 (Echo (ping) request)
+</terminal>
+
+<callouts>
+1 | The tunnel is a network interface like any other, but packets through it can be at most 1,476 bytes: the 24 bytes of wrapping have to fit inside the real network’s 1,500.
+2 | A normal ping is a 98-byte frame; this one is 122.
+3 | The outer packet: from one “house” to the other, across the “internet”. Routers along the way only ever look at this.
+4 | The inner packet, between private addresses, untouched and unencrypted. Anyone on the path can read it, which is why GRE is only used inside networks you trust, or with encryption around it.
+</callouts>
+
+<h3>Tunnels you can’t read: VPNs</h3>
+
+<p>Add Chapter 31’s cryptography to the wrapping, and a tunnel becomes a VPN. Three families do almost all of it:</p>
+
+<ul>
+<li><strong>IPsec</strong>, from the mid-1990s: built into every operating system and router, used to join offices together, and quietly behind your phone’s “Wi-Fi calling”, which tunnels calls to your mobile network over whatever Wi-Fi you’re on.</li>
+<li><strong>TLS-based VPNs</strong>, like OpenVPN, and most company “SSL VPNs”: the same TLS as Chapter 32, carrying packets instead of web pages.</li>
+<li><strong>WireGuard</strong>, from 2016: small, fast and simple, built into Linux since 2020, and underneath many commercial VPN apps and “mesh” VPNs.</li>
+</ul>
+
+<p>WireGuard is the easiest to understand, so let’s build one.</p>
+
+<h3>WireGuard</h3>
+
+<p>WireGuard looks like SSH’s keys more than like TLS’s certificates. Each computer has a key pair, and each side is simply told the other’s public key in advance. There are no certificate authorities, no usernames, no choice of ciphers (it uses X25519, ChaCha20-Poly1305 and a hash called BLAKE2s, and that’s that) and almost no settings. The whole thing is about 4,000 lines of code, small enough for one person to check; IPsec and OpenVPN implementations are many times bigger.</p>
+
+<p>On the Pi, <code>wg_box.sh</code> starts Linux’s own WireGuard, on UDP port 51820, with this chapter’s Python peer as its only allowed peer:</p>
+
+<!-- @code labs/ch35/wg_box.sh#up -->
+
+<p>Then, on Bob’s MacBook, <code>wg_peer.py</code>, a couple of hundred lines of Python, does the handshake and pings the Pi’s private tunnel address, 10.35.0.1:</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 wg_peer.py ping 192.168.1.4:51820 MYiqG/t4foJ8jR0tysNbw4/i9B3vM6xwS/qblpB1GCA=
+our public key: S3s+t5hKxbmTa2ssB0lQbfHkhhh3VaIf1ch+ttAMslk=  (the server must know it)
+
+→ handshake initiation   148 bytes  our temporary key; our permanent key and the time, sealed; mac1
+← handshake response      92 bytes  ⟦1:its temporary key, and an empty sealed box that opened: it knows all the keys⟧
+   handshake done after 15.2 ms. Two transport keys: send 24b41b7746aafaf3…, receive 14d6e4aa1afe33d8…
+
+→ transport data #0        80 bytes  sealed inside: ICMP echo request 10.35.0.2 → 10.35.0.1, ttl 64, 43 bytes: b'hello Grandpa 1'
+← transport data #0        80 bytes  opened: ⟦2:ICMP echo reply 10.35.0.1 → 10.35.0.2⟧, ttl 64, 43 bytes: b'hello Grandpa 1'   3.6 ms
+→ transport data #1        80 bytes  sealed inside: ICMP echo request 10.35.0.2 → 10.35.0.1, ttl 64, 43 bytes: b'hello Grandpa 2'
+← transport data #1        80 bytes  opened: ICMP echo reply 10.35.0.1 → 10.35.0.2, ttl 64, 43 bytes: b'hello Grandpa 2'   10.3 ms
+</terminal>
+
+<callouts>
+1 | A real WireGuard server, written by other people in another language, accepted our handshake and answered it. Getting every byte of the key mixing right is the only way that happens.
+2 | The Pi’s Linux kernel received our sealed packet, unwrapped it, and answered the ping as if it had come in on a cable. Its answer came back through the tunnel.
+</callouts>
+
+<p>Here’s how the handshake goes:</p>
+
+<!-- @include src/figs/ch35-handshake.svg -->
+
+<p>WireGuard is built from a framework for handshakes called <strong>Noise</strong>. Its pattern, “IK”, says that the initiator already <em>knows</em> the responder’s permanent key, and sends its own <em>immediately</em>, encrypted. Four X25519 exchanges get mixed into the keys, each for a reason:</p>
+
+<!-- @include src/figs/ch35-fourdh.svg -->
+
+<p>In code, the initiation message is exactly that list of steps:</p>
+
+<!-- @code labs/ch35/wg_peer.py#initiate -->
+
+<p>The Pi saw the same conversation from both sides of its tunnel. On its Wi-Fi, only sealed WireGuard messages; on <code>wg0</code>, the tunnel interface, the plain pings inside them:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ tshark -r wg.pcap
+    1 0.000000  192.168.1.3 → 192.168.1.4  WireGuard 190 Handshake Initiation, sender=0x2AD3F8C8
+    2 0.000713  192.168.1.4 → 192.168.1.3  WireGuard 134 Handshake Response, sender=0xC612798F, receiver=0x2AD3F8C8
+    3 0.006736  192.168.1.3 → 192.168.1.4  WireGuard 122 Transport Data, ⟦1:receiver=0xC612798F, counter=0, datalen=48⟧
+    4 0.006792  192.168.1.4 → 192.168.1.3  WireGuard 122 Transport Data, receiver=0x2AD3F8C8, counter=0, datalen=48
+$ tshark -r wg0.pcap
+    1 0.000000    10.35.0.2 → 10.35.0.1    ICMP 43 Echo (ping) request  id=0xb17e, seq=1/256, ttl=64
+    2 0.000019    10.35.0.1 → 10.35.0.2    ICMP 43 Echo (ping) reply    id=0xb17e, seq=1/256, ttl=64 (request in 1)
+$ sudo wg show wg0
+interface: wg0
+  public key: MYiqG/t4foJ8jR0tysNbw4/i9B3vM6xwS/qblpB1GCA=
+  private key: (hidden)
+  listening port: 51820
+
+peer: S3s+t5hKxbmTa2ssB0lQbfHkhhh3VaIf1ch+ttAMslk=
+  ⟦2:endpoint: 192.168.1.3:51857⟧
+  allowed ips: 10.35.0.2/32
+  latest handshake: 19 seconds ago
+  transfer: 388 B received, 480 B sent
+</terminal>
+
+<callouts>
+1 | Each side picks a random number for the session (the “sender” index), and data messages name the <em>receiver’s</em> number, so it can find the right keys at once. The counter is the nonce, and stops replays. The 43-byte ping became 48, padded to a multiple of 16, so that sizes leak a little less.
+2 | Learned from the handshake, not configured: the Pi just answers wherever valid packets come from.
+</callouts>
+
+<p>The peer list isn’t only a list of who may connect: it’s a routing table too, and a firewall.</p>
+
+<!-- @include src/figs/ch35-cryptokey.svg -->
+
+<p>To give Grandpa his camera, Bob sets Grandpa’s router to forward UDP port 51820 to the Pi, and gives the Pi his laptop’s public key. That forwarded port is safe to leave open: WireGuard answers nobody it doesn’t know, so to Eve, port 51820 looks exactly like a closed one. (Commercial “mesh” VPNs go one step further, and use Chapter 22’s STUN tricks to punch through both routers’ NATs, so nobody has to forward anything.)</p>
+
+<h3>IPsec, briefly</h3>
+
+<p>IPsec does the same job the committee way. A handshake protocol called <strong>IKE</strong> (on UDP port 500) checks certificates or passwords and agrees on keys, and the packets themselves travel as <strong>ESP</strong>, a protocol of its own, next to TCP and UDP:</p>
+
+<!-- @include src/figs/ch35-ipsec.svg -->
+
+<p>Notice the last row. ESP has no port numbers, so the NAT in a home router (Chapter 22) has nothing to tell connections apart by. When IKE notices a NAT in the way, both ends switch to wrapping ESP in UDP, on port 4500: the same lesson QUIC learned in Chapter 33, that the internet only really carries TCP and UDP.</p>
+
+<h3>Whole networks inside UDP</h3>
+
+<p>GRE and WireGuard carry IP packets. Some tunnels carry whole Ethernet frames instead, so that computers in different buildings, or on different physical machines, believe they’re plugged into the same switch. The most common is <strong>VXLAN</strong>, which wraps frames in UDP, on port 4789:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./tunnel_box.sh vxlan
+== the tunnel interface in Alice's house
+   5: tun0: <BROADCAST,MULTICAST,UP,LOWER_UP> ⟦1:mtu 1450⟧ …
+       link/ether 5e:eb:22:6d:32:2c brd ff:ff:ff:ff:ff:ff …
+       vxlan ⟦2:id 42⟧ remote 192.0.2.2 local 192.0.2.1 dev net-a srcport 0 0 dstport 4789 …
+== what crossed the internet
+       7 0.780229 5e:eb:22:6d:32:2c → Broadcast    ⟦3:ARP 92 Who has 10.99.0.2? Tell 10.99.0.1⟧
+       8 0.780265 22:fb:40:89:9d:d5 → 5e:eb:22:6d:32:2c ARP 92 10.99.0.2 is at 22:fb:40:89:9d:d5
+       9 0.780274    10.99.0.1 → 10.99.0.2    ICMP 148 Echo (ping) request  id=0x1bda, seq=1/256, ttl=64
+      10 0.780286    10.99.0.2 → 10.99.0.1    ICMP 148 Echo (ping) reply    id=0x1bda, seq=1/256, ttl=64 (request in 9)
+== Grandpa's end has learned where Alice's MAC address lives, like a switch (Chapter 9)
+   ⟦4:5e:eb:22:6d:32:2c dst 192.0.2.1⟧ self
+</terminal>
+
+<callouts>
+1 | 50 bytes less room than the cable underneath.
+2 | The VXLAN network identifier: which of 16 million virtual networks this is.
+3 | An ARP broadcast (Chapter 21), travelling across the “internet” inside UDP. Because the tunnel carries Ethernet, everything Ethernet does works through it.
+4 | “Frames for this MAC address go to the far end at 192.0.2.1.” A switch’s table (Chapter 9), with tunnel endpoints instead of ports.
+</callouts>
+
+<!-- @include src/figs/ch35-vxlan.svg -->
+
+<h3>What tunnels cost</h3>
+
+<p>Every tunnel spends some of each packet on wrapping, and the packets inside must get smaller to make room. Bob’s home connection already does this once: it’s PPPoE, which is Ethernet carrying PPP carrying IP, and that’s where Chapter 27’s mysterious 1,492-byte packets came from. Try stacking tunnels:</p>
+
+<div data-widget="encap"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>This is why tunnels are the classic cause of the strangest network problem there is: small things work, and big things hang. A web page’s first few packets are small, so the connection opens fine; then the big ones don’t fit, get dropped somewhere in the middle, and the “too big” warnings (ICMP, Chapter 21) that should have come back were blocked by a firewall. Chapter 38 hunts one down.</p>
+
+<think>
+<p>WireGuard and IPsec send their packets over UDP (or straight over IP). OpenVPN can use TCP, and so can the “SSL VPNs” many companies use, because TCP gets through firewalls that block everything else. Why is a VPN over TCP a bad idea, if you can avoid it?</p>
+<p>Because most of what travels <em>inside</em> the tunnel is TCP too. When a packet is lost, the outer TCP connection stops everything and resends it (Chapter 33’s head-of-line blocking), and slows down (Chapter 28). Meanwhile, the inner TCP connections notice their data is late, assume it was lost, and send it again: more data into a tunnel that’s already stalled and slowing down. Two sets of timers fight each other, and throughput can collapse, a problem known as “TCP meltdown”. Over UDP, the tunnel just loses the packet, and only the inner TCP deals with it, exactly as it would without a tunnel.</p>
+</think>
+
+<realworld>
+<p>Jason Donenfeld, a security researcher, wrote WireGuard in 2015 and 2016, having found existing VPN software huge and hard to trust. Linus Torvalds called it “a work of art” compared with the alternatives, and it went into Linux in March 2020. It’s underneath many of the VPN apps people buy today.</p>
+<p>VXLAN was published in 2014 by a group of companies including VMware and Cisco, to solve a data-centre problem: VLANs (Chapter 18) allow only 4,094 separate networks, and cloud providers have millions of customers. Its successor, Geneve, adds room for extra information in each packet, and is used by several cloud providers and container networks.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Look back at how the lab built its two “houses”: <code>ip netns add</code>, and a virtual cable called a veth pair. Chapter 34’s firewall lived in one too. They’re the same parts Docker and Kubernetes use to give every container its own network, with its own addresses, routes and firewall, on one computer. Chapter 36 opens the box.</p>
+
+<lab>
+<p>Two Python programs and two Linux shell scripts. <code>wg_peer.py</code> needs Chapter 31’s <code>x25519.py</code> and <code>chacha.py</code>; keep the lab folders side by side.</p>
+
+<h4>1. WireGuard in Python</h4>
+
+<p>On any computer, <code>python3 wg_peer.py selftest</code> runs both ends of the handshake in Python, and sends a ping through:</p>
+
+<terminal title="labs/ch35">
+$ python3 wg_peer.py selftest
+→ handshake initiation  148 bytes
+   server: a valid initiation, from the peer whose permanent key is /c9FSP4lX5qb…
+← handshake response    92 bytes
+   both sides agree on the keys: True
+← ICMP echo reply 10.35.0.1 → 10.35.0.2, ttl 64, 33 bytes: b'hello'
+</terminal>
+
+<p>To talk to a real WireGuard server, you need a Linux computer (a Raspberry Pi is perfect) on the same network. Install the tools with <code>sudo apt install wireguard-tools</code>, then:</p>
+
+<terminal title="the two computers">
+# on your computer: make this peer's key pair
+$ python3 wg_peer.py key
+public key: S3s+t5hKxbmTa2ssB0lQbfHkhhh3VaIf1ch+ttAMslk=  (the private key is in wg_peer.key)
+# on the Linux computer: start WireGuard, with that key as its only peer
+$ sudo ./wg_box.sh up S3s+t5hKxbmTa2ssB0lQbfHkhhh3VaIf1ch+ttAMslk=
+wg0 is up. Its public key: MYiqG/t4foJ8jR0tysNbw4/i9B3vM6xwS/qblpB1GCA=
+# on your computer: handshake, and ping through the tunnel
+$ python3 wg_peer.py ping 192.168.1.4:51820 MYiqG/t4foJ8jR0tysNbw4/i9B3vM6xwS/qblpB1GCA=
+# on the Linux computer, afterwards
+$ sudo ./wg_box.sh down
+</terminal>
+
+<p>The building blocks are Chapter 31’s, with BLAKE2s (which Python’s <code>hashlib</code> has built in) for hashing:</p>
+
+<!-- @code labs/ch35/wg_peer.py#prims -->
+
+<p>The response, and the moment both sides have their transport keys:</p>
+
+<!-- @code labs/ch35/wg_peer.py#response -->
+
+<p>And then every packet, sealed with a counter:</p>
+
+<!-- @code labs/ch35/wg_peer.py#transport -->
+
+<h4>2. GRE and VXLAN</h4>
+
+<p>On Linux, with <code>tshark</code> installed, <code>sudo ./tunnel_box.sh gre</code> and <code>sudo ./tunnel_box.sh vxlan</code> build the two-house network, ping through the tunnel, show the capture, and tidy up. The tunnels themselves are one line each end:</p>
+
+<!-- @code labs/ch35/tunnel_box.sh#vxlan -->
+
+<h4>Experiments</h4>
+<ul>
+<li>In <code>wg_peer.py</code>, send the same handshake initiation twice. The Pi answers the first and ignores the second: its timestamp is no newer than one it has already seen. Why does that matter, if Eve records the message?</li>
+<li>Change one byte of a transport data message before sending it. What does the Pi send back? (Look at <code>wg show</code>’s transfer counters, too.) What does it send back to a handshake from a key it doesn’t know?</li>
+<li>Ping through the tunnel with bigger and bigger packets. <code>wg_peer.py</code> builds the ICMP by hand: add a size option, and find the largest that makes it through. How does it compare with <code>wg0</code>’s MTU of 1,420?</li>
+<li>Run VXLAN inside WireGuard: in <code>tunnel_box.sh</code>, what would have to change? Use the widget to work out the MTU first.</li>
+</ul>
+</lab>

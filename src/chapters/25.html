@@ -1,0 +1,269 @@
+<h3>Three addresses and no NAT</h3>
+
+<p>Bob is back at Alice’s university for another weekend, and he’s been poking around his laptop’s network settings in the library. Something is different from home.</p>
+
+<dialogue>
+B: At home, my laptop has one address, 192.168.1.3. Here it’s got an IPv4 address and <em>three</em> others, all long and full of colons. One starts with fe80, and two start with 2001.
+A: That’s IPv6. Your laptop speaks it at home too. It just has nothing much to say there, because your internet provider doesn’t offer it.
+B: And the 2001 ones?
+A: Real internet addresses. Public. Nobody else in the world has them.
+B: Public? Like the router’s address at home? So nobody’s doing NAT?
+C: Twenty thousand students, and every one of their laptops and phones has its own public address. Not one of them is behind NAT.
+B: Then my friends could connect to my game server, here, directly!
+C: They could, if my firewall let them in. Which it doesn’t.
+</dialogue>
+
+<p>For thirty years, the internet has been running out of addresses, and every chapter since Chapter 20 has been touched by it: private addresses, NAT, carrier-grade NAT, the million-route table, addresses bought and sold. This chapter is about the fix: <strong>IPv6</strong>, a new version of IP with addresses so long that nobody should ever need to share one again. It isn’t just bigger addresses, though. The designers took the chance to tidy up almost everything we’ve seen in Part II: ARP, DHCP, broadcasts, fragmentation and NAT all change, or disappear.</p>
+
+<h3>Running out</h3>
+
+<p>An IPv4 address is 32 bits: about 4.3 billion addresses, fewer than one for every person alive, never mind their phones, laptops, televisions and doorbells. The organization at the top of the address hierarchy, IANA, gave out its last blocks to the five regional registries in February 2011. The registries for Asia and Europe ran out soon after, North America in 2015, and by 2020 almost all of them had nothing left to hand out except scraps. Today, IPv4 addresses are bought and sold, for tens of dollars each.</p>
+
+<p>The replacement was designed in the mid-1990s, when the shortage was first seen coming, and it’s called IPv6. (Version 5 was taken by an experimental protocol for streaming that never caught on.) Its addresses are 128 bits long.</p>
+
+<h3>128 bits</h3>
+
+<p>That’s 2<sup>128</sup>, or 340,<wbr>282,<wbr>366,<wbr>920,<wbr>938,<wbr>463,<wbr>463,<wbr>374,<wbr>607,<wbr>431,<wbr>768,<wbr>211,<wbr>456 addresses. It’s hard to picture. If every person on Earth had been handed a billion new addresses every second since the Big Bang, we’d have used up about one percent of them. Writing one down in the dotted decimal of IPv4 would take sixteen numbers, so instead IPv6 addresses are written in hexadecimal (Chapter 5), in eight groups of four digits, with some shortcuts:</p>
+
+<!-- @include src/figs/ch25-compress.svg -->
+
+<p>CERN’s web server, for example, from the name lookups in Chapter 16, is <code>2001:1458:201:a4::100:1a0</code>. Most of the time you’ll see addresses in their short form, and most of the time the first half says which network, and the second half which computer:</p>
+
+<!-- @include src/figs/ch25-anatomy.svg -->
+
+<p>That’s the biggest change in how addresses are organized. In IPv4, a network is as big as it needs to be, and not one address bigger, because addresses are precious. In IPv6, almost every network is a <strong>/64</strong>, whatever’s on it: 18 billion billion addresses for one home Wi-Fi network, or one link between two routers. It sounds absurdly wasteful. But it means nobody ever has to count addresses again, or renumber a network because it outgrew its subnet mask, and, as we’ll see, it lets computers pick their own addresses without asking anyone.</p>
+
+<p>Try some:</p>
+
+<div data-widget="v6play"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Kinds of address</h3>
+
+<p>Like IPv4 (Chapter 20’s special list), some prefixes have special jobs:</p>
+
+<table class="data">
+<tr><th>Prefix</th><th>What it’s for</th><th>IPv4’s nearest version</th></tr>
+<tr><td><code>2000::/3</code></td><td>global unicast: every public address given out so far starts with 2 or 3</td><td>public addresses</td></tr>
+<tr><td><code>fe80::/10</code></td><td>link-local: every interface has one, always, and it only works on its own network</td><td>169.254.0.0/16</td></tr>
+<tr><td><code>fc00::/7</code></td><td>unique local: private addresses (in practice, they start with fd)</td><td>192.168.0.0/16 and friends</td></tr>
+<tr><td><code>ff00::/8</code></td><td>multicast: <code>ff02::1</code> is every device on this network, <code>ff02::2</code> every router</td><td>224.0.0.0/4, and broadcast</td></tr>
+<tr><td><code>::1</code></td><td>loopback: this computer</td><td>127.0.0.1</td></tr>
+<tr><td><code>2001:db8::/32</code></td><td>for examples in books (like this chapter’s university)</td><td>192.0.2.0/24</td></tr>
+</table>
+
+<p>Link-local addresses are more important in IPv6 than in IPv4: every interface has one, from the moment it’s switched on, and IPv6 uses them for all of its own housekeeping. That’s the <code>fe80</code> address Bob saw at home:</p>
+
+<terminal title="Bob’s MacBook, at home">
+$ ifconfig en0 | grep inet
+	inet6 ⟦1:fe80::1c2b:3a4d:5e6f:7081⟧⟦2:%en0⟧ prefixlen 64 ⟦3:secured⟧ scopeid 0xe
+	inet 192.168.1.3 netmask 0xffffff00 broadcast 192.168.1.255
+</terminal>
+
+<callouts>
+1 | A link-local address: fe80::, then an interface ID that looks random.
+2 | The <strong>zone</strong>. Every interface is on a different link, and all of them use fe80::/64, so a link-local address means nothing without saying which interface it’s on. You’ll need to type it: <code>ping6 fe80::16c3:5eff:fe40:b32%en0</code>.
+3 | macOS’s word for an interface ID made by a secret recipe, rather than from the card address. More on that below.
+</callouts>
+
+<h3>Everyone on the line: multicast instead of broadcast</h3>
+
+<p>IPv6 has no broadcast address at all. Broadcasts disturb every computer on a network, even the ones that have nothing to do with the message, so IPv6 uses multicast for everything: a message goes to a <em>group</em>, and only the computers that have joined it are bothered. One of those groups is <code>ff02::1</code>, “all nodes on this link”, which every IPv6 device joins. Ping it, and everyone answers:</p>
+
+<terminal title="Bob’s MacBook, at home">
+$ ping6 -c 2 ff02::1%en0
+PING6(56=40+8+8 bytes) fe80::1c2b:3a4d:5e6f:7081%en0 --> ff02::1%en0
+16 bytes from fe80::1c2b:3a4d:5e6f:7081%en0, icmp_seq=0 hlim=64 time=3.082 ms
+16 bytes from ⟦1:fe80::16c3:5eff:fe40:b32%en0⟧, icmp_seq=0 hlim=64 time=6.025 ms
+16 bytes from ⟦2:fe80::1c9a:4bff:fe27:d163%en0⟧, icmp_seq=0 hlim=64 time=137.341 ms
+16 bytes from fe80::1c2b:3a4d:5e6f:7081%en0, icmp_seq=1 hlim=64 time=0.435 ms
+16 bytes from fe80::16c3:5eff:fe40:b32%en0, icmp_seq=1 hlim=64 time=3.474 ms
+16 bytes from fe80::1c9a:4bff:fe27:d163%en0, icmp_seq=1 hlim=64 time=347.165 ms
+</terminal>
+
+<callouts>
+1 | The router. Notice the <code>ff:fe</code> in the middle of its interface ID…
+2 | …and this one too: Mum’s phone. It answers slowly because it’s half asleep: to save its battery, a phone’s Wi-Fi only wakes up every so often to collect what the router has been keeping for it. The Pi was switched off. (The phone’s address has been changed.)
+</callouts>
+
+<h3>A card address in disguise</h3>
+
+<p>So where does the second half of an address come from? The original recipe made it from the network card’s own address. That’s why the router’s address has ff:fe in the middle:</p>
+
+<!-- @include src/figs/ch25-eui64.svg -->
+
+<p>It seemed neat in the 1990s: a unique interface ID, for free. But it turned out to be a privacy disaster. Your card address travels with you, so a laptop using this recipe would have the same second half at home, at university, in every café, and every website it visited could recognise it, wherever it went. So modern computers don’t do it any more. Bob’s MacBook and Grandpa Otto’s Pi both make their interface IDs with a <strong>stable privacy</strong> recipe: a hash of the network’s prefix, the card address and a secret that never leaves the computer. The result is the same every time on the same network, and completely different on every other network. For connections <em>out</em> to the internet, computers also make <strong>temporary</strong> addresses, with random interface IDs that change every day or so. Those are Bob’s two 2001 addresses: one stable, one temporary. Routers and printers, which don’t travel, still often use the old recipe.</p>
+
+<h3>No more ARP: neighbour discovery</h3>
+
+<p>ARP (Chapter 21) had to go: it’s built on broadcasts. Its job is done instead by <strong>neighbour discovery</strong>, a set of ICMPv6 messages. And since there’s no broadcast, “who has?” goes to a small multicast group:</p>
+
+<!-- @include src/figs/ch25-nd.svg -->
+
+<p>Neighbour discovery does much more than ARP did. Routers use it to announce themselves, and to tell computers about better routes (a “redirect”). Computers use it to check that nobody else has their address, and to check that neighbours they haven’t heard from lately are still there. The MacBook keeps what it learns in a <strong>neighbour cache</strong>, IPv6’s version of the ARP table:</p>
+
+<terminal title="Bob’s MacBook, at home">
+$ ndp -an
+Neighbor                                Linklayer Address  Netif Expire    St Flgs Prbs
+fe80::1c9a:4bff:fe27:d163%en0           1e:9a:4b:27:d1:63    en0 23h57m25s S
+fe80::1c2b:3a4d:5e6f:7081%en0           e2:5f:b1:3c:77:0a    en0 permanent R
+fe80::16c3:5eff:fe40:b32%en0            14:c3:5e:40:0b:32    en0 23h58m30s ⟦1:S⟧  ⟦2:R⟧
+</terminal>
+
+<callouts>
+1 | S for Stale: “remembered, but not confirmed lately”, just like Linux’s ARP table in the Field Guide.
+2 | R: this neighbour is a router. It said so in its answer.
+</callouts>
+
+<h3>Addresses without DHCP</h3>
+
+<p>In IPv4, a computer that joins a network needs a DHCP server to give it an address (Chapter 22). In IPv6, it can make its own. It needs to learn the network’s prefix, and it gets that from the router:</p>
+
+<!-- @include src/figs/ch25-slaac.svg -->
+
+<p>DHCP still exists in IPv6 (DHCPv6), for networks that want to keep a list of who has which address. A router advertisement has two flags that say whether to use it: one for addresses, and one for “other settings”, like name servers. Most home and university networks rely on SLAAC for addresses, and put their name servers in the router advertisement too.</p>
+
+<p>And now we can see exactly why Bob has no IPv6 at home. This chapter’s lab can listen for neighbour discovery messages on a Mac. Bob left it running for a quarter of an hour:</p>
+
+<terminal title="labs/ch25 (Bob’s MacBook, at home)">
+$ python3 neighbours.py en0 --listen 900
+listening on en0 for 900.0 s (routers usually advertise every few minutes)…
+16:51:46  from fe80::1c9a:4bff:fe27:d163   ⟦1:neighbour solicitation: “who has fe80::1c2b:3a4d:5e6f:7081?”⟧; from card 1e:9a:4b:27:d1:63
+16:51:51  from fe80::1c9a:4bff:fe27:d163   neighbour advertisement: “fe80::1c9a:4bff:fe27:d163 is me” (an answer); its card is 1e:9a:4b:27:d1:63
+16:53:42  from fe80::16c3:5eff:fe40:b32  router advertisement: hop limit 64; ⟦2:other settings from DHCPv6⟧; ⟦3:DON’T use me as a default router⟧; MTU 1500; from card 14:c3:5e:40:0b:32; ⟦4:no prefixes, so nothing to make a global address from⟧
+</terminal>
+
+<callouts>
+1 | Mum’s phone wanted to talk to the MacBook, so it asked for its card address, and a few seconds later answered a question from the MacBook in return. Phones are chatty.
+2 | The router’s advertisement. The O flag means “ask DHCPv6 for extra settings”.
+3 | A router lifetime of 0 means “I’m a router, but don’t send me your IPv6 traffic”. It has nowhere to send it: Bob’s internet provider doesn’t carry IPv6.
+4 | And with no prefix, the MacBook can’t make a global address. It keeps its link-local one, which is enough to talk to the router and the Pi, and nothing further.
+</callouts>
+
+<p>Grandpa Otto’s Pi comes to the same conclusion. It has only a link-local address, and only one IPv6 route:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ ip -6 addr show wlan0
+3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP qlen 1000
+    inet6 fe80::5a1c:9e02:4b7d:a3f1/64 scope link ⟦1:noprefixroute⟧
+       valid_lft forever preferred_lft forever
+$ ip -6 route
+⟦2:fe80::/64 dev wlan0 proto kernel metric 1024 pref medium⟧
+</terminal>
+
+<callouts>
+1 | Its link-local address, made with a stable privacy interface ID.
+2 | The link-local network. No default route: there’s no way out.
+</callouts>
+
+<h3>A simpler header</h3>
+
+<p>The IPv6 header was designed with twenty years of hindsight about what makes routers slow:</p>
+
+<!-- @include src/figs/ch25-header.svg -->
+
+<p>Every change makes a router’s job easier. There’s no <strong>checksum</strong>: Ethernet and Wi-Fi check every frame with a CRC (Chapter 10), and TCP and UDP check their own data, so recomputing a header checksum at every hop (which it must, since the hop limit changes) was wasted work. There are no <strong>options</strong> in the header, so it’s always 40 bytes, and a router always knows where it ends. Anything extra goes in <strong>extension headers</strong>, chained together by the “next header” field, which routers along the way can ignore. And there’s no <strong>fragmentation</strong> by routers.</p>
+
+<p>That last one matters. In Chapter 20, a router with a packet too big for the next link could cut it into fragments. In IPv6, it can’t: it throws the packet away and sends back an ICMPv6 “packet too big” message, saying the largest size that fits. The sender remembers it, and sends smaller packets from then on. That’s called <strong>path MTU discovery</strong>, and in IPv6 it isn’t optional. (Only the sender may fragment, using an extension header, and it rarely needs to.) Every IPv6 link must carry at least 1,280 bytes, so a sender can always fall back to that. It works well, as long as nobody along the way throws away the ICMPv6 messages. When a badly configured firewall does, connections hang mysteriously: Chapter 38 has that story.</p>
+
+<p>There’s one new field, the <strong>flow label</strong>: a number the sender picks for each conversation, so that routers doing equal-cost multipath (Chapter 23) can keep all of its packets on the same path without digging into the TCP or UDP header for port numbers.</p>
+
+<h3>No NAT, and a firewall instead</h3>
+
+<p>With IPv6, every device gets a real, global address, so there’s nothing for NAT to do. Connections go straight from one computer to another, the way the internet was designed. Video calls and games can connect directly, without any of Chapter 22’s hole punching.</p>
+
+<p>But remember what NAT did by accident: it threw away everything nobody inside had asked for. People had come to rely on that as protection. So IPv6 routers do it on purpose, with a <strong>stateful firewall</strong>: it keeps a table of the conversations started from inside, exactly like a NAT table, but without changing any addresses, and it drops anything else. That’s Carol’s firewall. For Bob to run a game server on IPv6, he’d open one port on one address in his router’s firewall, and his friends could connect to it directly, on the port he chose, with no forwarding and no shared addresses.</p>
+
+<think>
+<p>Temporary addresses change every day. Doesn’t that break Carol’s firewall rules, or anything else that’s written in terms of addresses?</p>
+<p>That’s why computers keep a stable address too. A temporary address is used for connections the computer makes <em>outward</em>, where changing it helps privacy. Anything that needs to be reached from outside, like Bob’s game server, uses the stable one. And firewall rules for whole networks are written in terms of the /64 prefix, which doesn’t change.</p>
+</think>
+
+<h3>Two internets at once</h3>
+
+<p>IPv6 can’t talk to IPv4 directly: the headers are different, and so are the addresses. So for the last twenty-five years, and for a long time yet, most computers speak both, which is called <strong>dual stack</strong>. When a program looks up a name, it asks for both kinds of address: A records for IPv4 and AAAA records (“quad A”) for IPv6.</p>
+
+<terminal title="Bob’s MacBook">
+$ dig +short AAAA info.cern.ch
+webafs902.cern.ch.
+2001:1458:201:a4::100:1a0
+</terminal>
+
+<p>If it gets both, which should it use? If it tries IPv6 first and IPv6 is broken somewhere along the way, the user waits for a timeout. So browsers and operating systems use a trick called <strong>Happy Eyeballs</strong>: start connecting over IPv6, and if it hasn’t answered within a quarter of a second or so, start connecting over IPv4 too, and use whichever finishes first. Bob’s MacBook doesn’t even try at home: with no IPv6 route, it knows IPv6 can’t work.</p>
+
+<p>The other direction is harder. Many mobile networks have stopped giving phones IPv4 addresses at all: IPv4 addresses are expensive, and running IPv6 alone is simpler. But most of the internet’s servers still have IPv4 addresses, and some have nothing else. Phones reach them through a translator:</p>
+
+<!-- @include src/figs/ch25-nat64.svg -->
+
+<p>How much of the internet uses IPv6? It depends where you look. Google counts the share of its users who reach it over IPv6: it was under 1% in 2012, and is now around half, higher at weekends (when people are at home on their phones and home broadband) and in countries like India, France, Germany and the United States. Many big websites, cloud providers and mobile networks are already mostly IPv6. Bob’s internet provider is not.</p>
+
+<realworld>
+<p>IPv6 was published as a standard in 1995, and revised in 1998 and 2017. For its first fifteen years, almost nobody used it: there were still IPv4 addresses to go round, and NAT made them stretch. On 6 June 2012, “World IPv6 Launch Day”, big websites and internet providers switched it on permanently, and the share of users started climbing, at a few percentage points a year. It’s been one of the slowest upgrades in the history of computing, because it needs everything, everywhere, to change: every operating system, every router, every program that stores addresses, and every piece of network equipment in between, most of which works fine without it.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>That’s the network layer, IPv4 and IPv6: how packets find their way across the internet. Chapter 26 goes up a layer, to the programs at each end, and to the protocol that does the least possible on top of IP: UDP. And we’ll look at how a program actually talks to the network, through the sockets API that every lab in this book has been using.</p>
+
+<lab>
+<p>Two programs. <code>v6.py</code> does IPv6 address arithmetic: writing them out, taking them apart, and building them from card addresses. <code>neighbours.py</code> finds every IPv6 device on your network, and (on a Mac) decodes the neighbour discovery messages that arrive. Neither needs <code>sudo</code>, and both work even if your internet provider doesn’t do IPv6.</p>
+
+<h4>1. Addresses, taken apart</h4>
+
+<terminal title="labs/ch25">
+$ cd labs/ch25
+$ python3 v6.py explain fe80::16c3:5eff:fe40:b32
+you typed:   fe80::16c3:5eff:fe40:b32
+in full:     fe80:0000:0000:0000:16c3:5eff:fe40:0b32
+shortest:    fe80::16c3:5eff:fe40:b32   (Python agrees: fe80::16c3:5eff:fe40:b32)
+in bits:     1111111010000000 0000000000000000 0000000000000000 0000000000000000
+             0001011011000011 0101111011111111 1111111001000000 0000101100110010
+kind:        link-local: only works on this one network   (fe80::/10)
+network:     fe80::/64   (the first 64 bits: which network)
+interface:   ::16c3:5eff:fe40:b32   (the last 64 bits: which computer on it)
+hidden MAC:  14:c3:5e:40:0b:32   (the interface part was made from this card address)
+$ python3 v6.py slaac 2001:db8:1:2::/64 14:c3:5e:40:0b:32
+card address:           14:c3:5e:40:0b:32
+flip bit, insert ff:fe: 16:c3:5e:ff:fe:40:0b:32
+link-local (old style): fe80::16c3:5eff:fe40:b32
+global (old style):     2001:db8:1:2:16c3:5eff:fe40:b32   ← anyone can see your card address, on every network you join
+stable privacy:         2001:db8:1:2:3b57:d9be:3b78:a7e8   ← the same here every time, different elsewhere
+another network:        2001:db8:99:1:c5e4:9aa0:e233:55f9
+$ python3 v6.py solicit fe80::16c3:5eff:fe40:b32
+to find fe80::16c3:5eff:fe40:b32, ask the group ff02::1:ff40:b32
+which travels in an Ethernet frame to 33:33:ff:40:0b:32
+Only computers whose addresses end in the same 24 bits listen to that group, so almost nobody else is disturbed.
+</terminal>
+
+<p>Python’s <code>ipaddress</code> module can shorten addresses for you, but writing it yourself shows the two rules:</p>
+
+<!-- @code labs/ch25/v6.py#write -->
+
+<p>And here’s the old recipe for interface IDs, and how to spot it:</p>
+
+<!-- @code labs/ch25/v6.py#eui64 -->
+
+<h4>2. Who’s on your network?</h4>
+
+<terminal title="labs/ch25">
+$ python3 neighbours.py en0
+pinging ff02::1 (every IPv6 device) on en0…
+  fe80::16c3:5eff:fe40:b32        4.2 ms   card 14:c3:5e:40:0b:32   a router; its address has its card address inside: 14:c3:5e:40:0b:32
+  fe80::1c9a:4bff:fe27:d163      96.2 ms   card 1e:9a:4b:27:d1:63   its address has its card address inside: 1e:9a:4b:27:d1:63
+</terminal>
+
+<p>(The phone’s card address is itself a random one, Chapter 18’s “chosen by software” kind, so even the old recipe doesn’t give much away.) One ping to <code>ff02::1</code> gets an answer from everyone, and on Linux and macOS a program can send one without any special permission:</p>
+
+<!-- @code labs/ch25/neighbours.py#ping -->
+
+<p>On a Mac, <code>python3 neighbours.py en0 --listen 600</code> prints every neighbour discovery message for ten minutes, decoded like this:</p>
+
+<!-- @code labs/ch25/neighbours.py#decode -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Run <code>neighbours.py</code> on a network with real IPv6, like a university or your phone’s hotspot. How many addresses does each device answer from? Which ones have card addresses inside?</li>
+<li>Change <code>stable_privacy()</code>’s secret in <code>v6.py</code>. What happens to the address? Why must the secret stay the same across restarts?</li>
+<li>Look at your computer’s IPv6 routing table (<code>netstat -rn -f inet6</code> or <code>ip -6 route</code>). Which routes point at fe80 addresses, and why can a router’s link-local address be a gateway?</li>
+<li>Find a website with an AAAA record, and turn its address into the NAT64 form by hand (<code>64:ff9b::</code> plus the IPv4 address in hex). Check it with <code>python3 v6.py explain</code>.</li>
+</ul>
+</lab>

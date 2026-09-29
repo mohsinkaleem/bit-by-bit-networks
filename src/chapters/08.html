@@ -1,0 +1,203 @@
+<h3>Carol wants in</h3>
+
+<p>Carol is done with having her pages live on Bob’s computer. She wants her own connection. So does Dave, who lives across the road and has just heard about the web from Bob. Eve hasn’t asked, but she’s clearly interested.</p>
+
+<p>The obvious approach is more of what worked before: run a wire from Carol’s house to Alice’s, another from Carol’s to Bob’s, and give each computer an extra network card for every wire. It works for three houses. But look at how quickly it grows:</p>
+
+<!-- @include src/figs/ch08-mesh.svg -->
+
+<p>Connecting every pair of computers directly is called a <strong>full mesh</strong>. With <em>n</em> computers it needs <em>n</em>(<em>n</em>−1)/2 wires, and every computer needs <em>n</em>−1 network cards. The street would be a spiderweb of copper within a month. Worse, most of those wires would sit idle most of the time. Dave and Eve might message each other once a year.</p>
+
+<h3>One long wire</h3>
+
+<p>Bob’s cousin has a cheaper idea. Run <em>one</em> long cable down the whole street, past every house, and let every computer clip onto it. When anyone sends, the signal spreads along the cable in both directions, and every network card on the street hears it.</p>
+
+<!-- @include src/figs/ch08-bus.svg -->
+
+<p>This layout is called a <strong>bus</strong>, because everyone rides the same one. It’s wonderfully cheap: one cable and one network card per computer, no matter how many houses join. A new neighbor just clips on. The ends of the cable get little caps that soak up the signal, so it doesn’t bounce back and interfere with itself.</p>
+
+<p>But it breaks an assumption every protocol we’ve built so far relied on: that whatever arrives on the wire is meant for you.</p>
+
+<h3>Who’s it for?</h3>
+
+<p>When Alice sends a frame to Bob, Carol’s and Dave’s cards hear it too. They need to know it isn’t for them. And when Bob gets it, he needs to know who sent it, so he can reply to the right person.</p>
+
+<p>So every network card gets an <strong>address</strong>, a number unique to that card, and every frame now starts with two of them: who it’s <em>to</em> and who it’s <em>from</em>. Each card reads the “to” address of every frame that goes by. If it matches its own address, the card keeps the frame and passes it up to the operating system. If not, the card quietly throws it away, and the computer never even hears about it.</p>
+
+<p>One special address means “everyone”: the <strong>broadcast</strong> address, all 1s (<code>ff:ff</code> in hex). Every card keeps broadcast frames. That’s handy for questions like “is anybody out there?” when you don’t yet know anyone’s address.</p>
+
+<p>Our frame grows a few more fields:</p>
+
+<!-- @include src/figs/ch08-frame.svg -->
+
+<ul>
+<li>The <strong>preamble</strong> is a burst of <code>1010…</code>, a steady tick that lets every card’s clock lock on before anything important arrives (Chapter 2’s timing problem, solved again). The <strong>start</strong> byte ends in <code>11</code> to mark the switch from “warming up” to “here comes the frame”.</li>
+<li><strong>To</strong> and <strong>from</strong> are card addresses.</li>
+<li><strong>Type</strong> says what kind of data is inside, so the receiving computer knows which part of its software should handle it. It works like the <code>Type</code> header from Chapter 5, but for the network layer.</li>
+<li>The <strong>data</strong> is whatever the computer wanted to send, such as a whole TTP request.</li>
+<li>The <strong>check</strong> at the end is for catching damaged frames. We’ll build it in Chapter 10.</li>
+</ul>
+
+<p>Notice that this is a <em>different</em> kind of address from the <code>TO: SERVE</code> header in Chapter 4. That one named a program. This one names a network card, and therefore a computer. A message now carries two addresses at two layers: the card address gets it to the right computer, then the program name gets it to the right program inside. Each layer only reads its own.</p>
+
+<h3>Names that never clash</h3>
+
+<p>How big should a card address be? On one street, a single byte (256 addresses) would do. But cards are made in factories and sold all over the world, and nobody wants to check with the neighbors before plugging in a new one. It’s far simpler if every card ever made has an address that no other card anywhere has.</p>
+
+<p>So card addresses are 6 bytes long: 48 bits, enough for over 281 trillion cards. The first three bytes identify the manufacturer, which gets its own block from a central registry. The manufacturer then numbers its cards one by one using the last three bytes, and burns each address into the card at the factory. You’ll see them written as six pairs of hex digits, like <code>3c:22:fb:9a:61:0e</code>.</p>
+
+<p>Your computer has one. You’ll find it in this chapter’s lab.</p>
+
+<h3>Eve’s favorite feature</h3>
+
+<p>The throwing-away of other people’s frames happens in the <em>card</em>, and a card only does what it’s told. Most cards can be switched into a mode where they keep <em>every</em> frame, whoever it was meant for. It’s called <strong>promiscuous mode</strong>, and it has honest uses: it’s how network engineers watch traffic to diagnose problems (you’ll do exactly that in Part II).</p>
+
+<p>Eve has worked this out. On a shared wire, she sees every message on the street, and nobody can tell she’s listening, because listening doesn’t change the voltage. Nothing stops her from <em>writing</em> a false “from” address on her own frames either, and pretending to be Bob.</p>
+
+<p>Our network has no privacy and no proof of who sent what. For now, Alice and Bob will just have to be careful what they say. The real fixes, encryption and authentication, need some ideas we haven’t built yet. They arrive in Chapters 31 and 32.</p>
+
+<h3>Everybody talks at once, with company</h3>
+
+<p>Remember collisions from Chapter 3? With two computers they were an occasional nuisance. With a whole street on one wire, they become the main event. The more computers there are, the more likely it is that two of them start talking at the same moment.</p>
+
+<p>The rules from Chapter 3 still apply, and now they matter a lot more:</p>
+
+<ol>
+<li><strong>Listen before you talk.</strong> If the wire is busy, wait until it’s quiet. This is called <strong>carrier sense</strong>.</li>
+<li><strong>Keep listening while you talk.</strong> If what’s on the wire isn’t what you sent, someone else is talking too. Stop immediately, and send a short burst of noise called a <strong>jam signal</strong>, so that everyone on the wire notices the collision. This is <strong>collision detection</strong>.</li>
+<li><strong>Back off randomly</strong> before trying again, and pick your random wait from a range that <em>doubles</em> after every collision.</li>
+</ol>
+
+<p>That doubling is the clever part. After the first collision, a card waits either 0 or 1 time slots. If it collides again, it picks from 0 to 3, then 0 to 7, and so on. When only two cards are competing, they sort themselves out quickly. When twenty cards are fighting, repeated collisions push everyone’s ranges up until they’re spread out enough to take turns. The network gets more patient exactly when it needs to, without anyone knowing how many other computers there are.</p>
+
+<!-- @include src/figs/ch08-backoff.svg -->
+
+<p>This combination is called <strong>CSMA/CD</strong>: Carrier Sense, Multiple Access (a shared wire), with Collision Detection. It’s a mouthful for “listen before and while you talk, and be patient in a random way”. Try it out, and compare it with worse manners:</p>
+
+<div data-widget="bus"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Some things to try. Set the manners to “Just talk” and push the traffic up. The wire is full of red, and almost nothing gets through. With “Listen first”, things get much better, but collisions still waste whole frames, because nobody stops talking when one happens. With the full CSMA/CD, collisions are cut short and the wire stays useful even when it’s very busy.</p>
+
+<realworld>
+<p>This is the original <strong>Ethernet</strong>. Bob Metcalfe and David Boggs designed it at Xerox’s Palo Alto Research Center in 1973, and named it after the “luminiferous ether” that nineteenth-century physicists imagined carried light through space. The first standard version ran at 10 Mbit/s over a thick yellow coaxial cable up to 500 meters long. Computers clipped on with clamps nicknamed “vampire taps”, which bit through the insulation to reach the copper inside.</p>
+<p>Ethernet borrowed its random retries from <strong>ALOHAnet</strong>, a radio network built in 1971 to connect the University of Hawaii’s campuses across different islands. Every station just transmitted whenever it liked and retried after a random wait. That works, but it wastes most of the channel: with many stations, pure ALOHA can use at best about 18% of it. Listening first, and noticing collisions, were Ethernet’s big improvements.</p>
+<p>Real Ethernet’s numbers: the preamble is 7 bytes of <code>10101010</code>, the backoff range stops doubling after 10 collisions, a card gives up after 16 tries, and card addresses, called <strong>MAC addresses</strong> (for Media Access Control), are exactly 48 bits, with the first 24 assigned to each manufacturer by the IEEE. The broadcast address is <code>ff:ff:ff:ff:ff:ff</code>.</p>
+</realworld>
+
+<h3>Too short to notice</h3>
+
+<p>There’s a subtle problem hiding in collision detection, and it has to do with the fact that signals take time to travel. Step through this diagram, where distance along the cable runs across and time runs down:</p>
+
+<!-- @include src/figs/ch08-spacetime.svg -->
+
+<p>A sender can only detect a collision while it’s still sending. So every frame has to keep the sender busy for at least as long as it takes a signal to reach the far end of the cable and come back, the worst case for hearing about a collision. That gives a <strong>minimum frame size</strong>. If a message is shorter, the card pads it out with filler bytes.</p>
+
+<p>It works the other way too. For a given minimum frame size, the cable can only be so long, or the round trip would take longer than the shortest frame. That’s why a shared Ethernet cable had a maximum length. The laws of physics had just written part of our protocol.</p>
+
+<realworld>
+<p>For 10 Mbit/s Ethernet the minimum frame is 64 bytes, or 512 bits. At 10 million bits a second that’s 51.2 microseconds, long enough for a signal to cross a maximum-size network and back, including the delays in the equipment along the way. When Ethernet later got ten and a hundred times faster, those same 512 bits went by ten and a hundred times sooner, so the maximum length of a <em>shared</em> cable had to shrink to match. By then, as we’ll see in the next chapter, almost nobody was sharing cables any more.</p>
+</realworld>
+
+<h3>Cracks in the shared wire</h3>
+
+<p>The shared wire is cheap and simple, and it works. But as more of the street joins, its problems grow:</p>
+
+<ul>
+<li><strong>Everyone shares the capacity.</strong> If ten computers are busy at once, each gets roughly a tenth of the wire, minus whatever collisions waste.</li>
+<li><strong>It isn’t always fair.</strong> Look closely at the playground above: a computer that just won often wins again, because its backoff range has reset while the losers’ ranges keep doubling. The losers can wait a <em>long</em> time.</li>
+<li><strong>One fault breaks everything.</strong> If a single card goes haywire and never stops sending, or the cable gets cut halfway down the street, the whole network goes down, not just one house.</li>
+<li><strong>There’s no privacy.</strong> Eve hears everything.</li>
+</ul>
+
+<h3>What’s next?</h3>
+
+<p>Carol, Dave and even Eve are online, all sharing one long cable. But the shared wire’s problems all come from the same place: every frame goes to every computer, whether they need it or not. In the next chapter we’ll build a smarter box that sits in the middle of the street and sends each frame only where it needs to go. It even learns everyone’s address by itself.</p>
+
+<lab>
+<p>Two programs. The first is a simulator for many computers colliding on a shared wire, so you can measure what the manners in this chapter are worth. The second is a live shared wire you can join from several terminals at once, with addresses, broadcasts, and Eve.</p>
+
+<h4>1. Collisions, measured</h4>
+
+<p>Here’s the heart of <code>bus_sim.py</code>: each time slot, every computer with something to send decides whether to start:</p>
+
+<!-- @code labs/ch08/bus_sim.py#decide -->
+
+<p>and what it does after a collision:</p>
+
+<!-- @code labs/ch08/bus_sim.py#backoff -->
+
+<terminal title="labs/ch08">
+$ cd labs/ch08
+$ python3 bus_sim.py
+first 96 slots   █ = sending   # = collision   . = quiet
+  station A │…
+  …
+  the wire  │..████████.....████████......████████.....████████████████......
+mode=csmacd  stations=6  offered load=60%  (20000 slots)
+  useful throughput: 60% of the wire's capacity
+  …
+$ python3 bus_sim.py --sweep
+useful throughput (fraction of time the wire carries a frame that gets through), 6 stations
+  load    aloha     csma   csmacd
+   0.1      10%      11%      11%
+   0.3      30%      29%      31%
+   0.5      32%      50%      51%
+   0.7      31%      53%      70%
+   0.9      31%      51%      78%
+   1.2      30%      51%      86%
+   1.5      32%      52%      89%
+   2.0      31%      51%      93%
+</terminal>
+
+<p>Read the table from top to bottom. When there’s little traffic, manners don’t matter, and everything gets through. As the traffic grows, “just talk” hits a ceiling around a third, “listen first” around half, and CSMA/CD keeps climbing. (With only 6 stations, ALOHA does better than the 18% it manages with many.)</p>
+
+<p>Experiments:</p>
+<ul>
+<li>Run <code>--stations 2</code> and then <code>--stations 30</code> at <code>--load 0.9</code>. How do throughput and average wait change?</li>
+<li>Change <code>SENSE_DELAY</code> (how long a signal takes to cross the wire) from 1 to 4, which is like a much longer cable. What happens to CSMA/CD? Now also make <code>FRAME</code> smaller, say 3. Why does this combination hurt so much? (The space-time diagram above has the answer.)</li>
+<li>In <code>backoff()</code>, replace the doubling with a fixed <code>rng.randint(0, 1)</code>. Run a sweep. What goes wrong when many stations are busy?</li>
+<li>Look at the timeline for signs of unfairness: one station sending frame after frame while another waits. That’s the <em>capture effect</em>, a real problem that old Ethernet networks had.</li>
+</ul>
+
+<h4>2. Join the shared wire</h4>
+
+<p>Open five terminals (or tabs) in <code>labs/ch08</code>. In the first, start the wire. It’s a little program that copies every frame to every station, just like a real shared cable:</p>
+
+<terminal title="terminal 1">
+$ python3 shared_wire.py wire
+the wire is up. Every frame gets copied to every station.
+</terminal>
+
+<p>In the others, join as Alice, Bob, Carol and Eve:</p>
+
+<terminal>
+$ python3 shared_wire.py station alice 0a:11
+$ python3 shared_wire.py station bob 0b:22
+$ python3 shared_wire.py station carol 0c:33
+$ python3 shared_wire.py station eve 0e:99 --nosy
+</terminal>
+
+<p>Now, as Alice, type <code>to 0b:22 hi bob, treehouse at 3?</code>. Bob’s card keeps it, Carol’s card ignores it (and says so), and Eve…</p>
+
+<terminal title="eve">
+(snooped) 0a:11 → 0b:22: hi bob, treehouse at 3?
+</terminal>
+
+<p>As Carol, type <code>who</code> to send a broadcast. Every station answers, and Carol learns everyone’s address. The whole difference between Carol and Eve is these few lines in each card:</p>
+
+<!-- @code labs/ch08/shared_wire.py#filter -->
+
+<p>Try pretending to be someone else: as Eve, send <code>to 0b:22 Alice here, the treehouse is cancelled</code>. Bob’s screen says it came from <code>0e:99</code>. How would you change <code>make_frame</code> so Eve can forge the “from” address? (It’s one word.) Is there anything Bob could do to tell?</p>
+
+<h4>3. Your own card’s address</h4>
+
+<p>Every network interface on your Mac has a MAC address. Wi-Fi is usually <code>en0</code>:</p>
+
+<terminal>
+$ ifconfig en0 | grep ether
+	ether 3c:22:fb:9a:61:0e
+$ networksetup -listallhardwareports
+</terminal>
+
+<p>The first three bytes identify the manufacturer. Search the web for “MAC OUI lookup” and try yours. You may find it doesn’t match anyone, because many devices now make up a random address for each Wi-Fi network they join, so that stores and airports can’t track them as they move around. On a Mac or iPhone this is called a “private Wi-Fi address”. It’s Eve’s snooping, turned into a privacy feature.</p>
+</lab>

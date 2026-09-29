@@ -1,0 +1,320 @@
+<h3>Three hundred switches</h3>
+
+<p>A few years have gone by. Alice finished her degree and now works full-time on the university’s network team, at the desk next to Carol’s. Bob is a student there himself, and it’s exam week.</p>
+
+<dialogue>
+C: Tomorrow at nine, the exam halls lose the internet. Only the exam server is allowed, until noon. Then everything goes back.
+A: How many switches is that?
+C: Three hundred and twelve. Last year two of us logged into them one by one, all night, pasting settings from a spreadsheet. We missed one. A student in Hall C found the internet, and it was in the newspaper.
+B: Can’t the switches just be told the rule once? “Exam halls: only the exam server.”
+C: Every switch has its own brain, and every brain has to be told separately. That’s how networks have worked since before you were born.
+A: Unless you take the brains out. One program decides, and the switches just do what it says.
+C: I’ve heard that before. It’s called software-defined networking. The last company that said it sold us a box that needed its own engineer.
+A: Then let’s build a small one ourselves, and see.
+</dialogue>
+
+<p>Part III is about where networking is going. Some of it is already here, quietly running in data centres and phones; some of it is still being argued about. This first chapter is about making networks <em>programmable</em>: writing the rules as software, in one place, instead of typing them into boxes one at a time. We’ll build a controller that runs real switches, and then go one step further, and put our own programs inside the Linux kernel.</p>
+
+<h3>Brains and hands</h3>
+
+<p>Every router and switch in this book has had two jobs. One is <em>deciding</em>: running Chapter 23’s OSPF, or Chapter 24’s BGP, or Chapter 9’s address learning, to work out where things should go. The other is <em>doing</em>: taking each packet as it arrives, looking it up, and sending it on its way, millions of times a second. Engineers call them the <strong>control plane</strong> and the <strong>data plane</strong>.</p>
+
+<!-- @include src/figs/ch39-planes.svg -->
+
+<p>In a traditional network, both live in every box, and every box is set up separately, by a person with a login and a lot of patience. <strong>Software-defined networking</strong> (SDN) separates them. The switches keep the data plane: a table of rules, and the hardware to follow them very fast. The control plane moves into an ordinary program on an ordinary server, the <strong>controller</strong>, which sees the whole network at once and writes the switches’ rules for them. Carol’s exam rule becomes one line in one program, sent to 312 switches in a second.</p>
+
+<h3>OpenFlow: a table you can write to</h3>
+
+<p>For a controller to write a switch’s rules, they need a shared language. The first widely used one was <strong>OpenFlow</strong>, from 2008. An OpenFlow switch has a <strong>flow table</strong>: a list of rules, each with a priority, a <em>match</em> (which packets it applies to) and <em>actions</em> (what to do with them). A packet is checked against the rules from the highest priority down, and the first one that matches wins, just like Chapter 34’s firewall rules. The matches can use almost any header field from Part II: the port it came in on, Ethernet addresses, VLAN, IP addresses, protocol, TCP and UDP ports. The actions include “send it out of port 2”, “flood it everywhere”, “change this field”, and “send it to the controller”. A rule with no actions means: drop it.</p>
+
+<p>Switch and controller talk over an ordinary TCP connection, usually to port 6653. Every message starts with the same eight bytes:</p>
+
+<msg title="An OpenFlow message">
+version | 1 byte: 4 means OpenFlow 1.3
+type | 1 byte: HELLO, FEATURES_REQUEST, PACKET_IN, FLOW_MOD, PACKET_OUT…
+length | 2 bytes, the whole message
+id | 4 bytes, to match replies to requests
+body | depends on the type
+</msg>
+
+<p>What happens when a packet arrives that no rule matches? Usually, the controller installs one rule at the start that matches everything, at the lowest priority: “if nothing else matches, send it to me”. Then the first packet of every new conversation goes to the controller, which decides what to do and teaches the switch:</p>
+
+<!-- @include src/figs/ch39-reactive.svg -->
+
+<h3>A controller in a hundred lines</h3>
+
+<p>This chapter’s <code>controller.py</code> is an OpenFlow controller in plain Python. Its switches are <strong>Open vSwitch</strong>, the software switch that many Linux servers and clouds use to join virtual machines and containers together. The lab’s <code>sdn_box.sh</code> builds two of them on Grandpa’s Pi, with three hosts in namespaces (Chapter 36), and tells them to obey a controller:</p>
+
+<!-- @code labs/ch39/sdn_box.sh#up -->
+
+<p><code>fail-mode=secure</code> matters: it tells the switches not to forward anything on their own if there’s no controller. Out of the box, they know nothing at all. Building the messages is a matter of packing bytes, as it was for TLS and QUIC:</p>
+
+<!-- @code labs/ch39/controller.py#messages -->
+
+<p>And the brain is Chapter 9’s learning switch, moved out of the switch and into the controller. When a switch reports a packet it had no rule for, the controller notes which port the sender is on. If it already knows where the destination is, it writes a rule for the switch; if not, it has the packet flooded:</p>
+
+<!-- @code labs/ch39/controller.py#packet_in -->
+
+<p>Start the controller, build the switches, and have the hosts ping each other:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 controller.py
+controller listening on port 6653
+switch 1 connected: installed “anything you don't recognise, send to me”
+switch 2 connected: installed “anything you don't recognise, send to me”
+switch 1, port 1: 0a:39:00:00:00:01 → ff:ff:ff:ff:ff:ff (ARP: who has 10.39.0.2?): ⟦1:flood⟧
+switch 1, port 2: 0a:39:00:00:00:02 → 0a:39:00:00:00:01 (ARP: 10.39.0.2 is here): port 1, and a new flow
+switch 2, port 9: 0a:39:00:00:00:01 → ff:ff:ff:ff:ff:ff (ARP: who has 10.39.0.2?): flood
+switch 1, port 1: 0a:39:00:00:00:01 → 0a:39:00:00:00:02 (ping 10.39.0.1 → 10.39.0.2): ⟦2:port 2, and a new flow⟧
+switch 1, port 1: 0a:39:00:00:00:01 → ff:ff:ff:ff:ff:ff (ARP: who has 10.39.0.3?): flood
+switch 2, port 9: 0a:39:00:00:00:01 → ff:ff:ff:ff:ff:ff (ARP: who has 10.39.0.3?): flood
+switch 2, port 3: 0a:39:00:00:00:03 → 0a:39:00:00:00:01 (ARP: 10.39.0.3 is here): port 9, and a new flow
+switch 1, port 9: 0a:39:00:00:00:03 → 0a:39:00:00:00:01 (ARP: 10.39.0.3 is here): port 1, and a new flow
+…
+</terminal>
+
+<callouts>
+1 | h1 wants to ping h2, so first it asks, by broadcast, for h2’s Ethernet address (Chapter 21’s ARP). The switch has no rule, so it asks the controller, which tells it to flood. The broadcast crosses the cable to switch 2, which asks too.
+2 | Only the first ping of each pair ever reaches the controller. By now it knows where both h1 and h2 are, so it writes a rule, and the other pings never appear here.
+</callouts>
+
+<p>Then, in the other terminal:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./sdn_box.sh test
+h1 → 10.39.0.2  3 packets transmitted, 3 received, 0% packet loss, time 402ms
+h1 → 10.39.0.3  3 packets transmitted, 3 received, 0% packet loss, time 402ms
+h2 → 10.39.0.3  3 packets transmitted, 3 received, 0% packet loss, time 401ms
+h3 → 10.39.0.1  3 packets transmitted, 3 received, 0% packet loss, time 406ms
+--- the flow table in s1
+n_packets=3, idle_timeout=60, priority=10,in_port=2,dl_dst=0a:39:00:00:00:01 actions=output:1
+n_packets=2, idle_timeout=60, priority=10,in_port=1,dl_dst=0a:39:00:00:00:02 ⟦1:actions=output:2⟧
+n_packets=4, idle_timeout=60, priority=10,in_port=9,dl_dst=0a:39:00:00:00:01 actions=output:1
+n_packets=3, idle_timeout=60, priority=10,in_port=1,dl_dst=0a:39:00:00:00:03 actions=output:9
+n_packets=3, idle_timeout=60, priority=10,in_port=9,dl_dst=0a:39:00:00:00:02 actions=output:2
+n_packets=2, idle_timeout=60, priority=10,in_port=2,dl_dst=0a:39:00:00:00:03 actions=output:9
+⟦2:n_packets=9, priority=0 actions=CONTROLLER:65535⟧
+--- the flow table in s2
+n_packets=4, idle_timeout=60, priority=10,in_port=3,dl_dst=0a:39:00:00:00:01 actions=output:9
+n_packets=6, idle_timeout=60, priority=10,in_port=9,dl_dst=0a:39:00:00:00:03 actions=output:3
+n_packets=3, idle_timeout=60, priority=10,in_port=3,dl_dst=0a:39:00:00:00:02 actions=output:9
+n_packets=6, priority=0 actions=CONTROLLER:65535
+</terminal>
+
+<callouts>
+1 | The rule the controller wrote for h1’s first ping: anything arriving on port 1 for h2’s address goes out of port 2. Its counter says two packets used it: the second and third pings, which the switch handled alone.
+2 | And the catch-all rule at the bottom: nine packets, in all, that switch 1 had to ask about. Each rule forgets itself after 60 idle seconds, so a host that moves to another port will be relearned.
+</callouts>
+
+<p>Now Carol’s wish. Restart the controller with a policy, “nothing from 10.39.0.3, anywhere”, and it installs one extra rule in every switch as it connects:</p>
+
+<!-- @code labs/ch39/controller.py#connected -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 controller.py --block 10.39.0.3
+controller listening on port 6653
+switch 1 connected: installed “anything you don't recognise, send to me”
+switch 1: installed “drop every IPv4 packet from 10.39.0.3”
+switch 2 connected: installed “anything you don't recognise, send to me”
+switch 2: installed “drop every IPv4 packet from 10.39.0.3”
+$ sudo ./sdn_box.sh test
+h1 → 10.39.0.2  3 packets transmitted, 3 received, 0% packet loss, time 406ms
+h1 → 10.39.0.3  3 packets transmitted, ⟦1:0 received⟧, 100% packet loss, time 405ms
+h2 → 10.39.0.3  3 packets transmitted, 0 received, 100% packet loss, time 405ms
+h3 → 10.39.0.1  3 packets transmitted, 0 received, 100% packet loss, time 405ms
+--- the flow table in s1
+n_packets=0, priority=100,ip,nw_src=10.39.0.3 actions=drop
+…
+--- the flow table in s2
+⟦2:n_packets=9, priority=100,ip,nw_src=10.39.0.3 actions=drop⟧
+…
+</terminal>
+
+<callouts>
+1 | h1’s pings reach h3, but h3’s replies don’t come back.
+2 | Because every packet from 10.39.0.3 is thrown away by the first switch it reaches, s2: h3’s three replies to h1, three to h2, and its own three pings to h1. Nine in all; switch 1 never sees one.
+</callouts>
+
+<p>That’s the whole idea in miniature. The rule was written once, as a policy, and the controller turned it into the right entries in every switch, including switches that connect later. Try it yourself, one packet at a time:</p>
+
+<div data-widget="flowtable"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<think>
+<p>The controller is now a single point of failure. What happens to the network if it crashes?</p>
+<p>Less than you might fear. The rules already in the switches keep working, because forwarding never involved the controller. Here’s the lab with the controller stopped altogether:</p>
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./sdn_box.sh test
+h1 → 10.39.0.2  3 packets transmitted, 3 received, 0% packet loss, time 406ms
+h1 → 10.39.0.3  3 packets transmitted, 0 received, 100% packet loss, time 405ms
+</terminal>
+<p>h1 and h2 still talk, and h3 is still blocked. What stops working is everything <em>new</em>: a new host, a new conversation once the old rule has timed out, a change of policy. So real controllers run as a cluster of three or five copies that share their view of the network, and take over from each other (with a vote, much like Chapter 24’s treaties need everyone to agree). A switch can also be told to fall back to ordinary learning-switch behaviour if it loses its controller: that’s <code>fail-mode=standalone</code>, Open vSwitch’s default.</p>
+</think>
+
+<h3>P4: teach the switch new protocols</h3>
+
+<p>OpenFlow lets you fill in a switch’s tables, but not choose what the tables look like: the switch’s makers decided which header fields it can read. When a new protocol appears (Chapter 35’s VXLAN, say), OpenFlow switches can’t match on it until the OpenFlow standard, and then the switch chips, catch up. That took years, and OpenFlow’s list of fields kept growing.</p>
+
+<p><strong>P4</strong>, from 2014, turned that around. It’s a programming language for the data plane itself. A P4 program describes the whole pipeline a packet goes through: how to <em>parse</em> the headers (Ethernet, then IPv4, then UDP, then… whatever you invent), which tables to look up and what actions they can take, and how to put the packet back together:</p>
+
+<!-- @include src/figs/ch39-p4.svg -->
+
+<p>Here is a small piece of a P4 program: a table that does Chapter 23’s longest-prefix match on the IPv4 destination, and an action that forwards a packet the way a router does (Chapter 20: new Ethernet addresses, one less time-to-live):</p>
+
+<div class="code"><div class="code-head"><span>P4: part of a simple IPv4 router (a sketch; not run in this book)</span></div><pre><code class="text">action forward(macAddr_t next_hop, egressSpec_t port) {
+    standard_metadata.egress_spec = port;
+    hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+    hdr.ethernet.dstAddr = next_hop;
+    hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+}
+
+table ipv4_lpm {
+    key = { hdr.ipv4.dstAddr: lpm; }
+    actions = { forward; drop; }
+    size = 1024;
+}</code></pre></div>
+
+<p>A P4 compiler turns programs like this into the settings of a special switch chip, whose parser and tables can be rearranged, while still forwarding billions of packets per second. The entries in <code>ipv4_lpm</code> are filled in at run time by a controller. It also makes things possible that no fixed switch could do, like <em>in-band network telemetry</em>: each switch stamps a packet with how long it waited in the queue there, so the receiver gets a hop-by-hop timing report inside the packet itself, a traceroute that costs nothing.</p>
+
+<h3>eBPF: programs inside the kernel</h3>
+
+<p>Meanwhile, at Grandpa Otto’s, the Pi has a problem of its own. Something on the neighbour’s network (a smart plug, Bob suspects) has taken to pinging it several times a second, all day. It’s harmless, but it’s annoying, and Grandpa wants it stopped “at the door”.</p>
+
+<p>A firewall rule would do (Chapter 34), but there’s a more interesting way, and it’s the way the biggest networks in the world now protect themselves. Remember Chapter 16’s packet filters: tiny programs, compiled by <code>tcpdump</code> and run by the kernel on every packet, to decide which ones to capture. Linux grew that idea into <strong>eBPF</strong> (extended BPF): a way to load small programs of your own into the running kernel, safely, and attach them to <em>hooks</em>, places where the kernel calls them. For networking, the most important hooks are on the packet’s way in:</p>
+
+<!-- @include src/figs/ch39-hooks.svg -->
+
+<p>The earliest hook, <strong>XDP</strong> (the “express data path”), runs a program on each frame straight out of the network card’s driver, before Linux has spent any effort on it. A program there can drop a packet, send it back out, pass it on up, or even rewrite it into something else. That’s why it’s used to fight floods of attack traffic, and to build load balancers (Chapter 34) that handle millions of packets per second per server.</p>
+
+<p>Why doesn’t this crash the kernel? Because every program passes through the <strong>verifier</strong> before it’s allowed to run. The verifier explores every path through the program, and refuses it unless it can prove the program always finishes, never reads memory it shouldn’t, and never reads past the end of a packet. Programs that pass are then compiled into the processor’s own machine code (“just in time”, JIT), so they run at full speed. And programs keep their results in <strong>maps</strong>, pieces of memory that ordinary programs can read too.</p>
+
+<h3>Writing eBPF by hand</h3>
+
+<p>Normally people write eBPF programs in C, or Rust, or through tools that generate them. This chapter’s <code>ebpf.py</code> does it the hard way, and the clearest: it assembles the instructions itself, and hands them to the kernel with the <code>bpf()</code> system call, using nothing but Python’s standard library. Each instruction is eight bytes:</p>
+
+<!-- @include src/figs/ch39-insn.svg -->
+
+<!-- @code labs/ch39/ebpf.py#asm -->
+
+<p>The first program counts packets and bytes for each IP protocol. It reads the Ethernet type at offset 12 and the IP protocol at offset 23, exactly as Chapter 16’s <code>tcpdump</code> filter did, then adds to a counter in a map:</p>
+
+<!-- @code labs/ch39/ebpf.py#count -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo python3 ebpf.py count wlan0 5
+loaded “count”: 17 instructions, passed the verifier, compiled to ⟦1:264 bytes of aarch64 machine code⟧ (program id 100)
+counting IPv4 packets on wlan0, in the kernel, for 5 s:
+   1 s   ICMP 4 (0.4 kB)   TCP 1 (0.1 kB)   UDP 4 (0.4 kB)
+   2 s   ICMP 8 (0.8 kB)   ⟦2:TCP 32 (10.6 kB)⟧   UDP 6 (0.6 kB)
+   3 s   ICMP 12 (1.2 kB)   TCP 32 (10.6 kB)   UDP 6 (0.6 kB)
+   4 s   ICMP 14 (1.4 kB)   TCP 32 (10.6 kB)   UDP 6 (0.6 kB)
+   5 s   ICMP 14 (1.4 kB)   TCP 36 (11.0 kB)   UDP 6 (0.6 kB)
+</terminal>
+
+<callouts>
+1 | Our 17 instructions, compiled by the kernel into real ARM processor instructions, 66 of them (they’re 4 bytes each).
+2 | Meanwhile the Pi was pinging 1.1.1.1, looking up a name and fetching <code>https://example.org/</code>: the page and its TLS handshake arrived in the second second. The counting happened in the kernel; Python only read the map, once a second.
+</callouts>
+
+<p>The second program is Grandpa’s doorman. It runs at the XDP hook, and drops ICMP echo requests (pings), letting everything else through. Notice the first check: before it reads any byte of the packet, it must prove the packet is long enough. That’s not good manners; the verifier won’t accept the program without it.</p>
+
+<!-- @code labs/ch39/ebpf.py#drop -->
+
+<p>Bob attached it to the Pi’s Wi-Fi for fifteen seconds, and pinged the Pi from his MacBook:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo python3 ebpf.py drop wlan0 15
+loaded “drop_pings”: 33 instructions, passed the verifier, compiled to 304 bytes of aarch64 machine code (program id 101)
+attached to wlan0: pings arriving there are dropped, for 15 s
+   5 s   pings dropped:    4    everything else, let through: 5
+  10 s   pings dropped:    6    everything else, let through: 7
+  15 s   pings dropped:    6    everything else, let through: 7
+⟦1:detached⟧
+</terminal>
+
+<terminal title="Bob’s MacBook, meanwhile">
+$ ping -c 6 192.168.1.4
+…
+--- 192.168.1.4 ping statistics ---
+6 packets transmitted, ⟦2:0 packets received⟧, 100.0% packet loss
+$ ssh 192.168.1.4 hostname
+⟦3:raspberrypi⟧
+$ ping -c 3 192.168.1.4
+…
+3 packets transmitted, 3 packets received, 0.0% packet loss
+</terminal>
+
+<callouts>
+1 | When the program exits, the kernel removes the eBPF program, and the Pi answers pings again.
+2 | Six pings, six drops: the Pi never saw them. They were thrown away before Linux built its packet structure, so no firewall, no ping counter and no packet capture on the Pi would show them.
+3 | And SSH, which is TCP, went straight through: those were the packets “let through”.
+</callouts>
+
+<h3>The kernel says no</h3>
+
+<p>What if Bob forgets a check? <code>ebpf.py verifier</code> tries two broken programs: the counter without checking that the map lookup succeeded, and the doorman without checking the packet’s length.</p>
+
+<!-- @code labs/ch39/ebpf.py#verifier -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo python3 ebpf.py verifier
+“no_null_check”: the verifier said no (Permission denied):
+   … 12: (db) lock *(u64 *)(r0 +0) += r1
+   … ⟦1:R0 invalid mem access 'map_value_or_null'⟧
+“no_bounds_check”: the verifier said no (Permission denied):
+   … invalid access to packet, off=12 size=2, R2(id=0,off=12,r=0)
+   … ⟦2:R2 offset is outside of the packet⟧
+</terminal>
+
+<callouts>
+1 | The map lookup returns either a pointer or zero, and the verifier tracked that through every instruction. At instruction 12 we add to whatever r0 points at, and r0 might be zero. In a C program that would crash the kernel; here it never runs.
+2 | The doorman reads 2 bytes at offset 12 of the frame without first proving the frame has at least 14 bytes. <code>r=0</code> means: so far, zero bytes are known to be safe.
+</callouts>
+
+<p>That’s the bargain eBPF offers: you can run your own code in the most sensitive place in the computer, as long as you can convince a very suspicious checker that it’s safe. It’s what makes eBPF different from loading a kernel module, which can do anything, including crash everything.</p>
+
+<h3>Asking the kernel questions</h3>
+
+<p>eBPF isn’t only for packets. Programs can be attached to thousands of other places in the kernel, which makes it a superb way to answer questions about what a computer is doing. The tool <code>bpftrace</code> turns one-line scripts into eBPF programs. This one watches, across the whole computer, every TCP connection that’s opened, and by which program:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo bpftrace -e 'tracepoint:sock:inet_sock_set_state /args->protocol == 6 && args->newstate == 2/ {
+    printf("%-8s pid %-6d opens a connection to %s port %d\n", comm, pid, ntop(args->daddr), args->dport); }'
+Attaching 1 probe...
+curl     pid 12391  opens a connection to 172.66.157.237 port 443
+python3  pid 12393  opens a connection to 1.1.1.1 port 80
+dig      pid 12394  opens a connection to ⟦1:8.8.8.8 port 53⟧
+</terminal>
+
+<callouts>
+1 | <code>newstate == 2</code> is TCP’s SYN_SENT (Chapter 27): the moment a program’s SYN goes out. Even <code>dig +tcp</code> is caught. No program had to be changed, and nothing had to be restarted.
+</callouts>
+
+<realworld>
+<p>OpenFlow came out of Stanford, where Nick McKeown’s group wanted to try new ideas on real campus networks without buying new hardware; their 2008 paper was called “OpenFlow: Enabling Innovation in Campus Networks”, which is exactly Carol’s situation. One of the students involved, Martin Casado, co-founded Nicira, which built network virtualisation on Open vSwitch and was bought by VMware in 2012 for over a billion dollars. Google described in 2013 how it ran B4, the private network between its data centres, with centralised SDN control, keeping its long-distance links far busier than traditional routing allows.</p>
+<p>P4 was designed by several of the same people. It was most famously compiled onto Barefoot Networks’ Tofino switch chips, bought by Intel, which stopped developing new versions in 2023; the language lives on, in network cards and research. eBPF is everywhere: Kubernetes networks (Chapter 36) built with Cilium use it instead of iptables, Meta’s load balancer Katran is an XDP program, and Cloudflare drops attack traffic with XDP before it touches the rest of its servers. Windows has an eBPF project too.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Carol’s exam went smoothly, as it happens, with nobody up all night. Programmable networks change how networks are <em>run</em>. The next chapter changes where they <em>are</em>: thousands of routers in orbit, moving at seven and a half kilometres a second, with the internet handed from one to the next every few seconds.</p>
+
+<lab>
+<p>Three programs, for Linux, run on the Pi. <code>controller.py</code> runs anywhere with Python; the switches need Open vSwitch (<code>sudo apt install openvswitch-switch</code>). <code>ebpf.py</code> needs a Linux kernel from the last few years, and <code>sudo</code>; it works on ARM (like a Pi) and on ordinary x86 PCs.</p>
+
+<h4>1. A software-defined network</h4>
+
+<p>In one terminal, <code>python3 controller.py</code>. In another, <code>sudo ./sdn_box.sh up</code> and then <code>sudo ./sdn_box.sh test</code>. Watch the controller learn. Stop the controller (Ctrl-C), start it again with <code>--block 10.39.0.3</code>, and test again. <code>sudo ./sdn_box.sh down</code> removes everything.</p>
+
+<h4>2. eBPF by hand</h4>
+
+<p><code>sudo python3 ebpf.py count wlan0</code> (or <code>eth0</code>, or any interface from <code>ip link</code>), then <code>drop</code>, and <code>verifier</code>. To be safe, <code>drop</code> removes itself after 30 seconds; don’t run it on the interface you’re connected through if you change it to drop more than pings!</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Ask Open vSwitch what it would do with a packet, without sending one: <code>sudo ovs-appctl ofproto/trace s1 in_port=1,dl_src=0a:39:00:00:00:01,dl_dst=0a:39:00:00:00:02</code>. Now try a destination the controller hasn’t learned.</li>
+<li>Add a second cable between s1 and s2, making a loop (Chapter 9). Ping, and watch the controller’s output. What happened, and why don’t the switches’ own rules save you? (A real controller knows the whole topology, so it can compute a tree itself; ours doesn’t.)</li>
+<li>Turn the learning switch into Chapter 34’s load balancer: when a packet for a “virtual” address arrives, pick a server, and add actions that rewrite the destination address (<code>set_field</code>). You’ll need OpenFlow’s set-field action, type 25.</li>
+<li>Change the doorman to drop pings from one address only. Or make it count pings by source address, using a hash map (map type 1) instead of an array.</li>
+<li>Count TCP retransmissions, by destination, for the whole computer: <code>sudo bpftrace -e 'tracepoint:tcp:tcp_retransmit_skb { @[ntop(args->daddr)] = count(); }'</code>. Leave it running while you use a busy Wi-Fi network (Chapter 28), then press Ctrl-C.</li>
+</ul>
+</lab>

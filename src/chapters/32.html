@@ -1,0 +1,320 @@
+<h3>Eve moves in</h3>
+
+<p>Eve hasn’t given up. She’s back on Bob’s Wi-Fi, and this time she’s done what she did in Chapter 21: a forged ARP answer, so that everything Bob’s laptop sends to the router goes through her laptop first. She’s in the middle, and she can read, drop or change anything.</p>
+
+<dialogue>
+E: Every packet you send goes through me now. Go on, log in to your bank.
+B: Alice says I should just… do it.
+A: Look at the address bar first. What does it say?
+B: <code>https://</code>, and a padlock.
+E: I can see your laptop talking to the bank. I can see the name of the bank. And then… nothing. Just noise.
+A: Chapter 31 gave us the pieces: a key exchange you can do in public, signatures, certificates, a cipher that hides and seals. The padlock means they’ve all been put together, in a protocol called TLS.
+E: I could pretend to be the bank.
+A: Try it. That’s what the certificate is for.
+</dialogue>
+
+<p><strong>TLS</strong>, Transport Layer Security, sits between TCP and the application. To the web browser it looks like an ordinary connection: bytes in, bytes out. Underneath, everything is encrypted, sealed against tampering, and tied to a certificate that proves who’s on the other end. HTTP over TLS is <strong>HTTPS</strong>, but mail, DNS (Chapter 29’s DNS over HTTPS), VPNs and almost everything else use it too. This chapter watches a real TLS 1.3 handshake, and then builds a client from scratch that fetches a real web page, with Chapter 31’s X25519 and ChaCha20-Poly1305 inside.</p>
+
+<h3>Watching a padlock being made</h3>
+
+<p><code>curl -v</code> narrates the handshake as it happens:</p>
+
+<terminal title="Bob’s MacBook">
+$ curl -sv -o /dev/null https://example.org
+* Connected to example.org (104.20.26.136) port 443
+* ⟦1:ALPN: curl offers h2,http/1.1⟧
+* (304) (OUT), TLS handshake, ⟦2:Client hello (1)⟧:
+* (304) (IN), TLS handshake, Server hello (2):
+* (304) (IN), TLS handshake, ⟦3:Unknown (8)⟧:
+* (304) (IN), TLS handshake, Certificate (11):
+* (304) (IN), TLS handshake, CERT verify (15):
+* (304) (IN), TLS handshake, Finished (20):
+* (304) (OUT), TLS handshake, Finished (20):
+* SSL connection using ⟦4:TLSv1.3 / AEAD-CHACHA20-POLY1305-SHA256⟧
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: CN=example.org
+*  start date: Sep 26 22:05:05 2026 GMT
+*  expire date: Dec 25 22:13:27 2026 GMT
+*  ⟦5:subjectAltName: host "example.org" matched cert's "example.org"⟧
+*  issuer: C=US; O=SSL Corporation; CN=Cloudflare TLS Issuing ECC CA 3
+*  ⟦6:SSL certificate verify ok.⟧
+</terminal>
+
+<callouts>
+1 | Before any encryption, curl says which protocols it can speak inside the tunnel: HTTP/2 (“h2”, Chapter 33) or HTTP/1.1. This is <strong>ALPN</strong>, application-layer protocol negotiation, and it saves a round trip later.
+2 | The handshake messages, in order. The numbers are their type codes: 1 is ClientHello, 2 is ServerHello, and so on.
+3 | Type 8 is EncryptedExtensions. This curl doesn’t know its name, but it handles it fine.
+4 | The result: TLS 1.3, with ChaCha20-Poly1305 from Chapter 31 as the cipher, and SHA-256 for everything else.
+5 | The certificate is for the name curl asked for.
+6 | …and it’s signed by a chain leading to a root this Mac trusts.
+</callouts>
+
+<p>The old name, SSL (Secure Sockets Layer), still turns up everywhere, as it does here: TLS is SSL’s successor, and people use the two names interchangeably.</p>
+
+<h3>One round trip</h3>
+
+<p>Here’s the same handshake, drawn out. The sizes are from this chapter’s lab talking to example.org:</p>
+
+<!-- @include src/figs/ch32-handshake.svg -->
+
+<p>Notice the trick that makes it fast. Bob’s laptop doesn’t ask which kind of key exchange the server would like; it <em>guesses</em> (X25519, which nearly every server supports), and sends its public key in the very first message. So the server can finish the key exchange in its first reply, and encrypt everything after its hello. (If the guess is wrong, the server sends back a <code>HelloRetryRequest</code> saying which it wants, at the cost of an extra round trip.) TLS 1.2 needed two round trips for the same job, and sent the certificate unencrypted.</p>
+
+<h3>The two hellos, byte by byte</h3>
+
+<p>Only the first two messages travel in the clear. Here they are, exactly as the lab sent and received them:</p>
+
+<div data-widget="tlshello"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>A few things stand out. The ClientHello is built out of <strong>extensions</strong>: a type, a length, and the contents, over and over. TLS has grown for thirty years by adding new ones, and servers skip any they don’t understand. And the hello tells a white lie, twice: it says “TLS 1.2” in the version field, and carries a random “session ID” it has no use for. That’s because when TLS 1.3 was being tested, a surprising number of firewalls and other boxes in the middle of the internet dropped connections that looked unfamiliar. So TLS 1.3 disguises itself as TLS 1.2 resuming an old session, and puts the real version in an extension, which those boxes ignore. Networks that refuse to let protocols change are called <strong>ossified</strong>, and it’s a big reason Chapter 33’s QUIC encrypts almost everything, even its own headers.</p>
+
+<p>The lab’s ClientHello is a few lines of Python:</p>
+
+<!-- @code labs/ch32/tls13.py#hello -->
+
+<h3>From one secret, many keys</h3>
+
+<p>After the hellos, both sides have the same 32-byte X25519 secret. But TLS doesn’t use it as a key. It feeds it through a <strong>key schedule</strong> that derives separate keys for each direction and each stage, each one mixed with a fingerprint of the conversation so far:</p>
+
+<!-- @include src/figs/ch32-keys.svg -->
+
+<p>Mixing in the conversation, the <strong>transcript</strong>, matters. If Eve changed anything in the hellos (say, removing the strongest cipher from Bob’s list, to push both sides to a weaker one), the two sides would have different transcripts, derive different keys, and fail to understand each other. The whole schedule is built from two small functions around HMAC:</p>
+
+<!-- @code labs/ch32/tls13.py#hkdf -->
+
+<h3>Records</h3>
+
+<p>Everything TLS sends, the handshake included, is chopped into <strong>records</strong> of up to 16 KB, each with a five-byte header. Once there are keys, every record is sealed with the authenticated cipher:</p>
+
+<!-- @include src/figs/ch32-record.svg -->
+
+<!-- @code labs/ch32/tls13.py#records -->
+
+<p>This is also why TLS runs over TCP: records must arrive complete and in order, or the sequence numbers stop matching. (For UDP, there’s a cousin called DTLS, and QUIC in Chapter 33 has its own answer.)</p>
+
+<h3>Proving who you are</h3>
+
+<p>The key exchange alone would let Bob talk privately to <em>anyone</em>, including Eve. What makes it the bank is three checks, all of which the lab does itself:</p>
+
+<ol>
+<li><strong>The certificate chain.</strong> The server sends its certificate and the intermediates above it. Each must be signed by the next, up to a root the computer already trusts (Chapter 31).</li>
+<li><strong>The name.</strong> The certificate must list the name Bob asked for (<code>*.example.org</code> covers any one label in front, like <code>www.example.org</code>, but not <code>a.b.example.org</code>).</li>
+<li><strong>CertificateVerify.</strong> Anyone can send a copy of example.org’s certificate: it’s public. So the server must also <em>sign</em> the transcript, both key shares included, with the private key that matches the certificate. Only the real server can do that, and because the signature covers this connection’s key shares, it can’t be replayed from another one.</li>
+</ol>
+
+<p>The lab’s <code>certs.py</code> reads certificates (which are written in a compact binary format called DER), and checks signatures of all three kinds the web uses, RSA, ECDSA and Ed25519, in plain Python:</p>
+
+<terminal title="labs/ch32">
+$ python3 certs.py example.org
+example.org sent 4 certificate(s):
+
+#0  subject example.org
+    issuer  Cloudflare TLS Issuing ECC CA 3
+    valid   2026-09-26 22:05 to 2026-12-25 22:13
+    key     ⟦1:ECDSA P-256⟧;  signed with ecdsa sha256
+    names   example.org, *.example.org
+#1  subject Cloudflare TLS Issuing ECC CA 3
+    issuer  SSL.com TLS Transit ECC CA R2
+    valid   2025-05-29 19:49 to 2035-05-27 19:49
+    key     ECDSA P-256;  signed with ecdsa sha384
+#2  subject SSL.com TLS Transit ECC CA R2
+    issuer  SSL.com TLS ECC Root CA 2022
+    valid   2022-10-21 17:02 to 2037-10-17 17:02
+    key     ECDSA P-384;  signed with ecdsa sha384
+#3  subject SSL.com TLS ECC Root CA 2022
+    issuer  ⟦2:AAA Certificate Services⟧
+    valid   2025-08-01 00:00 to 2028-12-31 23:59
+    key     ECDSA P-384;  signed with ⟦3:rsa-pkcs1 sha256⟧
+
+✓ #0 (example.org) is signed by #1's private key
+✓ #1 (Cloudflare TLS Issuing ECC CA 3) is signed by #2's private key
+✓ #2 (SSL.com TLS Transit ECC CA R2) is signed by #3's private key
+  #3's issuer, AAA Certificate Services, wasn't sent: this computer must already have it, as a trusted root
+</terminal>
+
+<callouts>
+1 | A public key on the elliptic curve called P-256: 64 bytes, about as strong as a 3,072-bit RSA key.
+2 | The last certificate is a <strong>cross-signature</strong>. SSL.com’s 2022 root is new, so older phones and computers don’t have it built in yet; this copy of it is signed by a much older root that they do have. Newer systems recognise the 2022 root directly and stop there.
+3 | The old root’s key is RSA, so this signature is too: one chain can mix both.
+</callouts>
+
+<p>The elliptic curve signature check, like X25519 in Chapter 31, comes down to adding points on a curve:</p>
+
+<!-- @code labs/ch32/certs.py#ecdsa -->
+
+<p>Certificates can also be <strong>revoked</strong> before they expire, if a private key is stolen. Checking for that has always been the weak part of the system: browsers mostly rely on lists pushed to them by their makers, and on certificates being short-lived. This one lasts 90 days, and the industry has agreed to cut the maximum to 47 days by 2029, so that a stolen key goes stale quickly.</p>
+
+<h3>Why Eve loses</h3>
+
+<p>Chapter 21 left Eve in the middle of Bob’s Wi-Fi, and Chapter 30 promised that HTTPS would beat her. Here’s how, trick by trick:</p>
+
+<!-- @include src/figs/ch32-eve.svg -->
+
+<p>The Pi can play Eve’s part, the listening kind at least. Here’s a capture of the lab fetching example.org, as <code>tshark</code> sees it:</p>
+
+<terminal title="Grandpa Otto’s Pi: what Eve sees">
+$ tshark -r tls.pcap -Y "ip.addr==172.66.157.237"
+    1 0.000000  192.168.1.4 → 172.66.157.237 TCP 74 35878 → 443 [SYN] Seq=0 …
+    2 0.039448 172.66.157.237 → 192.168.1.4  TCP 74 443 → 35878 [SYN, ACK] Seq=0 Ack=1 …
+    3 0.039472  192.168.1.4 → 172.66.157.237 TCP 66 35878 → 443 [ACK] Seq=1 Ack=1 …
+    4 0.041266  192.168.1.4 → 172.66.157.237 TLSv1.3 262 Client Hello ⟦1:(SNI=example.org)⟧
+    6 0.068553 172.66.157.237 → 192.168.1.4  TLSv1.3 1506 Server Hello, Change Cipher Spec
+    8 0.071841 172.66.157.237 → 192.168.1.4  TCP 1506 443 → 35878 [ACK] Seq=1441 Ack=197 Len=1440
+   10 0.071849 172.66.157.237 → 192.168.1.4  TLSv1.3 1169 ⟦2:Application Data⟧
+   12 0.105905  192.168.1.4 → 172.66.157.237 TLSv1.3 72 Change Cipher Spec
+   14 0.179922  192.168.1.4 → 172.66.157.237 TLSv1.3 234 Application Data, Application Data
+   16 0.208913 172.66.157.237 → 192.168.1.4  TLSv1.3 982 Application Data
+   17 0.211358 172.66.157.237 → 192.168.1.4  TLSv1.3 93 Application Data
+   19 0.211399 172.66.157.237 → 192.168.1.4  TLSv1.3 90 Application Data
+</terminal>
+
+<callouts>
+1 | The one thing TLS 1.3 still shows: the name of the site, in the SNI.
+2 | The certificate, signature and Finished message, which TLS 1.2 would have shown, are just “application data” now. So are the request and the web page.
+</callouts>
+
+<p>But TLS has a debugging feature for exactly this situation. If the client writes down its secrets (the lab does, with <code>--keylog</code>, in the standard format Firefox, Chrome and curl use when the <code>SSLKEYLOGFILE</code> variable is set), Wireshark can decrypt the capture:</p>
+
+<terminal title="Grandpa Otto’s Pi: with the lab’s secrets">
+$ cat keys.txt
+CLIENT_HANDSHAKE_TRAFFIC_SECRET ⟦3:6b5be10066afc7688c6b90016…⟧ ecb…
+SERVER_HANDSHAKE_TRAFFIC_SECRET 6b5be10066afc7688c6b90016… a87…
+CLIENT_TRAFFIC_SECRET_0 6b5be10066afc7688c6b90016… 59a5d47d981…
+SERVER_TRAFFIC_SECRET_0 6b5be10066afc7688c6b90016… 195639eb57c…
+$ tshark -r tls.pcap -o tls.keylog_file:keys.txt -Y "tls || http"
+    4 0.041266  192.168.1.4 → 172.66.157.237 TLSv1.3 262 Client Hello (SNI=example.org)
+    6 0.068553 172.66.157.237 → 192.168.1.4  TLSv1.3 1506 Server Hello, Change Cipher Spec
+   10 0.071849 172.66.157.237 → 192.168.1.4  TLSv1.3 1169 ⟦4:Encrypted Extensions, Certificate, Certificate Verify, Finished⟧
+   12 0.105905  192.168.1.4 → 172.66.157.237 TLSv1.3 72 Change Cipher Spec
+   14 0.179922  192.168.1.4 → 172.66.157.237 HTTP 234 ⟦5:GET / HTTP/1.1⟧
+   17 0.211358 172.66.157.237 → 192.168.1.4  HTTP 93 HTTP/1.1 200 OK  (text/html)
+   19 0.211399 172.66.157.237 → 192.168.1.4  TLSv1.3 90 Alert (Level: Warning, Description: ⟦6:Close Notify⟧)
+</terminal>
+
+<callouts>
+3 | The client’s random number from its hello, which tells Wireshark which connection each secret belongs to, then the secret itself: the four from the key schedule figure.
+4 | The server’s encrypted handshake messages, now readable.
+5 | Our request, and the reply. Everything the lab did is visible again, which is the point: whoever has these secrets can read the connection, and nobody else can.
+6 | TLS’s polite goodbye: “I’m done”. Without it, Eve could cut a connection short and make a truncated page look complete.
+</callouts>
+
+<p>(Frame 12 to frame 14 takes 74 ms because the lab is doing all its cryptography in plain Python, on a Pi. Real TLS libraries use code written for the processor, and on modern chips encryption costs almost nothing.)</p>
+
+<h3>What still shows</h3>
+
+<p>Eve can’t read the conversation, but she isn’t completely blind. She sees which IP addresses Bob talks to, when, and how much. And she sees the <strong>SNI</strong>: a hosting company like Cloudflare serves millions of sites from the same addresses, so the client must say which one it wants before any keys exist. That name is a surprisingly big leak, and some countries’ firewalls block websites by it.</p>
+
+<p>The fix is <strong>Encrypted Client Hello</strong> (ECH): the site publishes a public key in DNS, in the HTTPS record from Chapter 29, and the browser encrypts its real ClientHello with it, inside an outer one that names only the hosting company:</p>
+
+<terminal title="labs/ch29">
+$ python3 dig.py crypto.cloudflare.com HTTPS @8.8.8.8 --tcp
+;; ANSWER:
+crypto.cloudflare.com.  276  HTTPS  1 . alpn=h2 ipv4hint=162.159.135.79,162.159.136.79 ⟦1:ech=(71 bytes: a public key for encrypting the ClientHello; outer name cloudflare-ech.com)⟧ …
+</terminal>
+
+<callouts>
+1 | A browser that supports ECH sends “cloudflare-ech.com” in the visible SNI, and the real name, encrypted, inside. Eve learns only that Bob is visiting one of Cloudflare’s millions of sites. Of course, this only helps if the DNS question itself was private too: DNS over HTTPS, from Chapter 29.
+</callouts>
+
+<h3>Coming back: resumption and 0-RTT</h3>
+
+<p>Full handshakes cost a round trip and some public-key arithmetic. So after the handshake, servers usually send a <strong>NewSessionTicket</strong>: an encrypted note that only the server can read, holding a secret derived from this connection. Next time, the client offers the ticket in its ClientHello (as a <strong>pre-shared key</strong>, or PSK), and the server can skip the certificate and signature, because the ticket proves they’ve met before. (Clients usually do a fresh X25519 exchange alongside it too, to keep forward secrecy.)</p>
+
+<p>It can even go one step further. With a ticket, the client can encrypt its request with keys from the <em>last</em> session, and send it along with the ClientHello, before the handshake has finished: <strong>0-RTT</strong>, zero round trips. The catch is that Eve could record that first flight and replay it. The handshake would fail, but the server might have acted on the request already. So 0-RTT is only safe for requests that don’t matter if they’re repeated, like fetching a page, and never for “pay Bob £5”.</p>
+
+<think>
+<p>The session ID and “TLS 1.2” version fields are fibs, and the change_cipher_spec messages are meaningless. Why not just take them out, and let old middleboxes break?</p>
+<p>Because the people who notice aren’t the ones who own the middleboxes. If a new browser version can’t reach a bank because the bank’s firewall is ten years old, users blame the browser, and switch to one that still works. TLS 1.3’s designers measured this carefully: early versions without the disguise failed on a few percent of connections. The lesson changed how protocols are designed: encrypt as much as you can, so that nobody in the middle can come to depend on it, and add random, meaningless values (“GREASE”) to fields, so that boxes that choke on unknown values get fixed early.</p>
+</think>
+
+<realworld>
+<p>Netscape built SSL in 1994 for the first online shops. SSL 2.0 had serious flaws, and SSL 3.0 was a redesign. The standards body took it over in 1999 and renamed it TLS 1.0, followed by 1.1 (2006), 1.2 (2008) and, after four years of work, 1.3 in 2018, which removed every old option that attacks had been found in. The web went from well under half of all page loads being encrypted in the mid-2010s to over 95% today, mainly thanks to free certificates from Let’s Encrypt and browsers marking plain HTTP pages “not secure”.</p>
+<p>TLS itself has held up well; most famous disasters were in the software around it. In 2014, a bug called Heartbleed in OpenSSL let anyone read chunks of a server’s memory, private keys included, from about a sixth of the web’s servers. That’s a big reason why the lab uses its homemade crypto for learning only.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Eve packs up her laptop. She can’t read it, she can’t change it, and she can’t pretend to be the bank. But look again at <code>curl</code>’s output: “ALPN: server accepted h2”. Inside the tunnel, browsers today mostly don’t speak Chapter 30’s HTTP/1.1 at all. They speak HTTP/2, a binary version that sends many requests at once over one connection, or HTTP/3, which leaves TCP behind entirely and runs over a new protocol on UDP, with TLS built in. Chapter 33 takes them apart.</p>
+
+<lab>
+<p>Two programs, which use Chapter 31’s <code>x25519.py</code> and <code>chacha.py</code> (keep the two folders side by side). <code>tls13.py</code> is a complete TLS 1.3 client: it offers one cipher suite and one kind of key exchange, and does everything else a real client does. <code>certs.py</code> reads certificates and checks signatures.</p>
+
+<h4>1. Fetch a page over TLS 1.3, from scratch</h4>
+
+<terminal title="labs/ch32">
+$ cd labs/ch32
+$ python3 tls13.py example.org
+TCP connected to example.org (104.20.26.136) port 443
+
+→ ClientHello              191 bytes  offers TLS 1.3, ChaCha20-Poly1305, X25519; SNI example.org
+← ServerHello              122 bytes  suite 0x1303, version 0x0304, server's X25519 key b3e36789dca6…
+
+  shared secret (X25519): 162b4b0278784fda6d8cad9b2f4dad8dbfcafff10fe5f9e02779a47e192c3029
+  handshake keys derived. From now on, everything the server sends is encrypted.
+
+← (change_cipher_spec)       1 bytes  meaningless: only there to calm old middleboxes
+← EncryptedExtensions       25 bytes  (decrypted) ALPN: http/1.1
+← Certificate             3688 bytes  (decrypted) a chain of 4 certificates
+        #0 example.org  (issued by Cloudflare TLS Issuing ECC CA 3, ECDSA P-256, until 2026-12-25)
+        #1 Cloudflare TLS Issuing ECC CA 3  (issued by SSL.com TLS Transit ECC CA R2, ECDSA P-256, until 2035-05-27)
+        #2 SSL.com TLS Transit ECC CA R2  (issued by SSL.com TLS ECC Root CA 2022, ECDSA P-384, until 2037-10-17)
+        #3 SSL.com TLS ECC Root CA 2022  (issued by AAA Certificate Services, ECDSA P-384, until 2028-12-31)
+← CertificateVerify         80 bytes  (decrypted) signature scheme 0x0403: VALID: the server has the private key for that certificate
+← Finished                  36 bytes  (decrypted) matches: nobody tampered with the handshake
+
+  the certificate is for example.org, *.example.org: it includes example.org
+→ Finished                  36 bytes  (encrypted) proves we saw the same handshake
+
+  handshake complete: application keys in place.
+
+→ application_data          88 bytes  (encrypted) GET /
+← application_data         894 bytes  (decrypted) the start of the response
+← application_data × 1 more records, 899 bytes decrypted in all
+← alert                      2 bytes  close_notify: the server is done
+
+HTTP/1.1 200 OK
+Content-Type: text/html
+Server: cloudflare
+…
+(571 bytes of body)
+(Python's ssl module agrees: the chain leads to a trusted root, and it chose TLSv1.3 with TLS_AES_256_GCM_SHA384)
+</terminal>
+
+<p>Try other sites: <code>python3 tls13.py www.bbc.co.uk</code> gets an RSA certificate, and an RSA-PSS signature (scheme <code>0x0804</code>). Add <code>--hex</code> to see the bytes of each message. The first flight, from key pair to handshake keys:</p>
+
+<!-- @code labs/ch32/tls13.py#flight1 -->
+
+<p>Then reading the server’s encrypted messages, and checking each one:</p>
+
+<!-- @code labs/ch32/tls13.py#flight2 -->
+
+<p>And finishing, and switching to application keys:</p>
+
+<!-- @code labs/ch32/tls13.py#finish -->
+
+<h4>2. Certificates</h4>
+
+<p><code>python3 certs.py wikipedia.org</code> takes any site’s chain apart and checks every signature in it. <code>python3 certs.py --test</code> makes keys and signatures of every kind with <code>openssl</code>, and checks that the lab accepts the good ones and rejects tampered ones. DER, the format certificates are written in, is Chapter 29’s idea again: a type, a length, and the contents, nested:</p>
+
+<!-- @code labs/ch32/certs.py#der -->
+
+<h4>3. Decrypt your own capture</h4>
+
+<p>On Linux (or on a Mac with Wireshark and <code>sudo</code>), capture while the lab runs, then decrypt with its secrets:</p>
+
+<terminal title="Linux">
+$ tshark -i wlan0 -f "tcp port 443" -w tls.pcap -a duration:15 &
+$ python3 tls13.py example.org --keylog keys.txt
+$ tshark -r tls.pcap -o tls.keylog_file:keys.txt -Y http
+</terminal>
+
+<p>The same works for a real browser or <code>curl</code>: start it with <code>SSLKEYLOGFILE=keys.txt</code> set in its environment.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Change one byte of the server’s Finished message before checking it (in <code>flight2</code>). What does the lab say? Now change a byte of the ServerHello before it goes into the transcript. Where does it fail, and why there?</li>
+<li>Make the lab ask for a name the certificate doesn’t cover: connect to <code>example.org</code>, but send <code>example.com</code> as the SNI and Host. What does the server do? What would a browser do?</li>
+<li>Remove <code>0x0403</code> and <code>0x0503</code> from the signature algorithms. Which sites still work, and what do they sign with instead?</li>
+<li>Run <code>openssl s_client -connect example.org:443 -brief</code>. Look at the “group” it negotiated: <code>X25519MLKEM768</code>. That’s X25519 and a post-quantum key exchange at the same time, in case someone builds a quantum computer that breaks X25519. Chapter 42 explains.</li>
+</ul>
+</lab>

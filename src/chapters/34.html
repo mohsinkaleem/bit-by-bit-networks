@@ -1,0 +1,276 @@
+<h3>Grandpa goes viral</h3>
+
+<p>A local news programme did a piece on Grandpa Otto’s beans. At the end, the presenter read out the address of his website. Within a minute, the Pi’s little fan was screaming; within five, nobody could load anything.</p>
+
+<dialogue>
+B: Fifty thousand people want to see the beans, and there’s one Raspberry Pi. It can’t even accept the connections fast enough.
+A: Then don’t make them all come to the Pi. Most of them want exactly the same photos. Put copies closer to them.
+B: Copies where? We don’t have computers all over the country.
+A: Other people do. And while we’re at it: put something in front of the Pi that decides who gets through. Last night half of those “visitors” were Eve’s script, asking for the same page ten times a second.
+E: I was testing it. You’re welcome.
+</dialogue>
+
+<p>So far, most of Part II has pictured two computers talking to each other, with routers in between that just pass packets along. Real traffic hardly ever works like that. Between Bob and almost any website sit machines that <em>do</em> things with his requests: answer them on the website’s behalf, spread them across many servers, cache them, inspect them, or refuse them. This chapter meets the middlemen.</p>
+
+<h3>Proxies</h3>
+
+<p>A <strong>proxy</strong> takes a request, and makes it again, somewhere else, on your behalf. The same program can sit in two very different places:</p>
+
+<!-- @include src/figs/ch34-proxies.svg -->
+
+<p>A <strong>forward proxy</strong> works for a group of users: a school or a company sends all its web traffic through one, to cache popular pages, keep logs, or block sites. The browser is told about it (in its settings, or by a small configuration file), and sends its requests there instead of to the sites. For plain <code>http://</code>, the request line then carries the whole URL, and the proxy fetches it. For <code>https://</code>, the browser can’t let the proxy read anything, so it asks it to <code>CONNECT</code>: open a TCP connection to a host and port, and then pass bytes blindly in both directions. This chapter’s lab is a forward proxy that says what it can see:</p>
+
+<terminal title="labs/ch34 (with curl -x http://127.0.0.1:7140 … in another window)">
+$ python3 proxy.py --block example.com
+forward proxy on 127.0.0.1:7140. Try: curl -x http://127.0.0.1:7140 https://example.org/
+22:16:58 GET http://info.cern.ch/  → HTTP/1.1 200 OK, 878 bytes. ⟦1:I can read all of it (user-agent: curl/8.7.1)⟧
+22:16:58 CONNECT example.org:443  a tunnel: 585 bytes up, 5,003 down, 0.1 s. ⟦2:First bytes up were 160301…: a TLS hello.⟧ The rest is sealed.
+22:16:58 CONNECT example.com:443  → ⟦3:403: blocked⟧
+</terminal>
+
+<callouts>
+1 | Plain HTTP: the proxy sees the whole request and response, and could change any of it.
+2 | HTTPS: just a name, a port, and how many bytes went each way. The first bytes are a ClientHello (Chapter 32), and after that, sealed records.
+3 | It can still refuse to connect, by name. That’s how most school and office filters work.
+</callouts>
+
+<p>(Some companies go further, and install their own root certificate on their employees’ laptops. Then their proxy can pretend to be any website, decrypt the traffic, inspect it, and encrypt it again: Eve’s third trick from Chapter 32, done openly by the owner of the computer.)</p>
+
+<p>A <strong>reverse proxy</strong> works for a website. Everyone on the internet connects to it, and it passes each request to one of the servers behind it. That lets the site add servers, take them out for repairs, and hide how many there are, without anyone noticing. When its main job is spreading the work, it’s called a <strong>load balancer</strong>.</p>
+
+<h3>Spreading the load</h3>
+
+<p>The lab’s <code>balancer.py</code> runs three copies of Grandpa’s site on one computer (<code>bean-2</code> is slow, as if it were an old Pi) and a load balancer in front of them. It sends 30 requests, six at a time, like a browser, and tries three ways of choosing a server:</p>
+
+<terminal title="labs/ch34">
+$ python3 balancer.py demo
+three servers: bean-1 and bean-3 answer in 10 ms, bean-2 takes 200 ms
+
+round-robin: 30 requests, 6 at a time
+   bean-1: 10   bean-2: 10   bean-3: 10    ⟦1:average   85 ms⟧, slowest  221 ms
+
+least-conn: 30 requests, 6 at a time
+   bean-1: 14   bean-2:  2   bean-3: 14    ⟦2:average   28 ms⟧, slowest  209 ms
+
+hash: 30 requests, 6 at a time
+   bean-1:  0   bean-2: 12   bean-3: 18    average   92 ms, slowest  212 ms
+   ⟦3:alice always went to: ['bean-2']⟧
+   bob always went to: ['bean-3']
+   carol always went to: ['bean-3']
+</terminal>
+
+<callouts>
+1 | <strong>Round robin</strong> takes turns: fair, simple, and blind. The slow server gets a third of the work anyway.
+2 | <strong>Least connections</strong> sends each request to whichever server is busiest the least. The slow one stays busy longer, so it’s picked less: three times faster on average.
+3 | <strong>Hashing</strong> the visitor’s address (Chapter 31’s fingerprints again) sends each visitor to the same server every time, which matters when a server remembers something about them. With only five visitors it’s lumpy: nobody happened to land on bean-1.
+</callouts>
+
+<p>Try the strategies yourself, with the servers’ speeds under your control:</p>
+
+<div data-widget="lbsim"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>The choice is simple; the rest of the balancer’s job is noticing trouble. It asks each server for a page every second, a <strong>health check</strong>, and takes it out of rotation if it doesn’t answer in time:</p>
+
+<!-- @code labs/ch34/balancer.py#health -->
+
+<p>Real load balancers do a lot more. Because every server behind them sees the <em>balancer’s</em> address instead of the visitor’s, they add a header, <code>X-Forwarded-For</code>, saying who really asked. They often end TLS themselves, so that they can read the requests, which leads to two very different kinds:</p>
+
+<!-- @include src/figs/ch34-layers.svg -->
+
+<h3>When the middle breaks</h3>
+
+<p>Now make the servers fail. The demo crashes <code>bean-3</code> (its port closes), and later makes <code>bean-1</code> hang (it accepts connections, and then never answers):</p>
+
+<terminal title="labs/ch34">
+now bean-3 crashes (its port closes):
+   200 from bean-1
+   200 from bean-2
+   ⟦1:502 from bean-3⟧
+   [health] bean-3 failed its check: out of rotation
+after the next health check:
+   bean-1:  5   bean-2:  4   bean-3:  0    average  102 ms, slowest  209 ms
+
+now bean-1 hangs: its port is open, but it never answers:
+   200 from bean-2 after 0.2 s
+   [health] bean-1 failed its check: out of rotation
+   ⟦2:504 from bean-1 after 2.0 s⟧
+   200 from bean-2 after 0.2 s
+</terminal>
+
+<callouts>
+1 | The balancer tried to pass the request on and was refused, so it answered <code>502 Bad Gateway</code> itself. Until the next health check, one request in three fails.
+2 | This one was already on its way to <code>bean-1</code> when the health check noticed. The balancer waited two seconds, then gave up with <code>504 Gateway Timeout</code>.
+</callouts>
+
+<!-- @include src/figs/ch34-errors.svg -->
+
+<p>So when a website shows you a 502 or 504, it usually isn’t the website speaking: it’s a middleman, apologizing for it.</p>
+
+<h3>Closer to everyone: content delivery networks</h3>
+
+<p>A load balancer spreads the work across servers in one place. But Grandpa’s viewers are all over the country, and a round trip to the Pi costs each of them the same distance, every time. A <strong>content delivery network</strong>, or CDN, keeps copies of a site’s files in hundreds of places around the world, each a big reverse proxy with a cache that follows exactly Chapter 30’s rules. Here’s a real one, answering for python.org:</p>
+
+<!-- @include src/figs/ch34-cdn.svg -->
+
+<p>Two things make it work. The site hands over its DNS, so that its name leads to the CDN, and it hands over its TLS certificate (or lets the CDN get one), so that the CDN can end the encrypted connection and read the requests. That’s a lot of trust: Cloudflare, Fastly, Akamai and a few others can read a large share of the world’s web traffic, in exactly the way Eve couldn’t in Chapter 32. The rest of this chapter explains how they reach everyone quickly.</p>
+
+<h3>One address, many places</h3>
+
+<p>In Chapter 29, the resolver started every lookup at the root servers, whose thirteen addresses have barely changed in thirty years. But there aren’t thirteen machines: there are nearly two thousand. This chapter’s <code>anycast.py</code> asks each root server a special question, <code>hostname.bind</code> in DNS’s rarely-used CHAOS class, which makes it say which machine answered:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 anycast.py
+e.root-servers.net   192.203.230.10      2.9 ms   answered by p02.XXX.eroot
+d.root-servers.net   199.7.91.13         3.5 ms   answered by bain1.droot.maxgigapop.net
+…
+b.root-servers.net   170.247.170.2      42.9 ms   answered by ⟦1:b1-sin⟧
+…
+a.root-servers.net   198.41.0.4        127.0 ms   answered by ⟦2:nnn1-jptyo-2⟧
+h.root-servers.net   198.97.190.53     147.1 ms   answered by 001.lcy.h.root-servers.org
+c.root-servers.net   192.33.4.12       154.6 ms   answered by par1a.c.root-servers.org
+$ python3 anycast.py 1.1.1.1 8.8.8.8 9.9.9.9
+9.9.9.9              9.9.9.9             3.7 ms   answered by (won't say)
+1.1.1.1              1.1.1.1            10.3 ms   answered by XXX03
+8.8.8.8              8.8.8.8            11.9 ms   answered by (won't say)
+</terminal>
+
+<callouts>
+1 | Singapore…
+2 | …Tokyo, then London City and Paris. The names are how the operators know which copy answered. (Copies in cities near the Pi are blanked out as XXX.)
+</callouts>
+
+<!-- @include src/figs/ch34-anycast.svg -->
+
+<p>Every copy of a root server uses the same address. How? Remember BGP from Chapter 24: an autonomous system announces “I can reach this block of addresses”, and every network picks its favourite route. Nothing stops <em>several</em> places from announcing the same block. Each network then simply picks the route it likes best, usually the nearest:</p>
+
+<!-- @include src/figs/ch34-anycast-how.svg -->
+
+<p>That’s <strong>anycast</strong>, and it’s why 1.1.1.1, a single address, answers from about ten milliseconds away in hundreds of cities, and why the AS paths to it are so short: it’s announced right next to you. CDNs use it too, for the addresses their DNS hands out. It works best for short, stateless exchanges like DNS questions, because if the routes change halfway through a long TCP connection, the next packet may arrive at a different site, which has never heard of it.</p>
+
+<h3>Walls with doors: firewalls</h3>
+
+<p>Eve’s script was the other half of Grandpa’s problem. A <strong>firewall</strong> decides which packets may pass, by rules: from where, to where, which protocol and port. The simplest kind looks at each packet on its own. That turns out to be surprisingly hard to get right, because replies to your own requests come from outside too, and a rule that lets them in must guess what a reply looks like. The lab runs the same twelve packets through two firewalls:</p>
+
+<terminal title="labs/ch34">
+$ python3 firewall.py
+packet                                                without memory     with connection tracking
+Pi opens a connection to example.org                  ACCEPT             ACCEPT
+…example.org answers                                  ACCEPT             ACCEPT
+…
+Eve tries SSH from the internet                       DROP               DROP
+Eve's “reply” from port 443, to a port nobody opened  ACCEPT             DROP  ← different!
+                                                        without: ⟦1:let in anything from port 443 (it's probably a web server replying)⟧
+                                                        with:    new, from outside: dropped
+Eve's UDP “DNS answer” nobody asked for               ACCEPT             DROP  ← different!
+…
+…a router says “time exceeded”                        ACCEPT             ⟦2:ACCEPT⟧
+the DNS server answers again, 3 minutes later         ACCEPT             ⟦3:DROP⟧  ← different!
+</terminal>
+
+<callouts>
+1 | The rule meant to let web pages in also lets in anything Eve sends from port 443, which she can choose freely.
+2 | An ICMP error (Chapter 21) about a packet the Pi really sent: the firewall with memory recognises it as <em>related</em>, and lets it in. Blocking these breaks traceroute, and worse (Chapter 38).
+3 | The firewall with memory forgets a UDP “conversation” after 30 seconds of silence.
+</callouts>
+
+<p>A <strong>stateful</strong> firewall keeps a table of every conversation that started from inside, the same table NAT needed in Chapter 22, and lets in only packets that belong to one of them:</p>
+
+<!-- @code labs/ch34/firewall.py#conntrack -->
+
+<p>On Linux, this table is called <strong>conntrack</strong>, and the rules are written for <strong>nftables</strong>. Here’s a real firewall for Grandpa’s Pi, running in a sealed-off copy of its network (a “namespace”, Chapter 36): only the web server is open to the world, and everything the Pi starts itself may come back:</p>
+
+<!-- @code labs/ch34/fw_box.sh#rules -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./fw_box.sh
+== from outside: the web server (allowed)
+   port 8000: HTTP 200 in 0.001079 s
+== from outside: port 2222 (dropped: no answer at all, so curl gives up after 3 s)
+   port 2222: ⟦1:no answer; curl gave up after 3 s⟧
+== from outside: ping (dropped too)
+   2 packets transmitted, 0 received, 100% packet loss, time 1027ms
+== from inside: the Pi visits a server outside (the answers come back in: ct state established)
+   10.34.0.1:8001: HTTP 200
+
+== the rules, with their counters
+   table inet garden {
+   	chain input {
+   		type filter hook input priority filter; policy drop;
+   		ct state established,related counter ⟦2:packets 12 bytes 1312⟧ accept
+   		iif "lo" accept
+   		tcp dport 8000 counter ⟦3:packets 1 bytes 60⟧ accept
+   		counter ⟦4:packets 5 bytes 348⟧ drop
+   	}
+   }
+== the connection-tracking table inside the namespace
+   tcp      6 119 ⟦5:TIME_WAIT⟧ src=10.34.0.2 dst=10.34.0.1 sport=60202 dport=8001 src=10.34.0.1 dst=10.34.0.2 sport=8001 dport=60202 [ASSURED] …
+   tcp      6 114 TIME_WAIT src=10.34.0.1 dst=10.34.0.2 sport=47260 dport=8000 src=10.34.0.2 dst=10.34.0.1 sport=8000 dport=47260 [ASSURED] …
+</terminal>
+
+<callouts>
+1 | “Dropped” means silence: no refusal, no error, nothing. The sender can’t tell a closed port from a missing computer, which is the point, and is also why troubleshooting firewalls is hard (Chapter 38).
+2 | Every packet after the first of each connection matched this rule: the fast path.
+3 | Exactly one packet was let in as new: the SYN of the web request.
+4 | Three SYNs to port 2222 (curl tried three times) and two pings.
+5 | Both connections, each remembered in both directions, now closing (TIME_WAIT, Chapter 27). The number before the state is seconds until conntrack forgets them.
+</callouts>
+
+<p>Every home router has a stateful firewall like this, and its NAT (Chapter 22) behaves like one anyway: a packet from outside that doesn’t match a mapping has nowhere to go. That’s why a laptop at home is quietly protected from Eve’s SSH attempts, and why Chapter 22 needed STUN tricks to let two computers behind NATs talk.</p>
+
+<h3>Surviving the flood</h3>
+
+<p>Firewalls block packets that are obviously unwanted. But Eve’s script sent perfectly ordinary requests, just far too many of them. That’s a <strong>denial-of-service</strong> attack, and when it comes from thousands of computers at once (usually hacked ones: routers, cameras, anything with a weak password) it’s a <em>distributed</em> one, a DDoS. No single firewall can stop a flood bigger than its own internet connection. What works is the rest of this chapter, combined: anycast spreads the flood over hundreds of sites, each big enough to absorb its share; the CDN answers from cache, so floods of the same page never reach the origin; and the reverse proxies limit how often each address may ask, answering <code>429 Too Many Requests</code> to anyone who asks too often.</p>
+
+<p>Grandpa’s site now lives behind a CDN. Fifty thousand people saw the beans, and the Pi served about forty requests.</p>
+
+<think>
+<p>Chapter 32 said HTTPS is encrypted from the browser to the server, and nobody in between can read it. But a CDN reads every request, and caches the answers. How can both be true?</p>
+<p>Because TLS protects a connection to whoever holds the certificate’s private key, and the website chose to give that to the CDN. As far as TLS is concerned, the CDN’s edge <em>is</em> the website. It then makes a second connection, usually also encrypted, to the real server. That’s a big reason the web is more centralized than it looks: a handful of companies terminate TLS for a large part of it. The encryption between Bob and the site is real; it’s just that “the site” includes its CDN.</p>
+</think>
+
+<realworld>
+<p>In the 1990s, a link from a popular page could bring down almost any website, a “flash crowd” (later nicknamed the Slashdot effect, after a news site whose links did it daily). Tom Leighton, an MIT mathematician, and his student Danny Lewin founded Akamai in 1998 to fix it, with clever algorithms for spreading copies of websites over thousands of servers. Lewin was killed on the first plane hijacked on 11 September 2001.</p>
+<p>Packet-filtering firewalls appeared in the late 1980s. Stateful inspection arrived in 1994, with a product called FireWall-1. And in October 2016, a botnet called Mirai, made of hundreds of thousands of hacked security cameras and home routers, flooded the DNS provider Dyn, and made Twitter, Netflix, GitHub and many others unreachable for hours across much of North America and Europe: the websites were fine; nobody could look up their addresses.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Every middleman in this chapter sits on the path between Bob and a website. But what if Bob wants the path itself to be different? Grandpa wants to reach his Pi’s camera from Alice’s house, and it has a private address behind his router’s NAT. Bob’s school wants him to reach its internal network from home. The answer is to wrap packets inside other packets, and send them through <strong>tunnels</strong>. Chapter 35 builds a VPN.</p>
+
+<lab>
+<p>Four Python programs and one Linux shell script. They run on your own computer; <code>anycast.py</code> asks real DNS servers, and <code>proxy.py</code> fetches real websites for <code>curl</code>.</p>
+
+<h4>1. A load balancer</h4>
+
+<p>Run <code>python3 balancer.py demo</code>, or <code>python3 balancer.py serve least-conn</code> and send it requests yourself with <code>curl -s http://127.0.0.1:7150/</code>. Each request is passed on, with the visitor’s address added, and failures turned into 502 and 504:</p>
+
+<!-- @code labs/ch34/balancer.py#proxy -->
+
+<p>The three strategies:</p>
+
+<!-- @code labs/ch34/balancer.py#choose -->
+
+<h4>2. A forward proxy</h4>
+
+<p>Run <code>python3 proxy.py</code>, and point <code>curl -x http://127.0.0.1:7140</code> (or your browser’s proxy settings) at it. The whole of HTTPS proxying is a byte-copying loop:</p>
+
+<!-- @code labs/ch34/proxy.py#connect -->
+
+<h4>3. Firewalls</h4>
+
+<p><code>python3 firewall.py --table</code> shows the connection table after every packet. On Linux, <code>sudo ./fw_box.sh</code> builds the real nftables firewall above in a namespace, tests it and removes it again (install <code>conntrack</code> with <code>sudo apt install conntrack</code> to see the table).</p>
+
+<h4>4. Anycast</h4>
+
+<p><code>python3 anycast.py</code> asks the root servers who they are. Which ones are close to you? Try it again from a phone’s hotspot, or from a friend’s house on a different internet provider: do you reach the same copies?</p>
+
+<!-- @code labs/ch34/anycast.py#ask -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Make the hash strategy in <code>balancer.py</code> survive a server failing without moving everyone: when a server leaves, only its own visitors should move. (Look up <em>consistent hashing</em>, or “rendezvous hashing”, which is just a few lines.)</li>
+<li>Add a rate limit to <code>balancer.py</code>: at most 5 requests a second from each address, and <code>429 Too Many Requests</code> for the rest. How would you tell the client when to try again? (There’s a header for it.)</li>
+<li>Give <code>proxy.py</code> a cache for plain HTTP, using Chapter 30’s <code>cacheproxy.py</code>. Why can’t it cache anything that goes through CONNECT?</li>
+<li>In <code>fw_box.sh</code>, delete the <code>ct state established,related</code> rule. The Pi can no longer fetch anything from outside, but its web server still works. Why the difference? (Which port do the packets of each connection arrive on?)</li>
+</ul>
+</lab>

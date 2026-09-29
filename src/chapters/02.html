@@ -1,0 +1,419 @@
+<h3>A wire across the street</h3>
+
+<p>The flashlight network has been a hit, but it has a list of problems as long as Grandpa Otto’s sea stories. It needs a clear line of sight. It stops working in fog, and it’s useless in daylight, when a flashlight is hard to see. It’s slow. And worst of all, anybody who can see Alice’s window can read the messages.</p>
+
+<p>That last one isn’t hypothetical. Eve lives in the house between them, and Alice has noticed Eve’s curtains twitching at 9:30 every night. Eve has worked out the codebook.</p>
+
+<p>So Alice and Bob try something new. Bob’s dad has a spool of old copper wire in the garage. They run two strands of it from Alice’s attic window, over the street, and in through Bob’s window. Instead of light, they’ll send electricity.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 300" role="img" aria-label="Two wires strung between Alice's and Bob's houses; Eve, in the house between, can no longer see any flashes">
+  <rect width="720" height="300" rx="10" class="t-blue"/>
+  <circle cx="640" cy="50" r="26" class="f-yellow" opacity="0.9"/>
+  <rect x="0" y="252" width="720" height="48" class="t-green"/>
+  <use href="#house" x="278" y="120" width="130" height="140"/>
+  <use href="#eve" x="410" y="176" width="46" height="77"/>
+  <use href="#house" x="18" y="62" width="190" height="203"/>
+  <use href="#house" x="512" y="62" width="190" height="203"/>
+  <path d="M150,112 Q360,200 572,112" class="wire"/>
+  <path d="M150,124 Q360,212 572,124" class="wire" opacity="0.7"/>
+  <circle cx="150" cy="112" r="4" class="f-copper"/><circle cx="150" cy="124" r="4" class="f-copper"/>
+  <circle cx="572" cy="112" r="4" class="f-copper"/><circle cx="572" cy="124" r="4" class="f-copper"/>
+  <use href="#alice" x="40" y="186" width="42" height="70"/>
+  <use href="#bob" x="640" y="186" width="42" height="70"/>
+  <g transform="translate(296,26)">
+    <rect x="0" y="0" width="206" height="48" rx="14" class="box"/>
+    <text x="103" y="20" class="hand mid">Hey! Where did all</text>
+    <text x="103" y="39" class="hand mid">the flashes go?</text>
+  </g>
+  <circle cx="420" cy="92" r="6" class="box"/><circle cx="428" cy="112" r="4" class="box"/><circle cx="432" cy="128" r="3" class="box"/>
+  <text x="360" y="288" class="hand lg mid">two copper wires, ~30 m</text>
+</svg>
+<figcaption>Two copper wires, strung across the street. Eve is not pleased.</figcaption>
+</figure>
+
+<h3>Pushing electrons around</h3>
+
+<p>You don’t need to be an electrical engineer to follow this chapter. You just need one idea: <strong>voltage</strong>. Think of voltage as electrical pressure. A battery is like a pump that pushes on one side and pulls on the other. Give the electricity a complete loop to flow around, called a <strong>circuit</strong>, and a current flows. Put a light bulb in the loop and the current lights it up.</p>
+
+<figure class="fig stepper" data-widget="stepper">
+<svg class="dia" viewBox="0 0 720 260" role="img" aria-label="A circuit: battery and switch at Alice's house, two long wires, a bulb at Bob's house">
+  <rect x="14" y="16" width="220" height="228" rx="14" class="f-none s-muted line dash"/>
+  <rect x="486" y="16" width="220" height="228" rx="14" class="f-none s-muted line dash"/>
+  <text x="124" y="236" class="hand lg mid muted">Alice’s house</text>
+  <text x="596" y="236" class="hand lg mid muted">Bob’s house</text>
+  <use href="#battery" x="50" y="82" width="44" height="76"/>
+  <path d="M72,83 L72,52 L140,52" class="wire"/>
+  <circle cx="140" cy="52" r="5" class="f-ink"/>
+  <path d="M140,52 L176,26" class="line thick" data-show="=1"/>
+  <path d="M140,52 L184,52" class="line thick" data-show="2"/>
+  <circle cx="184" cy="52" r="5" class="f-ink"/>
+  <text x="160" y="84" class="hand mid">switch</text>
+  <path d="M184,52 L620,52 L620,92" class="wire"/>
+  <path d="M620,146 L620,200 L72,200 L72,158" class="wire"/>
+  <use href="#bulb-off" x="600" y="92" width="40" height="60" data-show="=1"/>
+  <use href="#bulb-on" x="600" y="92" width="40" height="60" data-show="2"/>
+  <path d="M72,83 L72,52 L620,52 L620,92 M620,146 L620,200 L72,200 L72,158" class="line s-yellow flow" stroke-width="3" data-show="2"/>
+  <text x="360" y="42" class="mid sm b">signal wire</text>
+  <text x="360" y="218" class="mid sm b">ground wire</text>
+  <g data-show="3">
+    <path d="M360,52 L360,93 M360,157 L360,200" class="line s-red"/>
+    <circle cx="360" cy="125" r="32" class="box"/>
+    <text x="360" y="122" class="mid mono b lg">5.0 V</text>
+    <text x="360" y="140" class="mid xs muted">voltmeter</text>
+  </g>
+</svg>
+<ol class="steps">
+  <li>Alice’s end has a battery and a switch, and Bob’s end has a light bulb. The two wires run across the street between them. With the switch open there’s a gap in the loop, so no current flows and the bulb stays dark.</li>
+  <li>Alice closes the switch. The loop is complete, so current flows out of the battery, across the street, through the bulb and back again. Bob’s bulb lights up. It’s the flashlight again, except the light is now at Bob’s end.</li>
+  <li>What drives the current is the <em>voltage</em>, the difference in electrical pressure between the two wires. A voltmeter connected across them reads 5 volts. Voltage is always measured <em>between two points</em>, which is why we need that second wire. It’s the reference everything is measured against, and we call it <strong>ground</strong>.</li>
+</ol>
+<figcaption>Close the switch, and the light comes on across the street.</figcaption>
+</figure>
+
+<p>How fast does the light come on? Pretty much instantly. The electrons themselves drift along the wire slower than a snail, but the <em>push</em> travels through the wire as an electromagnetic wave at roughly two-thirds the speed of light. Across a 30-meter street that takes about 150 billionths of a second. Nobody is going to notice.</p>
+
+<p>And Eve, peering out of her window, sees nothing at all. She would have to climb up and physically clip onto the wire to listen in. (Spoiler: in a few chapters she will.)</p>
+
+<h3>Plus, minus and nothing at all</h3>
+
+<p>A bulb that’s on or off is just our original flashlight, and it has the same old problem: off could mean “0”, or it could mean the wire snapped. We solved that with green and red. What’s the electrical version?</p>
+
+<p>The answer is to flip the battery around. If Alice connects the battery the normal way, the signal wire is 5 volts <em>above</em> ground. If she flips it, the signal wire is 5 volts <em>below</em> ground: −5 volts. Now there are three states again:</p>
+
+<ul>
+<li><strong>+5 V</strong> means 1 (the old green).</li>
+<li><strong>−5 V</strong> means 0 (the old red).</li>
+<li><strong>0 V</strong> means nobody is sending, or something is broken.</li>
+</ul>
+
+<p>Alice builds a three-position switch that connects the battery one way, the other way, or not at all. At Bob’s end, a plain bulb can’t tell +5 from −5 (it lights up either way), so he uses two <strong>LEDs</strong>, light-emitting diodes. An LED only lets current flow in one direction, so Bob wires a green one pointing one way and a red one pointing the other. Positive voltage lights the green one, and negative voltage lights the red one.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 236" role="img" aria-label="Three switch positions: plus gives +5 volts and a green LED; minus gives -5 volts and a red LED; off gives 0 volts and no light">
+  <defs>
+    <radialGradient id="c2-gg"><stop offset="0" stop-color="#45b872" stop-opacity="0.8"/><stop offset="1" stop-color="#45b872" stop-opacity="0"/></radialGradient>
+    <radialGradient id="c2-gr"><stop offset="0" stop-color="#e0566f" stop-opacity="0.8"/><stop offset="1" stop-color="#e0566f" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g transform="translate(15,10)">
+    <rect width="220" height="216" rx="12" class="card"/>
+    <text x="110" y="24" class="mid sm muted">Alice’s switch</text>
+    <circle cx="110" cy="66" r="24" fill="#4a5560"/><line x1="110" y1="66" x2="93" y2="49" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="72" y="44" class="mid b f-green lg">+</text><text x="110" y="34" class="mid xs muted">off</text><text x="150" y="44" class="mid b f-red lg">−</text>
+    <text x="110" y="126" class="mid slab xl b f-green">+5 V</text>
+    <circle cx="80" cy="176" r="30" fill="url(#c2-gg)"/><circle cx="80" cy="176" r="13" class="f-green"/>
+    <circle cx="140" cy="176" r="13" class="f-line"/>
+    <text x="110" y="210" class="mid hand">green lights: a 1</text>
+  </g>
+  <g transform="translate(250,10)">
+    <rect width="220" height="216" rx="12" class="card"/>
+    <text x="110" y="24" class="mid sm muted">Alice’s switch</text>
+    <circle cx="110" cy="66" r="24" fill="#4a5560"/><line x1="110" y1="66" x2="127" y2="49" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="72" y="44" class="mid b f-green lg">+</text><text x="110" y="34" class="mid xs muted">off</text><text x="150" y="44" class="mid b f-red lg">−</text>
+    <text x="110" y="126" class="mid slab xl b f-red">−5 V</text>
+    <circle cx="80" cy="176" r="13" class="f-line"/>
+    <circle cx="140" cy="176" r="30" fill="url(#c2-gr)"/><circle cx="140" cy="176" r="13" class="f-red"/>
+    <text x="110" y="210" class="mid hand">red lights: a 0</text>
+  </g>
+  <g transform="translate(485,10)">
+    <rect width="220" height="216" rx="12" class="card"/>
+    <text x="110" y="24" class="mid sm muted">Alice’s switch</text>
+    <circle cx="110" cy="66" r="24" fill="#4a5560"/><line x1="110" y1="66" x2="110" y2="42" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <text x="72" y="44" class="mid b f-green lg">+</text><text x="110" y="34" class="mid xs muted">off</text><text x="150" y="44" class="mid b f-red lg">−</text>
+    <text x="110" y="126" class="mid slab xl b">0 V</text>
+    <circle cx="80" cy="176" r="13" class="f-line"/><circle cx="140" cy="176" r="13" class="f-line"/>
+    <text x="110" y="210" class="mid hand">both dark: nobody’s talking</text>
+  </g>
+</svg>
+<figcaption>Flip the battery to flip the voltage. Two LEDs pointing opposite ways tell Bob which way it’s flipped.</figcaption>
+</figure>
+
+<h3>Drawing a picture of electricity</h3>
+
+<p>From here on we’ll mostly stop drawing batteries and bulbs. What matters is the voltage on the signal wire and how it changes over time, and there’s a standard way to draw that: a graph with time running left to right and voltage going up and down. It’s what you’d see on an <strong>oscilloscope</strong>, the electrical engineer’s favorite gadget.</p>
+
+<p>Alice now has to decide exactly how to turn a list of bits into a voltage over time. The obvious way copies the flashlight: set +5 or −5 for a moment, then drop back to 0 V for a moment before the next bit. That’s the flashlight’s “flash, then dark”. It works, but it spends half the time sending nothing.</p>
+
+<p>The other way is to hold each bit’s voltage for one exact, agreed length of time, then go straight on to the next bit with no rest in between. That’s twice as fast. But it brings back an old problem: two 1s in a row are just one long stretch of +5 V. How does Bob know it was two?</p>
+
+<!-- @include src/figs/ch02-rz-nrz.svg -->
+
+<h3>Keeping time</h3>
+
+<p>The answer is a clock. Alice and Bob agree on a <strong>bit-time</strong>: exactly how long each bit lasts. To start with, it’s a leisurely one second. Alice holds each bit for exactly one second. Bob waits for the line to wake up from 0 V, then checks the voltage halfway through each second, at 1.5 s, 2.5 s, 3.5 s and so on. Checking in the middle gives him the biggest safety margin on either side.</p>
+
+<!-- @include src/figs/ch02-sampling.svg -->
+
+<p>Reading the voltage at chosen moments like this is called <strong>sampling</strong>. It’s what every digital receiver does, from your Wi-Fi card to the chip that reads your keyboard. The time between Bob’s samples is set by <em>his</em> clock, though, not Alice’s. As long as the two clocks agree, that’s fine.</p>
+
+<p>But clocks never quite agree.</p>
+
+<h3>When clocks disagree</h3>
+
+<p>Suppose Bob’s clock runs 7% slow. For the first few bits it hardly matters: he samples a little later than the middle each time, but still well inside the right bit. The trouble is that the error <em>adds up</em>. Every tick lands another 7% of a bit later than the one before. After about seven bits he’s sampling right at the boundary, and after that he’s reading the wrong bit entirely.</p>
+
+<!-- @include src/figs/ch02-drift.svg -->
+
+<p>It’s like two people counting “one Mississippi, two Mississippi” in separate rooms. They’ll agree at three, but maybe not at thirty. See for yourself: make Bob’s clock fast or slow and watch where his samples land.</p>
+
+<div data-widget="drift"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>With the “Plain” scheme, even a 2–3% error garbles the end of “HI BOB”. The longer the message, the worse it gets. Buying better clocks helps, but no two clocks are ever perfect, so eventually <em>any</em> long enough message will drift apart. We need a way to resynchronize.</p>
+
+<h3>A fresh start for every letter</h3>
+
+<p>Here’s Alice’s first fix. Instead of sending one long stream of bits, she sends one letter at a time, and she puts a <strong>start pulse</strong> in front of every letter: one bit-time of +5 V that means “get ready, a letter is coming”. After the letter’s five bits she lets the line rest at 0 V for one bit-time.</p>
+
+<p>Bob restarts his clock at the moment each start pulse arrives. Now his timing only has to stay accurate for six bit-times (the start pulse plus five data bits) instead of for the whole message. By the time his clock could drift far enough to matter, the next start pulse has arrived and reset it.</p>
+
+<!-- @include src/figs/ch02-letters.svg -->
+
+<p>Try the “Start pulse on every letter” scheme in the playground above. Bob can now be several percent off and still read everything perfectly. There’s a limit, of course. His last sample is 5.5 bit-times after the start pulse, so if his clock is off by more than about 9%, the last bit drifts out of its slot. Try it.</p>
+
+<p>The start pulse costs us something. Every letter now takes seven bit-times instead of five (a start pulse, five bits and a rest), so almost 30% of the time on the wire goes to timing instead of data. Extra bits like this, which help deliver the data but aren’t data themselves, are called <strong>overhead</strong>. Nearly every trick in this book costs some overhead, and deciding whether it’s worth it is a big part of network design.</p>
+
+<realworld>
+<p>This is almost exactly how a <strong>UART</strong> works (Universal Asynchronous Receiver-Transmitter), the circuit behind the classic serial port. A UART sends each character as a <em>start bit</em>, 5 to 9 data bits, and one or two <em>stop bits</em>, and the receiver resynchronizes on every start bit. The most common setting is written <code>8N1</code>: 8 data bits, no parity bit, 1 stop bit, so 10 bit-times per character. “Asynchronous” means the two sides never share a clock; they just agree on a speed and resync on every character.</p>
+<p>The RS-232 standard for serial cables even uses positive and negative voltages, like Alice’s switch, but backwards: a 1 is −3 to −15 V and a 0 is +3 to +15 V, and an idle line sits at the “1” level. Serial ports have mostly vanished from laptops, but UARTs are everywhere inside gadgets. Many routers, Raspberry Pis and microcontrollers still have one on the circuit board as a debug console.</p>
+</realworld>
+
+<h3>Hide the clock inside the signal</h3>
+
+<p>Start pulses resync Bob once per letter. What if he could resync on <em>every single bit</em>?</p>
+
+<p>That’s the idea behind <strong>Manchester encoding</strong>. Instead of holding a level for a whole bit-time, Alice flips the voltage halfway through every bit. A 1 is low-then-high (an upward flip), and a 0 is high-then-low (a downward flip). The value of each bit lives in the <em>direction</em> of the flip in its middle.</p>
+
+<!-- @include src/figs/ch02-manchester.svg -->
+
+<p>Because there’s always a flip in the middle of every bit, Bob never goes more than one bit-time without a fresh timing reference. Each time he sees a flip, he nudges his clock to line up with it. Switch the playground to Manchester and push Bob’s clock to 15% off: he still reads everything.</p>
+
+<p>The price is speed. The voltage now changes up to twice per bit, so the wire has to handle changes twice as fast for the same number of bits per second. Engineers distinguish between the <strong>bit rate</strong> (bits per second) and the <strong>baud rate</strong> or symbol rate (how many times per second the signal is allowed to change). Plain encoding has one symbol per bit. Manchester needs two.</p>
+
+<realworld>
+<p>Original 10 Mbit/s Ethernet used Manchester encoding, with the same convention as ours: a 1 is a low-to-high flip. Faster Ethernets moved to cleverer codes that spend less overhead on timing. For example, 4B5B sends every 4 bits of data as a 5-bit pattern chosen so the line can never sit still for long. Modern high-speed links use more than two voltage levels per symbol. We’ll meet them in Chapter 17.</p>
+<p>The general trick of pulling a clock out of the data itself is called <strong>clock recovery</strong>, and every modern high-speed link depends on it: USB, HDMI, fiber optics, even the wires between the chips in your laptop.</p>
+</realworld>
+
+<h3>Noise</h3>
+
+<p>So far our wire has been perfect: exactly +5 or −5 volts, all the time. Real wires aren’t like that. They work like antennas, picking up interference from every motor, radio station and lightning storm nearby. The voltage Bob measures wiggles around what Alice actually sent.</p>
+
+<p>A little wiggle doesn’t matter, because Bob isn’t checking for exactly +5 V. He uses <strong>thresholds</strong>: anything above +2 V counts as a 1, anything below −2 V counts as a 0, and anything in between is suspicious. That gives each bit a wide safety margin.</p>
+
+<!-- @include src/figs/ch02-noise.svg -->
+
+<p>A big enough burst of noise can still push a reading into the wrong zone, and when that happens Bob gets a bad bit. There are a few ways to fight back. A bigger voltage gives a bigger margin. Longer bit-times give noise less chance to land at the moment Bob samples. Clever wiring cancels a lot of interference before it’s even measured (Chapter 17 has the trick). None of these makes errors impossible, though. Some bits will always arrive damaged, so in Chapter 10 we’ll learn to <em>detect</em> them, and in Chapter 13 to recover from them.</p>
+
+<think>
+<p>The longer the wire, the more noise it picks up, and the weaker Alice’s signal gets by the time it reaches Bob, because the wire itself has resistance. If Bob lived ten kilometers away instead of across the street, the signal might arrive smaller than the noise. How could you send it that far anyway?</p>
+<details><summary>One answer</summary><p>Put someone in the middle. A <strong>repeater</strong> listens to the weak signal, decides whether each bit is a 1 or a 0, and sends a fresh, full-strength copy onward. Telegraph companies did exactly this with devices called <em>relays</em>, a word borrowed from the relay stations where tired horses were swapped for fresh ones. Undersea internet cables today have powered repeaters every 50 to 100 kilometers along the sea floor.</p></details>
+</think>
+
+<h3>Firing the flashlight (and the humans)</h3>
+
+<p>We’ve been describing everything in seconds so that you can picture it. But Grandpa Otto flipping a switch once a second means a five-letter word takes more than half a minute. Humans are just too slow, and too inconsistent, to be good clocks.</p>
+
+<p>Enter the <strong>microcontroller</strong>: a whole tiny computer on a single chip, often smaller than a fingernail and costing less than a candy bar. A microcontroller can switch a voltage on and off millions of times per second, following a program exactly, forever, without getting bored. Alice’s cousin, who is into electronics, sets one up at each end of the wire.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 226" role="img" aria-label="A keypad feeds a sender chip; two wires connect it to a receiver chip that drives a display">
+  <g transform="translate(18,56)">
+    <rect width="104" height="84" rx="8" class="box"/>
+    <g class="f-line">
+      <rect x="10" y="10" width="18" height="14" rx="2"/><rect x="33" y="10" width="18" height="14" rx="2"/><rect x="56" y="10" width="18" height="14" rx="2"/><rect x="79" y="10" width="16" height="14" rx="2"/>
+      <rect x="10" y="30" width="18" height="14" rx="2"/><rect x="33" y="30" width="18" height="14" rx="2"/><rect x="56" y="30" width="18" height="14" rx="2"/><rect x="79" y="30" width="16" height="14" rx="2"/>
+      <rect x="10" y="50" width="18" height="14" rx="2"/><rect x="33" y="50" width="62" height="14" rx="2"/>
+    </g>
+    <text x="52" y="104" class="mid hand lg">Alice types</text>
+  </g>
+  <path d="M126,98 L168,98" class="line" marker-end="url(#ah-ink)"/>
+  <use href="#chip" x="174" y="68" width="90" height="63"/>
+  <text x="219" y="152" class="mid sm b">sender chip</text>
+  <text x="219" y="168" class="mid xs muted">codebook + clock</text>
+  <path d="M266,90 C360,70 360,70 454,90" class="wire"/>
+  <path d="M266,108 C360,128 360,128 454,108" class="wire" opacity="0.7"/>
+  <text x="360" y="68" class="mid hand lg">the wire</text>
+  <use href="#chip" x="456" y="68" width="90" height="63"/>
+  <text x="501" y="152" class="mid sm b">receiver chip</text>
+  <text x="501" y="168" class="mid xs muted">clock + codebook</text>
+  <path d="M550,98 L586,98" class="line" marker-end="url(#ah-ink)"/>
+  <rect x="592" y="66" width="112" height="64" rx="6" fill="#1d2b45" stroke="var(--ink)" stroke-width="2"/>
+  <text x="648" y="104" class="mid mono lg b" fill="#7dffa8">HI BOB_</text>
+  <text x="648" y="160" class="mid hand lg">Bob reads</text>
+  <g transform="translate(262,188)">
+    <rect width="196" height="30" rx="4" fill="#8c6d3f"/>
+    <text x="98" y="20" class="mid hand" fill="#fff8e6">Otto &amp; Ray: gone fishing</text>
+  </g>
+</svg>
+<figcaption>Max, Otto, Nia and Ray are replaced by two chips. Grandpa Otto takes it well.</figcaption>
+</figure>
+
+<p>The sender chip’s whole program is a loop that does Max’s and Grandpa Otto’s old jobs. Here it is, written in Python-flavored pseudocode:</p>
+
+<pycode>
+# The sender chip's program: runs forever
+while True:
+    letter = keypad.wait_for_key()            # Alice presses a key
+    bits = CODEBOOK[letter]                   # Max's old job
+    set_voltage(+5); wait(BIT_TIME)           # start pulse: "get ready!"
+    for bit in bits:                          # Grandpa Otto's old job
+        set_voltage(+5 if bit == "1" else -5)
+        wait(BIT_TIME)
+    set_voltage(0); wait(BIT_TIME)            # rest
+</pycode>
+
+<p>The receiver chip does Uncle Ray’s and Nia’s jobs:</p>
+
+<pycode>
+# The receiver chip's program: also runs forever
+while True:
+    wait_until(abs(read_voltage()) > 2)       # a start pulse!
+    wait(1.5 * BIT_TIME)                      # skip it, land halfway into bit 1
+    bits = ""
+    for _ in range(5):                        # Uncle Ray's old job
+        bits += "1" if read_voltage() > 0 else "0"
+        wait(BIT_TIME)
+    display.show(DECODE[bits])                # Nia's old job
+</pycode>
+
+<p>Notice what <em>didn’t</em> change. The layers are all still there: something turns letters into bits, something turns bits into voltages, and on the far side the same jobs run in reverse. We swapped people for silicon, but the layering from Chapter 1 survived intact.</p>
+
+<p>With chips doing the work, Alice and Bob shrink the bit-time from a second to a millisecond. That’s 1,000 bits per second, fast enough to type in real time. Engineers would call it 1 kilobit per second, or 1 <strong>kbit/s</strong>.</p>
+
+<h3>How fast can this thing go?</h3>
+
+<p>If 1,000 bits per second is good, surely a million is better? Why not a billion? The chip can certainly switch that fast. The wire, it turns out, can’t keep up.</p>
+
+<p>A long wire behaves a little like a garden hose full of water. When Alice changes the voltage at her end, it takes a moment for the whole wire to “fill up” to the new level. The sharp corners of her square wave arrive at Bob’s end rounded off. At slow speeds that doesn’t matter, because each bit has plenty of time to reach its full level before Bob samples it. But squeeze the bits closer together and they never get the chance. Each bit smears into its neighbors until Bob can’t tell them apart.</p>
+
+<!-- @include src/figs/ch02-smear.svg -->
+
+<p>So every wire has a speed limit, and the limit gets lower as the wire gets longer. That’s why the Ethernet cable in your house is only rated for 100 meters, and why fast links over long distances use glass fiber and light instead of copper.</p>
+
+<realworld>
+<p>The first transatlantic telegraph cable, laid in 1858, ran into exactly this smearing problem, on a colossal scale. Over 3,000 kilometers of cable, each pulse spread out so much that operators could only send about one letter every couple of minutes. Queen Victoria’s 98-word greeting to President Buchanan took about 16 hours to get through. The chief electrician tried to push harder by raising the voltage to around 2,000 volts, and the cable’s insulation failed a few weeks later. The physicist William Thomson (later Lord Kelvin) worked out the math of this smearing, and his better cable designs and far more sensitive receivers made the 1866 cable a lasting success.</p>
+</realworld>
+
+<p>One last distinction, because people mix these two up all the time. There are two different things you might mean by “fast”:</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 230" role="img" aria-label="Two wires of the same length. The first bit arrives at the same time on both, but the faster one carries many more bits.">
+  <text x="30" y="30" class="sm b">Slow bit rate</text>
+  <use href="#alice-head" x="18" y="44" width="46" height="46"/>
+  <use href="#bob-head" x="656" y="44" width="46" height="46"/>
+  <line x1="70" y1="68" x2="650" y2="68" class="wire"/>
+  <g class="f-green"><circle cx="580" cy="68" r="8"/><circle cx="420" cy="68" r="8"/><circle cx="260" cy="68" r="8"/></g>
+  <g class="f-red"><circle cx="500" cy="68" r="8"/><circle cx="340" cy="68" r="8"/></g>
+  <text x="30" y="130" class="sm b">Fast bit rate</text>
+  <use href="#alice-head" x="18" y="144" width="46" height="46"/>
+  <use href="#bob-head" x="656" y="144" width="46" height="46"/>
+  <line x1="70" y1="168" x2="650" y2="168" class="wire"/>
+  <g>
+    <circle cx="580" cy="168" r="6" class="f-green"/><circle cx="564" cy="168" r="6" class="f-red"/><circle cx="548" cy="168" r="6" class="f-green"/>
+    <circle cx="532" cy="168" r="6" class="f-green"/><circle cx="516" cy="168" r="6" class="f-red"/><circle cx="500" cy="168" r="6" class="f-red"/>
+    <circle cx="484" cy="168" r="6" class="f-green"/><circle cx="468" cy="168" r="6" class="f-red"/><circle cx="452" cy="168" r="6" class="f-green"/>
+    <circle cx="436" cy="168" r="6" class="f-green"/><circle cx="420" cy="168" r="6" class="f-red"/><circle cx="404" cy="168" r="6" class="f-green"/>
+    <circle cx="388" cy="168" r="6" class="f-red"/><circle cx="372" cy="168" r="6" class="f-red"/><circle cx="356" cy="168" r="6" class="f-green"/>
+    <circle cx="340" cy="168" r="6" class="f-green"/><circle cx="324" cy="168" r="6" class="f-red"/><circle cx="308" cy="168" r="6" class="f-green"/>
+    <circle cx="292" cy="168" r="6" class="f-red"/><circle cx="276" cy="168" r="6" class="f-green"/><circle cx="260" cy="168" r="6" class="f-green"/>
+  </g>
+  <line x1="580" y1="40" x2="580" y2="200" class="line s-orange dash"/>
+  <text x="580" y="218" class="mid hand lg f-orange">first bit: same place, same time</text>
+  <path d="M250,98 L590,98" class="line thin s-muted" marker-start="url(#ah-muted)" marker-end="url(#ah-muted)"/>
+  <text x="420" y="116" class="mid hand muted">same length of wire = same latency</text>
+</svg>
+<figcaption>Latency is how long the trip takes. Bit rate is how many bits are on the road.</figcaption>
+</figure>
+
+<ul>
+<li><strong>Latency</strong> is how long it takes one bit to get from Alice to Bob. It depends mostly on distance and the laws of physics, and making Alice’s clock faster doesn’t change it at all.</li>
+<li><strong>Bit rate</strong> (often loosely called <strong>bandwidth</strong>) is how many bits per second Alice can push into the wire. It depends on her clock, the encoding, and how much smearing and noise the wire allows.</li>
+</ul>
+
+<p>A truck full of hard drives driving across the country has terrible latency (days) but an enormous bit rate (petabytes per trip). A phone call has low latency but a modest bit rate. Keep the two apart in your head; we’ll need both.</p>
+
+<h3>What’s next?</h3>
+
+<p>Look at what we’ve built. A pair of chips can now send letters over a wire, thousands of bits per second, day or night, fog or no fog. Bob’s clock doesn’t even need to be very accurate, thanks to start pulses or Manchester encoding. And Eve can’t read the messages from across the street.</p>
+
+<p>There’s one glaring problem, though: it only goes one way. Alice can talk to Bob, but Bob can’t say a word back. In the next chapter we’ll give Bob a voice, and discover that taking turns is harder than it sounds.</p>
+
+<lab>
+<p>This lab has two parts. The first is a simulation where you control everything, including how wrong Bob’s clock is and how noisy the wire gets. The second uses real clocks and real threads, so you can see where your own computer’s timing starts to fall apart.</p>
+
+<h4>1. A simulated wire</h4>
+
+<p><code>wire.py</code> models the wire as a list of voltages, one per small step of time (20 steps per bit). Alice’s three ways of sending are just three functions that build that list:</p>
+
+<!-- @code labs/ch02/wire.py#send -->
+
+<p>Run it with a perfect clock first. It draws an oscilloscope-style picture of the wire, with a ▲ wherever Bob takes a sample:</p>
+
+<terminal title="labs/ch02">
+$ cd labs/ch02
+$ python3 wire.py "HI BOB"
+scheme: plain   Bob's clock: +0.0%   noise: 0.0 V
+
++5V │            ████████████    ████            ████████    ████    …
+  0 │────
+-5V │    ████████            ████    ████████████        ████    …
+Bob │      ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   ▲   …
+
+Alice sent: 001110100011010000010111000001
+Bob read:   001110100011010000010111000001
+
+Bob decodes: 'HI BOB'   (0 of 30 bits wrong)
+</terminal>
+
+<p>Now give Bob a slow clock, and then try the two fixes:</p>
+
+<terminal>
+$ python3 wire.py "HI BOB" --drift 4
+Bob decodes: 'HI,C,'   (8 of 30 bits wrong)
+$ python3 wire.py "HI BOB" --drift 4 --scheme letters
+Bob decodes: 'HI BOB'   (0 of 30 bits wrong)
+$ python3 wire.py "HI BOB" --drift 20 --scheme manchester
+Bob decodes: 'HI BOB'   (0 of 30 bits wrong)
+</terminal>
+
+<p>Here’s Bob’s side for the plain scheme and the start-pulse scheme. The only real difference is <em>when</em> he restarts his clock:</p>
+
+<!-- @code labs/ch02/wire.py#receive -->
+
+<p>Things to try:</p>
+<ul>
+<li>Find the largest <code>--drift</code> each scheme survives with <code>"HI BOB"</code>. Then try a longer message, like <code>"THE QUICK BROWN FOX"</code>. Which schemes get worse as the message gets longer, and which don’t care?</li>
+<li>Add noise: <code>--noise 1</code>, then <code>1.5</code>, <code>2</code>, <code>3</code>. At what point do errors start? Look at the scope picture to see why.</li>
+<li>Change <code>THRESHOLD</code> from 2.0 to 4.5 and rerun with <code>--noise 1.5</code>. Why does a stricter threshold make things <em>worse</em> here?</li>
+<li>In <code>receive_plain</code>, Bob samples halfway through each bit (<code>bit_time / 2</code>). Change it to sample at 10% of the way through (<code>bit_time * 0.1</code>). How much drift can he survive now, and in which direction?</li>
+</ul>
+
+<h4>2. A live wire, with real time</h4>
+
+<p><code>live_wire.py</code> runs Alice and Bob as two threads. The “wire” is a shared variable holding a voltage. Alice changes it once per bit-time, and Bob wakes up on his own schedule to read it. Nothing is simulated except the wire. The clocks are your computer’s real clock, and the delays are real delays.</p>
+
+<terminal>
+$ python3 live_wire.py "HI" --bit-time 0.2
+</terminal>
+
+<p>You’ll see Alice’s bits appear in color as she sends them. Now speed up until it breaks:</p>
+
+<terminal>
+$ python3 live_wire.py "HI BOB" --bit-time 0.001
+bit-time 1 ms  (1,000 bits/second)
+Alice was late by up to 0.042 ms (4% of a bit)
+Bob decodes 'HI BOB' with 0 bad bits
+$ python3 live_wire.py "HI BOB" --bit-time 0.00005
+bit-time 0.05 ms  (20,000 bits/second)
+Alice was late by up to 0.065 ms (131% of a bit)
+Bob decodes 'OQSD!' with 8 bad bits
+</terminal>
+
+<p>Your numbers will be different, and they’ll change from run to run. Try it while your computer is busy with something else. The operating system is juggling hundreds of programs, so Alice’s thread can’t always run at exactly the moment it asks to, and the lateness it reports is called <strong>jitter</strong>. Once jitter is a big fraction of a bit-time, bits go wrong. That’s why real serial links are run by dedicated hardware (a UART chip with its own crystal clock) rather than by a program that happens to be running on a busy computer.</p>
+
+<h4>Stretch goals</h4>
+<ul>
+<li>Add a <code>--scheme rz</code> (“return to zero”) to <code>wire.py</code>: each bit is half a bit-time at ±5 V, then half at 0 V. How much drift does it tolerate, and why? (Hint: does Bob get a fresh edge on every bit?)</li>
+<li>Real UARTs sample each bit several times (often 16) and take a majority vote. Change <code>receive_letters</code> to take 3 samples around the middle of each bit and use the majority. Does it help with <code>--noise 2</code>?</li>
+</ul>
+</lab>

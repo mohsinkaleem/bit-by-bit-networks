@@ -1,0 +1,2 @@
+Hi Bob! Now I can send lowercase letters, digits like 42,
+accents like café, and even emoji 🌋.

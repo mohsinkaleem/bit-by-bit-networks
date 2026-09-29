@@ -1,0 +1,421 @@
+<h3>A machine that can be anything</h3>
+
+<p>The Chatterbox does one thing well: you type, the other side prints. But Alice and Bob keep wanting it to do new things. Alice wants to send Bob her book report, three pages long, without retyping it. Bob wants to play chess over the wire. Carol, who just moved in down the street, asks whether the Chatterbox can send drawings.</p>
+
+<p>Every one of those means building a new machine. Unless, that is, you build a machine that can <em>become</em> whatever machine you need.</p>
+
+<p>That’s what a computer is. A <strong>computer</strong> is a machine that follows a list of instructions, called a <strong>program</strong>, and you can give it a different program whenever you like. The same box that runs a chat program today can run a chess program tomorrow. The hardware stays the same, and the software decides what it does.</p>
+
+<p>Alice and Bob each get a computer. Here’s what’s inside:</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 300" role="img" aria-label="Parts of a computer: CPU and memory above a shared bus; keyboard, screen, disk and network card below it">
+  <rect x="200" y="30" width="150" height="74" rx="10" class="t-red" stroke="var(--red)" stroke-width="2"/>
+  <text x="275" y="60" class="mid slab b lg">CPU</text>
+  <text x="275" y="82" class="mid xs">follows the instructions</text>
+  <rect x="380" y="30" width="150" height="74" rx="10" class="t-blue" stroke="var(--blue)" stroke-width="2"/>
+  <text x="455" y="60" class="mid slab b lg">Memory</text>
+  <text x="455" y="82" class="mid xs">the program + its scratch work</text>
+  <line x1="40" y1="150" x2="680" y2="150" class="line s-navy" stroke-width="7" stroke-linecap="round"/>
+  <text x="44" y="138" class="hand lg">the bus: everything talks over this</text>
+  <path d="M275,104 L275,146 M455,104 L455,146" class="line thick"/>
+  <path d="M95,154 L95,196 M235,154 L235,196 M375,154 L375,196 M525,154 L525,196" class="line thick"/>
+  <g transform="translate(40,200)">
+    <rect width="110" height="46" rx="6" class="box"/>
+    <g class="f-line"><rect x="10" y="9" width="14" height="10" rx="2"/><rect x="28" y="9" width="14" height="10" rx="2"/><rect x="46" y="9" width="14" height="10" rx="2"/>
+      <rect x="64" y="9" width="14" height="10" rx="2"/><rect x="82" y="9" width="18" height="10" rx="2"/><rect x="16" y="25" width="78" height="10" rx="2"/></g>
+    <text x="55" y="68" class="mid sm b">keyboard</text>
+  </g>
+  <g transform="translate(185,196)">
+    <rect width="100" height="58" rx="5" fill="#1d2b45" stroke="var(--ink)" stroke-width="2"/>
+    <text x="50" y="33" class="mid mono xs" fill="#7dffa8">HELLO_</text>
+    <text x="50" y="76" class="mid sm b">screen</text>
+  </g>
+  <use href="#disk" x="345" y="196" width="60" height="60"/>
+  <text x="375" y="272" class="mid sm b">disk</text>
+  <text x="375" y="288" class="mid xs muted">keeps files when the power is off</text>
+  <use href="#nic" x="470" y="198" width="110" height="64"/>
+  <text x="525" y="280" class="mid sm b">network card</text>
+  <path d="M580,222 C620,222 630,200 680,200" class="wire"/>
+  <text x="680" y="190" class="end hand">to Bob →</text>
+</svg>
+<figcaption>Inside Alice’s computer. The Chatterbox’s transceiver lives on as a plug-in board, the network card.</figcaption>
+</figure>
+
+<ul>
+<li>The <strong>CPU</strong> (central processing unit) reads instructions one after another and carries them out, billions per second.</li>
+<li><strong>Memory</strong> holds the program that’s running and the data it’s working on. It forgets everything when the power goes off.</li>
+<li>The <strong>disk</strong> holds <strong>files</strong>: named chunks of data that stay put when the power goes off.</li>
+<li>The <strong>keyboard</strong> and <strong>screen</strong> let people talk to it.</li>
+<li>The <strong>network card</strong> is our old transceiver chip on a little board that plugs into the computer. It still does everything from Chapters 2 and 3: bit timing, start pulses, collisions, backoff and framing.</li>
+</ul>
+
+<p>Notice where the network card sits: at the bottom, next to the disk and keyboard. As far as the CPU is concerned, it’s just another device you can hand data to and get data from. The layers from Chapter 1 are still there. They’ve just moved into hardware.</p>
+
+<h3>Programs</h3>
+
+<p>When Alice switches her computer on, it shows a <strong>prompt</strong> and waits. She types the name of a program and presses Enter, and the computer runs it. This typing-commands-at-a-prompt setup is called a <strong>shell</strong> or a <strong>terminal</strong>.</p>
+
+<p>The first program Alice’s cousin writes is CHAT. It does exactly what the Chatterbox did: whatever you type goes to the other computer, and whatever arrives gets printed. Only now it’s a few hundred lines of software instead of a machine.</p>
+
+<terminal title="alice's computer">
+$ CHAT
+CHAT IS RUNNING. TYPE A MESSAGE AND PRESS ENTER.
+> ARE YOU THERE?
+BOB: YEP. NEAT, IT WORKS.
+</terminal>
+
+<p>Nothing about the wire changed. CHAT hands each message to the network card, and the network card frames it with <code>~S</code> and <code>~E</code> and sends it bit by bit, exactly as before.</p>
+
+<realworld>
+<p>The first message ever sent between two computers on the ARPANET, the ancestor of the internet, went from UCLA to the Stanford Research Institute on October 29, 1969. The plan was to type <code>LOGIN</code>. The operator typed <code>L</code>, then <code>O</code>, and then the system at the other end crashed. So the first message on the internet’s ancestor was “LO”, as in “lo and behold”. They got the whole word through about an hour later.</p>
+</realworld>
+
+<h3>Files</h3>
+
+<p>Alice’s second program is WRITE, a simple text editor. She types her book report in it and saves it on the disk as a file called <code>REPORT</code>. A file is just a named sequence of symbols. Since a file can have more than one line, we need a way to mark the end of each line, so we add one more control code: <code>~L</code> means “new line”.</p>
+
+<p>Bob has written a report too, and Alice would like to read it before school. Bob could open CHAT and type the whole thing out by hand, but that would be silly: the report is already sitting on his disk. What Alice really wants is to tell Bob’s <em>computer</em> “please send me the file called REPORT”, and have it happen even while Bob is asleep.</p>
+
+<h3>May I have that, please?</h3>
+
+<p>This calls for a new kind of program, one that doesn’t wait for a person to type anything. It waits for <em>messages</em>, and answers them.</p>
+
+<p>Bob runs a program called <strong>SERVE</strong>. It sits in the background, listening for requests coming in over the wire. Alice runs a program called <strong>FETCH</strong>. When she types <code>FETCH REPORT</code>, FETCH sends a request to Bob’s computer asking for the file, waits for the answer, and saves what comes back onto Alice’s disk.</p>
+
+<p>The two programs need a protocol so they understand each other. Here’s the request FETCH sends, one line per row:</p>
+
+<msg title="FETCH’s request">
+request | GET
+request | REPORT
+</msg>
+
+<p>The first line is the command, <code>GET</code>, and the second is the name of the file. If SERVE finds the file, it replies with a status line, the file name, and then the contents of the file:</p>
+
+<msg title="SERVE’s reply, if the file exists">
+status | OK
+status | REPORT
+body | BOOK REPORT: TREASURE ISLAND
+body | by Bob
+body | …
+</msg>
+
+<p>And if there’s no such file, it says so:</p>
+
+<msg title="SERVE’s reply, if it doesn’t">
+status | NOT FOUND
+status | REPORT
+</msg>
+
+<figure class="fig stepper" data-widget="stepper">
+<svg class="dia" viewBox="0 0 720 290" role="img" aria-label="Alice's FETCH program sends a GET request to Bob's SERVE program, which reads the disk and replies with the file">
+  <use href="#computer" x="40" y="70" width="140" height="126"/>
+  <text x="110" y="222" class="mid slab b">Alice</text>
+  <text x="110" y="242" class="mid mono sm">FETCH REPORT</text>
+  <use href="#computer" x="540" y="70" width="140" height="126"/>
+  <text x="610" y="222" class="mid slab b">Bob</text>
+  <text x="596" y="242" class="mid mono sm">SERVE (waiting…)</text>
+  <line x1="182" y1="140" x2="538" y2="140" class="wire"/>
+  <use href="#disk" x="664" y="226" width="44" height="44" data-show="2-4"/>
+  <path d="M652,198 C672,204 684,210 686,222" class="line s-orange" marker-end="url(#ah-orange)" data-show="=2"/>
+  <text x="656" y="284" class="end hand f-orange" data-show="=2">reads REPORT from disk</text>
+  <g data-show="=1">
+    <g>
+      <use href="#envelope" x="-32" y="-22" width="64" height="44"/>
+      <text x="0" y="-30" class="mid mono sm b halo">GET REPORT</text>
+      <animateMotion begin="indefinite" dur="1.6s" fill="freeze" path="M230,110 L470,110"/>
+    </g>
+  </g>
+  <g data-show="3-4">
+    <g>
+      <use href="#envelope" x="-32" y="-22" width="64" height="44"/>
+      <text x="0" y="-30" class="mid mono sm b halo">OK REPORT + 8 lines</text>
+      <animateMotion begin="indefinite" dur="1.6s" fill="freeze" path="M470,110 L250,110"/>
+    </g>
+  </g>
+  <g data-show="4">
+    <use href="#disk" x="46" y="236" width="44" height="44"/>
+    <text x="100" y="266" class="hand f-green">REPORT saved ✓</text>
+  </g>
+</svg>
+<ol class="steps">
+  <li>Alice types <code>FETCH REPORT</code>. FETCH sends a request across the wire: <code>GET</code>, then <code>REPORT</code>.</li>
+  <li>Bob’s SERVE program has been sitting there waiting. It reads the request and looks on Bob’s disk for a file called REPORT. Bob himself is asleep; nobody touches his keyboard.</li>
+  <li>SERVE replies with <code>OK</code>, the file name, and every line of the file.</li>
+  <li>FETCH saves the file onto Alice’s disk. She can open it in WRITE and read it.</li>
+</ol>
+<figcaption>One request, one reply.</figcaption>
+</figure>
+
+<p>This pattern is so common it has names. The program that waits and answers is the <strong>server</strong>, and the program that asks is the <strong>client</strong>. Each exchange is a <strong>request</strong> followed by a <strong>response</strong>. Most of what you do on the internet follows this pattern: your web browser is a client, and every website is a server.</p>
+
+<p>Look at how the request is laid out, too: a command, then details about what the command applies to. That shape will stay with us all the way to the real web, where your browser sends requests that start with the very same word, <code>GET</code>.</p>
+
+<h3>Special delivery</h3>
+
+<p>Fetching works so well that they add the opposite: <strong>STORE</strong>, a client that <em>sends</em> a file to the other computer. When Alice types <code>STORE NOTES</code>, it sends this:</p>
+
+<msg title="STORE’s request">
+request | PUT
+request | NOTES
+body | Things to remember:
+body | - bring snacks
+</msg>
+
+<p>and SERVE saves the file and replies <code>OK</code>.</p>
+
+<p>Bob immediately spots a danger. If SERVE will save any file anyone sends, then anyone on the wire can overwrite anything on his disk, including his own report, the night before it’s due. So he adds a rule: SERVE only ever saves incoming files into a folder called <code>INBOX</code>. Whatever arrives lands there, and Bob decides what to do with it.</p>
+
+<p>That’s our first bit of network <strong>security</strong>: a server has to be careful about what strangers are allowed to ask it to do. It won’t be the last. There’s a sneakier hole in SERVE that you’ll find (and fix) in this chapter’s lab.</p>
+
+<h3>Many programs, one computer</h3>
+
+<p>A problem shows up on the first evening. Bob wants to leave SERVE running all the time so Alice can fetch files whenever she likes. But while SERVE is running, Bob can’t use CHAT. The computer can only run one program at a time.</p>
+
+<p>The fix is a special program that’s always running, in charge of all the others: the <strong>operating system</strong>, or OS. The OS does two big jobs.</p>
+
+<p>First, it shares the CPU. It lets each program run for a tiny slice of time, a few thousandths of a second, then pauses it and lets the next one run, round and round. It switches so fast that CHAT, SERVE and WRITE all <em>seem</em> to be running at once. This is called <strong>multitasking</strong>.</p>
+
+<p>Second, it owns the hardware. Programs are no longer allowed to poke the disk or the network card directly, because two programs doing that at once would trip over each other. Instead a program asks the OS (“please send this message”, “please read the file REPORT”), and the OS does it on the program’s behalf.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 290" role="img" aria-label="Programs on top, the operating system in the middle, hardware at the bottom">
+  <g>
+    <rect x="30" y="24" width="140" height="56" rx="10" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="100" y="58" class="mid slab b">CHAT</text>
+    <rect x="200" y="24" width="140" height="56" rx="10" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="270" y="58" class="mid slab b">SERVE</text>
+    <rect x="370" y="24" width="140" height="56" rx="10" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="440" y="58" class="mid slab b">WRITE</text>
+    <rect x="540" y="24" width="150" height="56" rx="10" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="615" y="58" class="mid slab b">FETCH#2</text>
+  </g>
+  <text x="690" y="16" class="end hand muted">programs</text>
+  <path d="M100,84 L100,118 M270,84 L270,118 M440,84 L440,118 M615,84 L615,118" class="line" marker-end="url(#ah-ink)" marker-start="url(#ah-ink)"/>
+  <rect x="30" y="122" width="660" height="66" rx="12" class="t-teal" stroke="var(--teal-ink)" stroke-width="2.5"/>
+  <text x="360" y="150" class="mid slab b lg">Operating system</text>
+  <text x="360" y="174" class="mid sm">takes turns running programs · owns the hardware · delivers messages</text>
+  <path d="M100,192 L100,222 M270,192 L270,222 M440,192 L440,222 M615,192 L615,222" class="line" marker-end="url(#ah-ink)" marker-start="url(#ah-ink)"/>
+  <g>
+    <rect x="30" y="226" width="140" height="46" rx="8" class="box"/><text x="100" y="254" class="mid">keyboard</text>
+    <rect x="200" y="226" width="140" height="46" rx="8" class="box"/><text x="270" y="254" class="mid">screen</text>
+    <rect x="370" y="226" width="140" height="46" rx="8" class="box"/><text x="440" y="254" class="mid">disk</text>
+    <rect x="540" y="226" width="150" height="46" rx="8" class="box"/><text x="615" y="254" class="mid">network card</text>
+  </g>
+  <text x="690" y="288" class="end hand muted">hardware</text>
+</svg>
+<figcaption>Programs ask the operating system for everything. The OS is the only one that touches the hardware.</figcaption>
+</figure>
+
+<p>That’s yet another layer. Programs on top, the OS in the middle, hardware at the bottom.</p>
+
+<h3>Who’s this one for?</h3>
+
+<p>Multitasking creates a new puzzle. Suppose Bob is running both CHAT and SERVE. A message arrives from the wire. Which program should get it? The network card has no idea. It just knows some bits arrived.</p>
+
+<p>The fix is to put a label on every message saying which program it’s for. Before anything else, every message now starts with two header lines, added by the OS:</p>
+
+<msg title="What FETCH’s request looks like now">
+header | TO: SERVE
+header | FROM: FETCH#2
+request | GET
+request | REPORT
+</msg>
+
+<p><code>TO</code> says which program on the other computer should get the message. <code>FROM</code> says which program sent it, so the answer can find its way back. When a message arrives, the OS works like a mailroom: it reads the <code>TO</code> line and drops the rest of the message into that program’s mailbox.</p>
+
+<figure class="fig stepper" data-widget="stepper">
+<svg class="dia" viewBox="0 0 720 318" role="img" aria-label="The OS mailroom reads the TO line of each incoming message and puts it in the matching program's mailbox, or throws it away">
+  <use href="#nic" x="20" y="120" width="100" height="58"/>
+  <text x="70" y="200" class="mid sm b">network card</text>
+  <rect x="200" y="96" width="170" height="110" rx="12" class="t-teal" stroke="var(--teal-ink)" stroke-width="2.5"/>
+  <text x="285" y="128" class="mid slab b">OS mailroom</text>
+  <text x="285" y="150" class="mid xs">reads the TO line,</text>
+  <text x="285" y="166" class="mid xs">strips the headers,</text>
+  <text x="285" y="182" class="mid xs">delivers the rest</text>
+  <g>
+    <rect x="470" y="22" width="150" height="50" rx="8" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="545" y="53" class="mid slab b">CHAT</text>
+    <rect x="470" y="88" width="150" height="50" rx="8" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="545" y="119" class="mid slab b">SERVE</text>
+    <rect x="470" y="154" width="150" height="50" rx="8" class="t-yellow" stroke="var(--ink)" stroke-width="2"/><text x="545" y="185" class="mid slab b">FETCH#2</text>
+  </g>
+  <g transform="translate(520,222)">
+    <path d="M4,10 L10,62 L42,62 L48,10 Z" class="f-muted"/><rect x="0" y="4" width="52" height="8" rx="3" class="f-ink"/>
+    <text x="26" y="84" class="mid xs muted">dropped</text>
+  </g>
+  <g data-show="=1">
+    <path d="M122,146 L196,146" class="line" marker-end="url(#ah-ink)"/>
+    <rect x="90" y="40" width="140" height="44" rx="6" class="t-blue" stroke="var(--ink)"/>
+    <text x="160" y="58" class="mid mono xs b">TO: SERVE</text><text x="160" y="74" class="mid mono xs">GET REPORT</text>
+    <path d="M372,140 C420,130 430,115 466,113" class="line s-green" marker-end="url(#ah-green)"/>
+  </g>
+  <g data-show="=2">
+    <path d="M122,146 L196,146" class="line" marker-end="url(#ah-ink)"/>
+    <rect x="90" y="40" width="140" height="44" rx="6" class="t-blue" stroke="var(--ink)"/>
+    <text x="160" y="58" class="mid mono xs b">TO: CHAT</text><text x="160" y="74" class="mid mono xs">LOL</text>
+    <path d="M372,130 C420,100 430,50 466,47" class="line s-green" marker-end="url(#ah-green)"/>
+  </g>
+  <g data-show="=3">
+    <path d="M122,146 L196,146" class="line" marker-end="url(#ah-ink)"/>
+    <rect x="90" y="40" width="140" height="44" rx="6" class="t-blue" stroke="var(--ink)"/>
+    <text x="160" y="58" class="mid mono xs b">TO: GAME</text><text x="160" y="74" class="mid mono xs">MOVE E2 E4</text>
+    <path d="M372,190 C420,220 470,240 516,246" class="line s-red" marker-end="url(#ah-red)"/>
+    <text x="400" y="270" class="mid hand f-red">GAME isn’t running!</text>
+  </g>
+  <g data-show="=4">
+    <path d="M122,146 L196,146" class="line" marker-end="url(#ah-ink)"/>
+    <rect x="90" y="40" width="140" height="44" rx="6" class="t-blue" stroke="var(--ink)"/>
+    <text x="160" y="58" class="mid mono xs b">TO: FETCH#2</text><text x="160" y="74" class="mid mono xs">OK SCHEDULE …</text>
+    <path d="M372,170 C420,178 430,180 466,179" class="line s-green" marker-end="url(#ah-green)"/>
+  </g>
+</svg>
+<ol class="steps">
+  <li>A message arrives addressed <code>TO: SERVE</code>. SERVE is running, so the OS drops the request into SERVE’s mailbox.</li>
+  <li>Next comes <code>TO: CHAT</code>. Into CHAT’s mailbox it goes, and CHAT prints it.</li>
+  <li><code>TO: GAME</code>… but nobody is running GAME. There’s nowhere to deliver it, so the OS throws it away. Whoever sent it will wait, hear nothing, and eventually time out.</li>
+  <li>A reply comes back for <code>FETCH#2</code>, the copy of FETCH that asked for SCHEDULE a moment ago. Why the <code>#2</code>? Read on.</li>
+</ol>
+<figcaption>The operating system as a mailroom.</figcaption>
+</figure>
+
+<p>Your turn. You’re the mailroom now:</p>
+
+<div data-widget="mailroom"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>About that <code>#2</code>. Suppose Alice fetches REPORT and SCHEDULE at the same time, in two separate FETCH programs. Both replies come back addressed <code>TO: FETCH</code>. Which one is which? The OS can’t tell, and the first FETCH might end up saving SCHEDULE under the name REPORT.</p>
+
+<p>So the OS gives every running program its own unique name by adding a number: the first FETCH is <code>FETCH#1</code>, the second is <code>FETCH#2</code>, and so on. Each one puts its own unique name in the <code>FROM</code> line, and replies come back addressed to exactly the right copy. SERVE doesn’t need a number, because there’s only ever one of it, and everybody needs to know where to find it. Hang on to this idea: a well-known name for servers, and unique throwaway names for clients. In Chapter 12 the names become numbers called <strong>ports</strong>, and they work exactly this way.</p>
+
+<h3>Envelopes inside envelopes</h3>
+
+<p>Let’s step back and look at one complete message as it crosses the wire. It’s built in layers, and each layer wraps the one inside it:</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 262" role="img" aria-label="Nested boxes: the wire's frame contains the OS header, which contains the program's request">
+  <rect x="14" y="14" width="692" height="206" rx="14" class="t-red" stroke="var(--red)" stroke-width="2.5"/>
+  <text x="30" y="40" class="slab b">The frame: for the network cards</text>
+  <rect x="30" y="100" width="54" height="40" rx="6" class="f-surface" stroke="var(--red)" stroke-width="2"/><text x="57" y="126" class="mid mono b">~S</text>
+  <rect x="636" y="100" width="54" height="40" rx="6" class="f-surface" stroke="var(--red)" stroke-width="2"/><text x="663" y="126" class="mid mono b">~E</text>
+  <rect x="100" y="52" width="520" height="152" rx="12" class="t-blue" stroke="var(--blue)" stroke-width="2.5"/>
+  <text x="116" y="76" class="slab b">The OS header: for the operating systems</text>
+  <text x="116" y="104" class="mono sm">TO: SERVE <tspan class="muted">~L</tspan> FROM: FETCH#2 <tspan class="muted">~L</tspan></text>
+  <rect x="116" y="118" width="488" height="72" rx="10" class="t-yellow" stroke="var(--yellow)" stroke-width="2.5"/>
+  <text x="132" y="142" class="slab b">The request: for the SERVE program</text>
+  <text x="132" y="172" class="mono sm">GET <tspan class="muted">~L</tspan> REPORT</text>
+  <text x="360" y="246" class="mid hand lg">each layer adds its own wrapper on the way out, and removes it on the way in</text>
+</svg>
+<figcaption>Envelopes inside envelopes: every layer only reads its own wrapper.</figcaption>
+</figure>
+
+<p>When FETCH wants to send a request, it writes <code>GET REPORT</code> and hands it to the OS. The OS wraps it in the <code>TO</code>/<code>FROM</code> header and hands it to the network card. The network card wraps <em>that</em> in <code>~S</code> and <code>~E</code>, escapes any <code>~</code>, and sends it as voltages. On Bob’s side the whole thing happens in reverse: his network card removes the frame, his OS reads and removes the header, and SERVE receives just <code>GET REPORT</code>.</p>
+
+<p>Wrapping data in layer after layer of headers like this is called <strong>encapsulation</strong>. It’s the same layering as Alice, Max and Grandpa Otto in Chapter 1, except that now you can see each layer’s contribution in the message itself. Every layer adds a wrapper that only its partner on the other side ever reads. SERVE never sees <code>~S</code>. The network card never looks at the word <code>GET</code>.</p>
+
+<p>Real internet messages are built exactly this way, only with more layers. Part II is largely about opening those envelopes one at a time.</p>
+
+<h3>Nobody home</h3>
+
+<p>One last detail. What happens if Alice runs <code>FETCH REPORT</code> but Bob forgot to start SERVE? Bob’s OS gets a message for SERVE, finds nobody running with that name, and throws it away. Nothing comes back.</p>
+
+<p>Alice’s FETCH can’t wait forever, so it uses the timeout trick from Chapter 3. If there’s no reply within a few seconds, it gives up and prints <code>NO ANSWER FROM THE OTHER COMPUTER</code>.</p>
+
+<p>Notice that there are two different kinds of “no”:</p>
+
+<ul>
+<li><code>NOT FOUND</code> means SERVE is running and answered, but there’s no such file. That’s a clear, definite answer.</li>
+<li><em>Silence</em> means something went wrong along the way: SERVE isn’t running, the computer is off, the wire is cut, or the request was lost. FETCH can’t tell which.</li>
+</ul>
+
+<p>It’s the dark window from Chapter 1 all over again. A real answer, even “no”, is far more useful than silence. That’s why servers go to the trouble of replying <code>NOT FOUND</code> instead of just ignoring requests they can’t fulfill.</p>
+
+<realworld>
+<p>The first internet protocol for moving files, FTP (File Transfer Protocol), was described in 1971 in RFC 114. It’s still around today. FTP servers answer with three-digit numbers instead of words, like <code>550</code> for “file unavailable”, so that programs can check them easily. The web’s HTTP protocol, which we’ll reinvent in Chapter 6 and meet for real in Chapter 30, borrowed that idea. That’s where the famous <code>404 Not Found</code> comes from.</p>
+<p>Our <code>~L</code> line breaks live on too. Many internet protocols, HTTP and email included, end each header line with two ASCII control characters, CR and LF (“carriage return” and “line feed”). Those names come straight from teleprinters, where one moved the print head back to the left margin and the other rolled the paper up one line.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Alice’s computer can now fetch files, store files and chat, all at the same time. She reads Bob’s report, and on the last line she finds: <em>“See SCHEDULE for when we are presenting this to the class.”</em> So she has to type <code>FETCH SCHEDULE</code>, which might mention yet another file, and so on. And she only knew the file was called SCHEDULE because the report told her. How is she supposed to find out what files Bob has in the first place? Hold that thought; it leads somewhere big in Chapter 6.</p>
+
+<p>First there’s a more basic problem. Carol has drawn a picture of a volcano for Alice’s class presentation, and she wants to send it over. But our computers still speak the 32-symbol codebook from Chapter 1. It has no lowercase letters and no digits, and certainly no way to describe a picture. In the next chapter we’ll give our computers a much bigger vocabulary, and teach them to send <em>anything</em>.</p>
+
+<lab>
+<p>This is the first lab where two programs really talk to each other. Each copy of <code>computer.py</code> is one “computer”: it has an operating system with a mailroom, a disk (a folder), a shell you can type commands into, and a wire to the other computer. The programs from this chapter (SERVE, FETCH, STORE and CHAT) run inside it as background threads.</p>
+
+<p>One confession first: for the wire, we’re borrowing a real network connection between two programs on your own machine, a <strong>TCP socket</strong> on <code>127.0.0.1</code>. That’s cheating a bit, because it quietly handles all the reliability problems from Chapter 3 for us. We’ll build that machinery ourselves in Part I and then take the real thing apart in Part II. For now, treat it as a very well-behaved wire.</p>
+
+<h4>1. Two computers, two terminals</h4>
+
+<p>Open two terminal windows. In both, go to <code>labs/ch04</code>. Start Alice first, since her computer waits for the wire to be plugged in:</p>
+
+<terminal title="terminal 1: alice">
+$ python3 computer.py alice --disk alice_disk --listen 7000
+waiting for the other computer to plug into port 7000...
+</terminal>
+
+<terminal title="terminal 2: bob">
+$ python3 computer.py bob --disk bob_disk --connect 7000
+wire connected. type HELP for commands.
+bob>
+</terminal>
+
+<p>Now, on Alice’s computer, try to fetch something <em>before</em> Bob starts his server:</p>
+
+<terminal title="alice">
+alice> FETCH REPORT
+[alice OS] FETCH#1: no answer from the other computer (is SERVE running there?)
+</terminal>
+
+<p>and look at what Bob’s OS says about it:</p>
+
+<terminal title="bob">
+[bob OS] dropped a message for 'SERVE': no program by that name is running
+</terminal>
+
+<p>Now start the server on Bob’s side (<code>START SERVE</code>) and try again from Alice: <code>FETCH REPORT</code>, then <code>SHOW REPORT</code>. Also try <code>FETCH HOMEWORK</code> (it doesn’t exist), <code>STORE NOTES</code> (then run <code>LS</code> on Bob’s side to find it in the INBOX), and <code>CHAT</code> with a message that contains a <code>~</code>. Use <code>PS</code> to see which programs are running, and notice the numbers on FETCH and STORE.</p>
+
+<h4>2. How the pieces fit</h4>
+
+<p>Here is the wire format, which is Chapter 3’s framing plus <code>~L</code> for line breaks:</p>
+
+<!-- @code labs/ch04/computer.py#wire-format -->
+
+<p>and the OS’s mailroom:</p>
+
+<!-- @code labs/ch04/computer.py#dispatch -->
+
+<p>and the SERVE and FETCH programs themselves:</p>
+
+<!-- @code labs/ch04/computer.py#programs -->
+
+<h4>3. Speak the protocol by hand</h4>
+
+<p>You don’t need a FETCH program to fetch a file. You just need to send the right symbols. Quit both computers. In terminal 1, instead of Alice’s computer, run <code>nc</code> (netcat), a tool that connects your keyboard straight to a network connection:</p>
+
+<terminal title="terminal 1">
+$ nc -l 127.0.0.1 7000
+</terminal>
+
+<p>(The <code>127.0.0.1</code> matters on a Mac. macOS’s AirPlay Receiver listens on port 7000 too, and a plain <code>nc -l 7000</code> fails with “Address already in use”. Asking specifically for the loopback address sidesteps it. There’s more about <code>nc</code> in the <a href="field-guide.html#cmd-nc">Field Guide</a>.)</p>
+
+<p>Start Bob’s computer in terminal 2 as before, and type <code>START SERVE</code> there. Then go back to terminal 1 and type a complete request by hand, all on one line, then press Enter:</p>
+
+<terminal title="terminal 1">
+~STO: SERVE~LFROM: ME~LGET~LSCHEDULE~E
+~STO: ME~LFROM: SERVE~LOK~LSCHEDULE~LCLASS PRESENTATIONS~LMonday: Alice (volcanoes)~LTuesday: Bob (Treasure Island)~LWednesday: Carol (how bees talk)~E
+</terminal>
+
+<p>The second line is Bob’s answer, exactly as it came over the wire. You’re now speaking the protocol yourself. Try a <code>PUT</code> by hand, then send something malformed and see how SERVE reacts.</p>
+
+<h4>4. Find the hole in SERVE</h4>
+
+<p>Bob’s SERVE is only supposed to share files from <code>bob_disk</code>. There’s also a file called <code>SECRET</code> in the lab folder, one level <em>above</em> Bob’s disk. From Alice’s computer, try:</p>
+
+<terminal title="alice">
+alice> FETCH ../SECRET
+</terminal>
+
+<p>Uh oh. SERVE builds the path by gluing the requested name onto <code>bob_disk/</code>, and <code>..</code> means “the folder above”. This is a real and very common class of security bug called <strong>path traversal</strong>, and servers on the internet have been caught by it many times. Fix <code>serve()</code> so it refuses any file name that isn’t a plain name inside the disk folder. (Hint: compare the name with <code>os.path.basename(name)</code>, or check that <code>os.path.realpath()</code> of the full path starts with the disk folder’s real path.) Then try the attack again.</p>
+
+<h4>Stretch goals</h4>
+<ul>
+<li>Add a <code>DELETE</code> command to the protocol. Who should be allowed to use it? What stops Eve from deleting Bob’s files?</li>
+<li>Right now <code>FETCH</code> gives up after 3 seconds. Make it retry twice before giving up, like the Chatterbox did. Can that ever cause a problem with <code>STORE</code>? (Think about Chapter 3’s duplicates.)</li>
+<li>Run a <em>third</em> computer. What would it take? (Our wire only connects two, and that’s exactly the problem Chapter 8 tackles.)</li>
+</ul>
+</lab>

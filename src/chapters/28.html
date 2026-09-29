@@ -1,0 +1,228 @@
+<h3>The evening lag, solved</h3>
+
+<p>Remember how Part II began? Bob’s game lagged every single evening, and Mum said it was his fault for downloading things. Sixteen chapters later, Alice finally has everything she needs to find out why.</p>
+
+<dialogue>
+A: Every evening at eight, Grandpa’s Pi backs up his photos to the cloud. Mum starts streaming her programmes. And your game turns into a slideshow.
+B: But my game hardly uses any internet. A few kilobytes a second.
+A: It doesn’t need much. It needs it <em>quickly</em>. Watch this: pings to Cloudflare while nothing’s happening, then while something’s uploading.
+B: Ten milliseconds… and then ninety-six?
+A: Your packets are stuck in a queue, behind Grandpa’s photos. TCP is filling it on purpose. That’s how it finds out how fast it can go.
+B: On purpose?
+A: It doesn’t know how fast your internet is. Nobody tells it. So it keeps sending faster, until something breaks.
+</dialogue>
+
+<p>Chapter 27 was about how TCP makes sure everything arrives. This chapter is about the other half of TCP: <em>how fast</em> to send. Too slow, and a fast connection sits idle. Too fast, and either the receiver can’t keep up, or the network can’t, and packets are lost. TCP deals with the two problems separately. <strong>Flow control</strong> protects the receiver. <strong>Congestion control</strong> protects the network, and it’s one of the most important ideas in the whole internet, because without it, the internet stops working.</p>
+
+<h3>Slow down, I’m full</h3>
+
+<p>We met flow control briefly in Chapter 13. The real version works just like ours:</p>
+
+<!-- @include src/figs/ch28-window.svg -->
+
+<p>There’s a catch in the header, though. The window field is 16 bits, so the biggest window it can say is 65,535 bytes. That was plenty in 1981. It isn’t now, and that’s what the <strong>window scale</strong> option in the handshake is for: each side announces a number of bits to shift its window by, and from then on, every window it sends means that many times more. In Bob’s capture from Chapter 27, the Pi said <code>wscale 10</code>, so every window it advertised is multiplied by 2<sup>10</sup> = 1,024:</p>
+
+<terminal title="labs/ch27">
+$ tcpdump -r example-org.pcap -n -t
+…
+IP 192.168.1.4.58798 > 172.66.157.237.443: Flags [.], ack 1, ⟦1:win 63⟧, options [nop,nop,TS val 505265881 ecr 1776815111], length 0
+IP 172.66.157.237.443 > 192.168.1.4.58798: Flags [.], ack 1572, ⟦2:win 16⟧, options [nop,nop,TS val 1776815146 ecr 505265885], length 0
+…
+IP 192.168.1.4.58798 > 172.66.157.237.443: Flags [.], ack 6450, ⟦3:win 80⟧, options [nop,nop,TS val 505266311 ecr 1776815493], length 0
+</terminal>
+
+<callouts>
+1 | 63 × 1,024 = 64,512 bytes of room in the Pi’s receive buffer.
+2 | The server said <code>wscale 13</code>: 16 × 8,192 = 131,072 bytes.
+3 | By the end of the connection, the Pi’s window had grown to 80 × 1,024 = 81,920 bytes. Linux enlarges a connection’s receive buffer when it sees data arriving quickly, a feature called autotuning.
+</callouts>
+
+<h3>How much should be in flight?</h3>
+
+<p>Why does a big window matter so much? Because of round trips. A sender can’t send more than one window’s worth of data before it has to stop and wait for an acknowledgement, and an acknowledgement takes a whole round trip to come back. So the fastest a connection can ever go is one window per round trip. To keep a path busy, the window must be at least as big as the path’s <strong>bandwidth-delay product</strong>: how many bytes are on their way at once when it’s full:</p>
+
+<!-- @include src/figs/ch28-bdp.svg -->
+
+<p>With the old 64 KB limit, a connection from London to New York could never go faster than 64 KB per 70 ms: about 7.5 Mbit/s, however fast the cables were. Window scaling, from 1992, allows windows up to a gigabyte.</p>
+
+<h3>Slow down, the road’s jammed</h3>
+
+<p>Flow control stops a sender from drowning the receiver. But what about everything in between? In October 1986, the network link between the Lawrence Berkeley Laboratory and the University of California campus below it, less than 400 metres away, slowed from 32,000 bits per second to 40. Not because anything was broken: because it was full. Every computer that lost a packet sent it again, and again, adding to the traffic that was causing the losses. The network spent almost all its time carrying copies of packets that would be thrown away. It was called <strong>congestion collapse</strong>, and it happened again and again across the young internet.</p>
+
+<p>The fix, published by Van Jacobson in 1988, is still the heart of TCP. Each sender keeps a second window, the <strong>congestion window</strong>, which is its own guess at how much the network can take, and it never has more unacknowledged data out than the smaller of the two windows. Nobody tells it the right size. It has to find out, by experiment:</p>
+
+<ul>
+<li><strong>Slow start</strong>: begin with a small window (today, 10 segments), and add one segment for every acknowledgement. That <em>doubles</em> the window every round trip, which isn’t slow at all: the name compares it with sending everything at once.</li>
+<li><strong>Congestion avoidance</strong>: after the first loss, grow carefully, by one segment per round trip.</li>
+<li><strong>Multiplicative decrease</strong>: when a packet is lost, take it as a sign that a queue somewhere overflowed, and cut the window by a big fraction. (After a full timeout, which is a much worse sign, start again from slow start.)</li>
+</ul>
+
+<p>Adding a little and cutting a lot is called <strong>AIMD</strong>, for additive increase, multiplicative decrease, and there’s a beautiful reason for choosing it: when several connections share a link, it makes them share fairly, with no coordination at all.</p>
+
+<!-- @include src/figs/ch28-aimd.svg -->
+
+<h3>Watching it for real</h3>
+
+<p>The congestion window lives in the sender’s kernel, and never appears in a packet, so you can’t see it in a capture. But the kernel will tell a program about its own connections. This chapter’s lab uploads to Cloudflare’s speed test server for five seconds, and asks the MacBook’s kernel about the connection every 10 milliseconds:</p>
+
+<terminal title="labs/ch28 (Bob’s MacBook)">
+$ python3 cwnd.py --seconds 5
+uploaded 85 MB in 5 s (135 Mbit/s), 369 samples. MSS 1388 bytes.
+
+   time    cwnd (KB)                                              ssthresh   RTT    resent
+  0.00 s     ⟦1:15⟧  █                                                     -      14 ms
+  0.03 s     57  █                                                     -      14 ms
+  0.06 s     87  █                                                     -      15 ms
+  0.09 s    188  █                                                     -      16 ms
+  0.11 s    448  ███                                                   -      19 ms
+  0.14 s    993  ███████                                               -      17 ms
+  0.17 s   1728  ████████████                                          -      24 ms
+  0.21 s   2918  █████████████████████                                 -      31 ms
+  0.24 s   3451  ████████████████████████                              -      48 ms
+  0.27 s   3937  ████████████████████████████                          -      53 ms
+  0.30 s   4775  ██████████████████████████████████                    -      ⟦2:55 ms⟧
+  0.32 s   5593  ████████████████████████████████████████              -      62 ms
+  0.42 s   6938  █████████████████████████████████████████████████     -      55 ms
+  0.53 s   2466  ██████████████████                                  2466 KB   59 ms  ⟦3:+1904 KB⟧
+  0.69 s   2466  ██████████████████                                  2466 KB   59 ms  +3196 KB
+  0.80 s    112  █                                                   2466 KB  142 ms  +2277 KB
+…
+  1.34 s    220  ██                                                   193 KB   11 ms
+  1.45 s    ⟦4:157⟧  █                                                    157 KB   12 ms  +52 KB
+…
+  3.02 s    276  ██                                                   157 KB   12 ms
+  3.13 s    196  █                                                    196 KB   14 ms  +39 KB
+…
+  3.90 s    237  ██                                                   196 KB   11 ms
+  4.01 s    172  █                                                    166 KB   14 ms  +100 KB
+…
+The window settled around 245 KB: that's how many bytes were in flight, unacknowledged, at once.
+</terminal>
+
+<callouts>
+1 | The starting window: about 10 segments (15 KB).
+2 | As the window grows past what the path needs, the extra packets can only queue up somewhere, and the round trip grows from 14 to 62 ms.
+3 | The queue overflowed. Megabytes had to be sent again, and there were timeouts: after a timeout, the window drops to almost nothing.
+4 | From here on, a loss is a single packet here and there, and each one cuts the window to 70%: 220 to 157, 276 to 196, 237 to 166.
+</callouts>
+
+<!-- @include src/figs/ch28-cwnd.svg -->
+
+<p>Notice where the window settled: around 200 KB, almost exactly the bandwidth-delay product of 135 Mbit/s over a 12 ms round trip. Nobody told the MacBook either number. TCP found them by growing until something broke, again and again, and at the same time, the round trip dropped back to 11 ms, because the queue emptied. Slow start, on the other hand, overshot by thirty times, and paid for it with megabytes of lost data. Starting fast and backing off hard is TCP’s oldest compromise.</p>
+
+<h3>CUBIC and BBR</h3>
+
+<p>The cut to 70% isn’t Jacobson’s original rule (which halved the window, and is now called Reno, after a 1990 version of BSD Unix). It’s <strong>CUBIC</strong>, the algorithm macOS, Linux, Android and Windows all use by default. After a loss, it grows back quickly towards the size where the loss happened, slows down as it gets near, and then speeds up again to explore beyond it. The shape follows a cubic curve, which is where the name comes from. It keeps fast, long-distance links much fuller than Reno could.</p>
+
+<p>Both Reno and CUBIC use losses as their signal, which means they only find the limit by overflowing a queue. In 2016, Google introduced <strong>BBR</strong>, which works differently: it measures the bottleneck’s speed (how fast acknowledgements come back) and the shortest round trip it has seen (when the queues were empty), and sends at exactly that rate, occasionally probing for more. When it works, the link is full and the queues are almost empty. Google uses it for its own services, including YouTube. Try all three:</p>
+
+<div data-widget="ccsim"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Try a buffer of 400 packets. Reno and CUBIC keep the link completely busy, but they also keep the queue completely full, and every packet, from every connection, waits behind it. That’s the problem in Bob’s house.</p>
+
+<h3>Bufferbloat</h3>
+
+<p>Routers have queues to absorb short bursts of traffic, and memory is cheap, so manufacturers made them big: more buffer means fewer lost packets, which looks better in a speed test. But loss-based TCP will fill any queue you give it, and a full queue is just delay. Grandpa’s backup fills the queue in front of Bob’s internet connection, and every packet from Bob’s game waits behind megabytes of photos. It has a name, coined in 2010: <strong>bufferbloat</strong>. This chapter’s lab measures it:</p>
+
+<terminal title="labs/ch28 (Bob’s MacBook)">
+$ python3 bloat.py
+idle                        ping median   10.3 ms, worst   14.3 ms, 2 lost of 12
+downloading   116.0 Mbit/s   ping median   26.9 ms, worst   73.5 ms, 4 lost of 51
+uploading     129.9 Mbit/s   ping median   10.8 ms, worst   96.5 ms, 3 lost of 50
+
+Busy, your pings took +17 ms longer downloading and +0 ms longer uploading.
+That extra time is packets waiting in a queue somewhere: bufferbloat. For a game, anything over
+about 30 ms is noticeable, and over 100 ms is painful.
+</terminal>
+
+<!-- @include src/figs/ch28-bloat.svg -->
+
+<p>That’s with one connection at a time. A Mac has a built-in test that does it properly, with many connections downloading and uploading at once, the way a busy household does:</p>
+
+<terminal title="Bob’s MacBook">
+$ networkQuality
+==== SUMMARY ====
+Uplink capacity: 119.938 Mbps
+Downlink capacity: 117.329 Mbps
+⟦1:Responsiveness: Low (403.762 milliseconds | 148 RPM)⟧
+⟦2:Idle Latency: 29.368 milliseconds | 2043 RPM⟧
+</terminal>
+
+<callouts>
+1 | Under full load, a round trip took four tenths of a second. “RPM” is round trips per minute: how many back-and-forth exchanges fit in a minute. Apple rates 148 as “low”.
+2 | Idle, the same round trip (to Apple’s test servers, further away than Cloudflare’s) took 29 ms.
+</callouts>
+
+<p>There it is: Bob’s evening lag. Not the Wi-Fi, not the game’s servers, and not Bob’s downloads. It’s a queue in Bob’s router, or at the internet provider, filled by everybody else’s TCP connections doing exactly what they were designed to do.</p>
+
+<p>The cure is <strong>active queue management</strong>: a router that watches how long packets have been waiting, not just how many there are, and starts dropping (or marking) them as soon as the delay goes over a few milliseconds, which tells TCP to back off long before the queue is full. The best-known method is called CoDel, and its partner, fq_codel, also gives every conversation its own small queue, so that a game’s occasional packet never waits behind a backup’s thousands. Many home routers have it, often hidden under a setting called “SQM” or “smart queue management”. It usually has to be told the real speed of the internet connection, and set a little below it, so that the queue forms in the router, where it can be managed, and not at the provider’s end, where it can’t. Bob switches it on, and his game’s ping stays under 20 ms all evening.</p>
+
+<h3>A warning without a loss: ECN</h3>
+
+<p>Dropping packets to say “slow down” works, but it’s wasteful: the dropped packet has to be sent again, and the sender only finds out a round trip later. So routers and hosts can agree to use a gentler signal:</p>
+
+<!-- @include src/figs/ch28-ecn.svg -->
+
+<p>The two bits are the last two of the old “type of service” byte in the IP header (Chapter 20), and the flags are the ECE and CWR bits in Chapter 27’s TCP header. macOS asks for ECN on every connection it opens (<code>sysctl net.inet.tcp.ecn_initiate_out</code> is 1), and most big websites accept. A newer system called <strong>L4S</strong> goes further: routers mark early and often, senders react to every single mark by a small amount rather than halving, and queues stay almost empty even when the link is full. It’s just starting to appear in home routers and phone networks.</p>
+
+<think>
+<p>Why doesn’t TCP simply ask the network how fast it may go? Routers know how busy their links are.</p>
+<p>Each router only knows about its own links, a connection crosses a dozen routers owned by different companies, and the right speed changes every millisecond as other connections come and go. Anything the network said would be out of date before it arrived. More importantly, it would need every router on the internet to take part, and the internet can only change by adding things at the edges. TCP’s great trick is that congestion control needs nothing from the network at all, except that it drops packets when it’s full, which it would do anyway. ECN is a small exception, and it took twenty years to become common.</p>
+</think>
+
+<realworld>
+<p>Van Jacobson’s 1988 paper, “Congestion Avoidance and Control”, is one of the most cited papers in computer science. He worked it out after the 1986 collapse, together with Michael Karels, and the fix went into BSD Unix, and from there into every operating system. The timeout formula in Chapter 13 is from the same paper.</p>
+<p>The word “bufferbloat” was coined by Jim Gettys, who in 2010 noticed his home internet became unusable whenever he uploaded a file, and tracked it down to oversized buffers in his modem, his router and his operating system. CoDel came from Kathleen Nichols and Van Jacobson in 2012, twenty-four years after his first fix.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>That’s the transport layer: UDP, which does almost nothing, and TCP, which does almost everything. We’ve been using one more protocol all through Part II without looking inside it: the one that turns names like <code>example.org</code> into addresses. We invented it in Chapter 14. Chapter 29 opens up the real DNS, with a resolver built from scratch that finds any name on the internet, starting from the root.</p>
+
+<lab>
+<p>Three programs. <code>cwnd.py</code> watches a real upload’s congestion window from inside the kernel. <code>bloat.py</code> measures bufferbloat on your own connection. <code>ccsim.py</code> is the congestion-control simulator from the widget above. The first two use your real internet connection: they upload and download as fast as they can for a few seconds each, so don’t run them on a metered connection.</p>
+
+<h4>1. The congestion window, from the inside</h4>
+
+<p><code>python3 cwnd.py</code> works on macOS and Linux. Each operating system has its own socket option for asking about a connection, and its own layout for the answer:</p>
+
+<!-- @code labs/ch28/cwnd.py#info -->
+
+<h4>2. Is your connection bloated?</h4>
+
+<p><code>python3 bloat.py</code> pings 1.1.1.1 ten times a second while idle, downloading and uploading. Run it at different times of day, or while someone else in the house is streaming. The pinger runs in its own thread, so it keeps going while the transfers run:</p>
+
+<!-- @code labs/ch28/bloat.py#ping -->
+
+<h4>3. Congestion control, simulated</h4>
+
+<terminal title="labs/ch28">
+$ python3 ccsim.py --rounds 40
+reno: pipe holds 120 packets, router queue 60 more; '|' marks the pipe, ':' pipe + queue
+…
+ 25 ████████████████████████████████|███████████████:                180  RTT  17.9 ms
+ 26 ████████████████████████████████|███████████████:                181  RTT  18.0 ms
+ 27 ████████████████████████        |               :                 90  RTT  18.0 ms  ✗ loss
+ 28 ████████████████████████        |               :                 92  RTT  12.0 ms
+…
+second half: link busy 88% of the time, average RTT 14.3 ms (empty: 12 ms), 1 rounds with losses
+$ python3 ccsim.py --algo bbr
+…
+second half: link busy 98% of the time, average RTT 12.3 ms (empty: 12 ms), 0 rounds with losses
+$ python3 ccsim.py --buffer 400
+…
+second half: link busy 100% of the time, average RTT 35.8 ms (empty: 12 ms), 0 rounds with losses
+</terminal>
+
+<p>Each algorithm is a few lines that decide the next window from what happened in the last round trip:</p>
+
+<!-- @code labs/ch28/ccsim.py#algos -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Run <code>ccsim.py --flows 2 --algo cubic</code>, then change <code>simulate()</code> so that the second flow uses Reno. Who gets more of the link?</li>
+<li>Give <code>ccsim.py</code> a longer round trip (<code>--rtt 100</code>). How long does Reno take to recover from a loss now? Why do long-distance connections need CUBIC?</li>
+<li>Run <code>cwnd.py</code> while <code>bloat.py</code>’s pings are going in another window (or while a video is streaming). Does the upload’s window settle lower? Does the round trip go up?</li>
+<li>If your router has an SQM or “QoS” setting, run <code>bloat.py</code> and <code>networkQuality</code> (on a Mac) with it off and on.</li>
+</ul>
+</lab>

@@ -1,0 +1,164 @@
+<h3>A dish on the barn roof</h3>
+
+<p>Uncle Ray, who once stood across the street reading Grandpa Otto’s lamp in Chapter 1, has retired to a farm at the end of a long valley. There’s no fibre, the telephone line is older than Grandpa, and the mobile signal is a rumour. For years his internet came from a big dish pointed at one fixed spot in the southern sky. This spring he bought a new one: a flat, white rectangle, which he put on the barn roof and which, he says, “looks at nothing in particular”. Grandpa, Alice and Bob have come for the weekend.</p>
+
+<dialogue>
+G: Ray and I used to talk across a street with a lamp. Now he talks to the sky.
+B: With the old dish, video calls were awful. Everyone kept talking at the same time, then stopping.
+A: Because every word went twice to a satellite 36,000 kilometres up, and back. That’s half a second, even at the speed of light.
+G: And the new one?
+A: Its satellites are only about 500 kilometres up. Seventy times closer.
+B: Then why doesn’t everyone do that?
+A: Because a satellite that low doesn’t hang still. It shoots across the sky in a few minutes, and so does the next one. You need thousands of them, and the dish has to keep swapping from one to another.
+G: The sky’s getting crowded, then.
+B: Let’s find out how crowded.
+</dialogue>
+
+<p>For most of the internet’s history, the only way to reach it from somewhere remote was a satellite so far away that talking through it felt like a bad phone line. Now there are thousands of satellites much closer, forming a network that moves at seven and a half kilometres per second. This chapter looks at how that works, and uses real orbit data to see where they all are, right now.</p>
+
+<h3>Half a second to the sky and back</h3>
+
+<p>In 1945 the writer Arthur C. Clarke pointed out something neat. The higher a satellite orbits, the slower it goes round. At one particular height, 35,786 km above the equator, it takes exactly one day, the same time the Earth takes to turn. From the ground, a satellite there seems to hang still, so a dish can be pointed at it once and left alone for ever, and three of them can see almost the whole planet. That’s a <strong>geostationary</strong> orbit, and it has carried television and telephone calls since the 1960s, and internet since the 1990s.</p>
+
+<p>The trouble is the distance. A request goes up 35,786 km and down again to a ground station; the reply comes up and down again. That’s at least 143,000 km, and even light takes 477 ms. Add the rest of the journey and real round trips were usually 600 ms or more.</p>
+
+<!-- @include src/figs/ch40-altitudes.svg -->
+
+<p>Half a second doesn’t sound like much, but remember Chapter 28. TCP’s slow start doubles its window once per round trip, so reaching full speed takes seconds instead of a fraction of one. A web page that needs a DNS lookup, a TCP handshake, a TLS handshake and then a request (Chapter 37) spends two seconds just saying hello. Geostationary internet providers fought back with tricks: boxes at each end that pretend to be the other end and acknowledge data early, called <em>performance-enhancing proxies</em>, and TCP settings tuned for very long pipes. But no trick beats physics, and games and video calls stayed painful.</p>
+
+<h3>Closer, faster, and many more</h3>
+
+<p>The alternative is to fly low: a few hundred kilometres up, in <strong>low Earth orbit</strong> (LEO). The round trip shrinks to a few milliseconds. But everything else gets harder. A satellite 500 km up goes round the Earth every hour and a half, at about 27,000 km/h. From any one place it’s usable for only a few minutes, and it can only see a circle of the ground a few hundred kilometres across. To always have one overhead, everywhere, you need hundreds at the very least, and in practice thousands. Try it:</p>
+
+<div data-widget="orbits"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Between the two, in <em>medium Earth orbit</em>, sit GPS and a few internet systems (like SES’s O3b, at 8,000 km), trading a little delay for fewer, bigger satellites that stay in view for hours.</p>
+
+<h3>Where are they, right now?</h3>
+
+<p>Every satellite’s orbit is public. The US military tracks everything in orbit and publishes each object’s orbit as a <strong>two-line element set</strong>, or TLE: six numbers that describe the orbit’s shape, tilt and position at one moment, plus a little about how it’s changing. Here’s one, for one of the first Starlink satellites:</p>
+
+<msg title="A two-line element set (TLE)">
+name | STARLINK-1008
+line 1 | 1 44714U 19074B   26271.23993099  .00027611  00000+0  27362-3 0  9992
+line 2 | 2 44714  53.1457 289.0848 0002739  79.4748 280.6577 15.65630049380281
+</msg>
+
+<p>Launched in 2019 (<code>19074B</code>), measured on day 271 of 2026. It’s tilted 53.1457° to the equator, its orbit is very nearly a circle (eccentricity 0.0002739), and it goes round 15.656 times a day. The site CelesTrak collects the sets into groups, and this chapter’s <code>sky.py</code> downloads them and works out where each satellite is. Kepler’s laws from the 1600s do most of the work; the one correction that really matters is the Earth’s bulge at the equator, which slowly swings every orbit around:</p>
+
+<!-- @code labs/ch40/sky.py#orbit -->
+
+<p>Then it turns that position into a direction in the sky, from wherever you’re standing: how high above the horizon (the <em>elevation</em>), in which direction, and how far. Here it is from Greenwich, in London:</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 sky.py
+⟦1:10685 starlink satellites⟧, most of them 463 km up (orbits downloaded from CelesTrak, the newest from 28 Sep 16:54 UTC)
+seen from 51.48°, -0.00° at 18:32:15 UTC:
+  above the horizon:        ⟦2:462⟧
+  higher than 25° (usable): 59
+  the highest:
+    STARLINK-31456           78° up, towards the NW      485 km away: light takes   1.6 ms
+    STARLINK-36346           75° up, towards the E       491 km away: light takes   1.6 ms
+    STARLINK-11265 [DTC]     74° up, towards the N       ⟦3:387 km away⟧: light takes   1.3 ms
+    STARLINK-31985           68° up, towards the NE      510 km away: light takes   1.7 ms
+    STARLINK-31999           66° up, towards the W       516 km away: light takes   1.7 ms
+  a round trip through the highest, down to a ground station and back, takes at least ⟦4:6.5 ms⟧
+$ python3 sky.py --group geo
+567 geo satellites, most of them 35788 km up (orbits downloaded from CelesTrak, the newest from 28 Sep 15:11 UTC)
+seen from 51.48°, -0.00° at 18:36:35 UTC:
+  above the horizon:        239
+  higher than 25° (usable): 85
+  the highest:
+    IRNSS-1B                 35° up, towards the E    38,192 km away: light takes 127.4 ms
+    THOR 5                   31° up, towards the S    38,506 km away: light takes 128.4 ms
+    …
+  a round trip through the highest, down to a ground station and back, takes at least ⟦5:509.6 ms⟧
+</terminal>
+
+<callouts>
+1 | Over ten thousand Starlink satellites, all in one company’s network. The same program counts 651 for OneWeb and 391 for Amazon’s Kuiper, which started launching in 2025.
+2 | Nearly five hundred above the horizon at once, over London alone.
+3 | [DTC] means “direct to cell”: a satellite that’s also a mobile phone mast, and talks to ordinary phones. They fly lower, closer to the phones’ weak signals.
+4 | That’s the physics limit, with the satellite nearly overhead and a ground station nearby. The rest of the internet, and the network’s own processing, add more.
+5 | And the old way. Seen from London, geostationary satellites sit low in the southern sky, so they’re even further than 35,786 km: nearly eighty times further than the Starlink satellite.
+</callouts>
+
+<p>(How accurate is it? Professional tracking software uses a model called SGP4, which also allows for air drag and dozens of smaller effects. Compared with it, this lab’s positions are within about 10 km for most satellites, and 20 km at worst: close enough, when each satellite covers a circle hundreds of kilometres wide.)</p>
+
+<h3>Handed from one to the next</h3>
+
+<p>Now run it forwards in time. <code>--watch</code> works out, second by second, which satellite is highest, and reports each change:</p>
+
+<!-- @code labs/ch40/sky.py#watch -->
+
+<terminal title="Bob’s MacBook">
+$ python3 sky.py --watch 120
+the highest satellite, second by second, for the next 120 s (1071 are near enough to matter):
+  18:32:15    STARLINK-31456         78.3° up
+  18:32:35  → STARLINK-31999         78.4° up   (the last one, STARLINK-31456, is at 77.4°)
+  18:32:53  → STARLINK-34326         76.4° up   (the last one, STARLINK-31999, is at 75.2°)
+  18:33:20  → STARLINK-4053          78.3° up   (the last one, STARLINK-34326, is at 77.4°)
+  18:33:36  → STARLINK-35637         88.0° up   (the last one, STARLINK-4053, is at 87.4°)
+  18:33:53  → STARLINK-5243          77.4° up   (the last one, STARLINK-35637, is at 76.5°)
+5 changes in 120 s: one every 24 s on average
+</terminal>
+
+<p>Here’s a longer stretch, drawn: each grey line is a real satellite rising and falling, and the green line follows the highest.</p>
+
+<!-- @include src/figs/ch40-passes.svg -->
+
+<p>A real system doesn’t simply pick the highest. It has to share satellites between thousands of dishes, avoid pointing near the sun and near geostationary satellites (whose radio signals it mustn’t disturb), and keep enough capacity for everyone. Researchers measuring Starlink found that its network re-plans every 15 seconds, at the same four moments every minute, and that round trips jump, up or down, at exactly those moments, as each dish is given a new satellite and its packets a new path.</p>
+
+<p>How does a dish with no motor follow something moving at 7.6 km/s? It’s a <strong>phased array</strong>: hundreds of tiny antennas in a flat grid. Send the same signal from all of them with slightly different timings, and the waves add up in one direction and cancel out in others (Chapter 17’s radio waves, adding and cancelling). Change the timings, and the beam swings across the sky in microseconds, with nothing moving at all.</p>
+
+<h3>Routers in orbit</h3>
+
+<p>So far the satellites have just been mirrors in the sky. The first designs really were: each satellite repeats what it hears down to a ground station nearby, which is connected to the internet by fibre. That only works where there’s a ground station within a few hundred kilometres. Over the ocean, or near the poles, there isn’t one. So newer satellites carry lasers, and pass packets to each other:</p>
+
+<!-- @include src/figs/ch40-bentpipe.svg -->
+
+<p>That makes each satellite a router (Chapter 11) in a network whose links appear and disappear all the time, as satellites move in and out of sight of each other and the ground. It’s a strange network to route across. Chapter 23’s OSPF assumes links are mostly stable and reacts when one fails; here, everything changes every few seconds, but <em>predictably</em>, because orbits are just physics. So the routes can be worked out in advance, from where every satellite will be: routing by schedule. The next chapter takes that idea much further.</p>
+
+<p>Lasers in space have a surprising bonus. Light in glass fibre travels at about two-thirds of its speed in a vacuum (Chapter 17). Over long distances, a longer route through space can beat a shorter one through the sea:</p>
+
+<!-- @include src/figs/ch40-race.svg -->
+
+<p>From the rest of the internet’s point of view, a satellite network looks like any other internet provider, with its own autonomous system and BGP (Chapter 24). Its customers’ traffic comes back to Earth at ground stations and data centres, which is where it meets the rest of the internet. Many of its home customers get an IPv4 address from the shared range 100.64.0.0/10, behind carrier-grade NAT (Chapter 22), and real IPv6 addresses (Chapter 25) alongside.</p>
+
+<think>
+<p>Every 15 seconds, the dish may be switched to a different satellite, and the path through space changes with it. What does that do to a TCP connection (Chapters 27 and 28)?</p>
+<p>Two things. The round trip time jumps, up or down, so TCP’s estimate of it (and its retransmission timer) keeps being wrong for a moment. And a few packets can be lost or delayed during the switch. Chapter 28’s loss-based congestion control, like CUBIC, reads every loss as “the network is full”, and cuts its speed, even though nothing was full. Every 15 seconds, it backs off and climbs again. Congestion control that measures the path instead of waiting for losses, like BBR, copes better, and QUIC (Chapter 33) can switch paths without breaking the connection at all. Satellite internet is one of the reasons those newer designs matter.</p>
+</think>
+
+<realworld>
+<p>Clarke’s article was called “Extra-Terrestrial Relays”, and appeared in <em>Wireless World</em> in 1945. The first geostationary satellite, Syncom 3, carried television pictures of the 1964 Tokyo Olympics to the United States. Low-orbit networks were tried in the 1990s: Iridium started a satellite phone service with 66 satellites in 1998, went bankrupt within a year, and yet is still flying; Teledesic planned hundreds of internet satellites, and gave up. What changed since is mostly the cost of launching things, thanks to reusable rockets, and of building satellites in large numbers.</p>
+<p>So many satellites bring new problems. Astronomers find their photographs streaked with them. And the more there are, the more likely collisions become, with each collision making thousands of fragments that could cause more: a chain reaction called the <em>Kessler syndrome</em>, predicted in 1978. Low orbits help here: at 500 km, the thin air drags a dead satellite back down to burn up within about five years, which is one reason operators keep their satellites low.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>At Uncle Ray’s, a light takes about a millisecond and a half to reach the network overhead. Grandpa, who once spent an afternoon on a ship waiting for a signal lamp to answer, wants to know how far this goes: what happens when the other end isn’t 500 kilometres away, but on Mars, and a message takes twenty minutes each way?</p>
+
+<lab>
+<p>One program, <code>sky.py</code>, for macOS or Linux. It needs to download the orbits from CelesTrak, and keeps a copy for two hours (please don’t download them more often than that).</p>
+
+<h4>1. The sky, right now</h4>
+
+<p><code>python3 sky.py</code> shows Starlink from Greenwich. Use <code>--at</code> with your own latitude and longitude (a map app will tell you), and compare the numbers. The rest of the program turns a satellite’s position into a direction in your sky:</p>
+
+<!-- @code labs/ch40/sky.py#look -->
+
+<h4>2. Other constellations</h4>
+
+<p><code>--group geo</code>, <code>oneweb</code>, <code>kuiper</code>, <code>gps-ops</code> or <code>stations</code> (the International Space Station, and friends).</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>How many GPS satellites are above your horizon? A receiver needs four to work out where it is (and the time, Chapter 26). Why do phones find their position faster in the open than between tall buildings?</li>
+<li>Run <code>--watch 600</code> from Greenwich, then from the equator (<code>--at 0,0</code>) and from the far north (<code>--at 78.2,15.6</code>, Svalbard). Where do satellites change most often, and why? (Hint: which way do their orbits tilt? Look at the second number on line 2 of some TLEs.)</li>
+<li>Change the 25° limit in <code>snapshot</code> to 10° or 40°. How much does the number of usable satellites change? What would a dish on a boat, rolling in the waves, need?</li>
+<li>The TLEs record when they were measured. How old are yours? Work out where a satellite would be a week from now, then download fresh TLEs next week and compare. What’s the biggest thing the lab leaves out?</li>
+<li>If you know someone with satellite internet, ask them to run <code>ping -i 0.2 1.1.1.1</code> for a minute. On a low-orbit service, do the times jump every 15 seconds? On a geostationary one, what’s the smallest round trip, and how close is it to 477 ms?</li>
+<li>Work out the round trip between London and New York through geostationary satellites (up, down, up, down). Why were the first transatlantic video calls so awkward, and why did undersea fibre cables win for telephone calls?</li>
+</ul>
+</lab>

@@ -1,0 +1,241 @@
+<h3>Rush hour in the dorm</h3>
+
+<p>Alice’s university room has Wi-Fi, and every morning it’s wonderful. Every evening, when two hundred students get back from lectures and start streaming, gaming and video calling their families, it’s hopeless. She rings Bob, who is feeling rather pleased with his new cable.</p>
+
+<dialogue>
+A: My Wi-Fi says five bars, and it’s slower than your old flashlight.
+B: Five bars is a strong signal. So it can’t be the radio?
+A: The signal isn’t the problem. The <em>air</em> is. There’s only so much of it, and everyone in this building is trying to talk into it at once.
+B: Like the shared wire in Chapter 8! Everyone on one cable, taking turns.
+A: Worse. On a cable you can at least hear a collision happening. In the air, you can’t.
+</dialogue>
+
+<p>Wi-Fi is Chapter 8’s shared cable, reborn as radio. Every device on a channel shares the same slice of the air, and only one can usefully talk at a time. It’s officially called <strong>IEEE 802.11</strong>, and “Wi-Fi” is the name its industry group chose in 1999, because it sounded friendlier. (It doesn’t stand for anything.) This chapter looks at how Wi-Fi takes turns, finds room in the air, and lets a laptop join a network securely.</p>
+
+<h3>Why the air is harder</h3>
+
+<p>On Chapter 8’s cable, a computer listened while it talked, and if the voltage looked wrong, it knew there’d been a collision and stopped at once. A radio can’t do that. Its own transmission, a few centimeters from its own antenna, is millions of times louder than anyone else’s, so while it’s talking it’s deaf to everything else. A Wi-Fi card can’t detect collisions. It has to <em>avoid</em> them, and when it can’t, find out afterwards.</p>
+
+<p>The method is called <strong>CSMA/CA</strong>: carrier sense, multiple access, with collision avoidance. It works like a polite dinner party:</p>
+
+<!-- @include src/figs/ch19-csmaca.svg -->
+
+<ul>
+<li><strong>Listen first.</strong> If anyone is talking, wait.</li>
+<li><strong>Don’t all pounce at once.</strong> When the channel goes quiet, everyone who was waiting would otherwise start together, so each one first counts down a random number of 9-microsecond slots.</li>
+<li><strong>Every frame is acknowledged.</strong> The receiver sends a tiny ACK straight back. No ACK means something went wrong, probably a collision, so try again.</li>
+<li><strong>Back off harder each time.</strong> After a failure, pick the random number from a range twice as big: 0 to 15 slots, then 31, 63, and up to 1,023. This is Chapter 8’s exponential backoff, used before sending instead of after a crash.</li>
+</ul>
+
+<p>It works, but it gets less efficient as more devices join in. The more of them there are, the more likely two pick the same random number:</p>
+
+<div data-widget="airtime"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Stations that can’t hear each other</h3>
+
+<p>Try the “can’t hear each other” box. Listening before talking only works if everyone can hear everyone, and in a house full of walls, they often can’t:</p>
+
+<!-- @include src/figs/ch19-hidden.svg -->
+
+<p>RTS and CTS cost a little time for every frame, so devices usually only bother for big frames, or when they notice lots of their frames going missing. There’s a clever detail in every Wi-Fi frame that makes this work: a <strong>duration</strong> field, saying how many microseconds the whole exchange will take, including the ACK. Anyone who hears a frame, even one that isn’t for them, stays quiet for that long. It’s called the <strong>network allocation vector</strong>, and it means a device can know the air is busy without actually hearing anyone.</p>
+
+<h3>The slow guest at the party</h3>
+
+<p>Now try the “far away” box. Device A is at the bottom of the garden, and its signal is so weak that it has to use the sparsest constellation (Chapter 17), so each of its frames takes eight times longer to send. CSMA/CA gives every device an equal chance to send a <em>frame</em>, not an equal share of <em>time</em>. So device A delivers about as many frames as the others, but hogs most of the air doing it, and everyone’s Wi-Fi slows to a crawl.</p>
+
+<think>
+<p>Bob’s mum watches videos on an old tablet at the bottom of the garden, where the Wi-Fi is weak. Every time she does, the voice chat on Bob’s laptop breaks up, even though her videos and his chat have nothing to do with each other. Why?</p>
+<p>Because they share the same air. The tablet is far away, so it uses the slowest, sparsest constellation, and each of its frames takes many times longer to send. CSMA/CA gives it just as many turns as Bob’s laptop, so most of the airtime goes to the tablet, and the laptop spends its time waiting. Network problems are rarely where you first look, which is why Chapter 38 is all about being a detective.</p>
+</think>
+
+<h3>Three addresses</h3>
+
+<p>An Ethernet frame has two addresses, “to” and “from”. A Wi-Fi frame usually has three, and here’s why:</p>
+
+<!-- @include src/figs/ch19-addresses.svg -->
+
+<p>The access point is a <strong>bridge</strong> (Chapter 18): Bob’s laptop is really sending to the router, but in the air, the frame has to be addressed to the access point, which is the only thing that will pick it up and pass it on. So a Wi-Fi frame carries the next hop in the air, the sender, and the final destination, plus two bits saying which way it’s going (“to the network” or “from the network”). The access point decrypts it, checks it, and sends it on as an ordinary Ethernet frame with just two addresses.</p>
+
+<p>That’s why <code>tcpdump</code> on a Wi-Fi card shows ordinary Ethernet frames: the card does the same translation itself, before the tap ever sees them.</p>
+
+<h3>Finding room in the air</h3>
+
+<p>Wi-Fi’s 2.4 GHz band is divided into 13 channels (11 in the US), numbered every 5 MHz. But each channel is 20 MHz wide, so neighboring channels overlap a lot. Only channels 1, 6 and 11 are far enough apart to leave each other alone. Here’s what Grandpa Otto’s Pi could hear from Bob’s house one evening:</p>
+
+<!-- @include src/figs/ch19-channels.svg -->
+
+<p>Nine networks in 2.4 GHz, from Bob’s house and the neighbors’. Everyone on channel 6 shares the air politely, using CSMA/CA, because they can decode each other’s frames and wait their turn. But the network on channel 3 is the worst possible neighbor: its signal overlaps channels 1 and 6, but can’t be decoded on either of them, so it just looks like noise to them. They can’t wait politely for it, and it can’t wait for them.</p>
+
+<p>The 5 GHz and 6 GHz bands have far more room, so their channels can be joined together into much wider ones: 40, 80, 160 and even 320 MHz. Bob’s router uses the 80 MHz block from channel 149 to 161, which it shares with one neighbor. Wider channels carry more bits (Shannon, again), but they also give the neighbors more to collide with.</p>
+
+<p>Here’s how the Pi saw Bob’s access point in its scan of the air:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo iw dev wlan0 scan
+BSS 14:c3:5e:40:0b:38(on wlan0) -- associated
+	freq: 5745.0
+	⟦1:beacon interval: 100 TUs⟧
+	capability: ESS ⟦2:Privacy⟧ SpectrumMgmt (0x0111)
+	signal: -38.00 dBm
+	SSID: HomeWiFi
+	Supported rates: 6.0* 9.0* 12.0* 18.0* 24.0* 36.0 48.0 54.0
+	⟦3:BSS Load:⟧
+		 * station count: 2
+		 * channel utilisation: 2/255
+	HT capabilities:
+		…
+		⟦4:HT RX MCS rate indexes supported: 0-15⟧
+	HT operation:
+		 * primary channel: 149
+		 * secondary channel offset: above
+	VHT capabilities:
+	…
+</terminal>
+
+<callouts>
+1 | A beacon every 100 “time units” of 1,024 microseconds: about ten a second.
+2 | You need a key to join (the details are further down, in the RSN section).
+3 | The access point announces how busy it is: two devices, and the channel is busy 2/255 of the time. In Alice’s dorm, this number is much higher.
+4 | Wi-Fi 4’s rate table goes up to MCS 15, which means this access point has two antennas, for two streams at once.
+</callouts>
+
+<h3>Five generations</h3>
+
+<p>Wi-Fi has been rebuilt every few years, and each version is backwards compatible with the ones before. In 2018 they were given friendlier numbers:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Name</th><th>Standard</th><th>Year</th><th>Fastest link</th><th>The big idea</th></tr>
+<tr><td>(none)</td><td>802.11b</td><td>1999</td><td>11 Mb/s</td><td>cheap enough for everyone</td></tr>
+<tr><td>(none)</td><td>802.11a/g</td><td>1999/2003</td><td>54 Mb/s</td><td>OFDM: many narrow subcarriers instead of one wide one</td></tr>
+<tr><td>Wi-Fi 4</td><td>802.11n</td><td>2009</td><td>600 Mb/s</td><td>MIMO: several antennas sending different streams at once</td></tr>
+<tr><td>Wi-Fi 5</td><td>802.11ac</td><td>2013</td><td>6.9 Gb/s</td><td>80 and 160 MHz channels, 256-QAM</td></tr>
+<tr><td>Wi-Fi 6/6E</td><td>802.11ax</td><td>2019</td><td>9.6 Gb/s</td><td>OFDMA: several devices share one transmission; the 6 GHz band</td></tr>
+<tr><td>Wi-Fi 7</td><td>802.11be</td><td>2024</td><td>46 Gb/s</td><td>320 MHz channels, 4096-QAM, several bands at once</td></tr>
+</table>
+</div>
+
+<p>Those top speeds need every trick at once, and nobody gets them at home. But you can work out your own link’s speed exactly. Bob’s laptop reported 702 Mb/s on Wi-Fi 5 in Chapter 17. Here’s where that number comes from:</p>
+
+<!-- @include src/figs/ch19-ofdm.svg -->
+
+<p><strong>OFDM</strong> (“orthogonal frequency-division multiplexing”) splits one wide channel into hundreds of narrow <strong>subcarriers</strong>, each sending its own slow stream of QAM symbols. A slow symbol is much less bothered by echoes from walls, which arrive a fraction of a microsecond late and would otherwise smear one fast symbol into the next. Wi-Fi 6 goes one step further with <strong>OFDMA</strong>: the access point can give different groups of subcarriers to different devices in the same transmission, so ten phones each sending a tiny message don’t need ten separate turns. That’s exactly what a crowded dorm needs.</p>
+
+<h3>Joining a network</h3>
+
+<p>When Alice opens her laptop in the library, it finds the university’s network and connects in well under a second. Here’s what happened:</p>
+
+<!-- @include src/figs/ch19-join.svg -->
+
+<p>The key handshake is the clever part. The password never goes over the air, not even scrambled. Instead, both sides turn the password into a long key, mix it with two fresh random numbers and both devices’ addresses, and get a new key that belongs to this laptop, on this connection, alone. Then each proves to the other that it got the same result. That’s why, back in Chapter 16, a sniffer in monitor mode could hear everyone’s frames but read none of them: each laptop’s frames are locked with its own key.</p>
+
+<p>There’s a catch, though. Anyone who records a handshake can take it home and try millions of guesses at the password, checking each one against the recording. A short password falls quickly. <strong>WPA3</strong>, from 2018, uses a different exchange (called SAE, or “dragonfly”) where a recording is useless, and every guess needs a new live conversation with the access point. We’ll see how clever exchanges like these work in Chapter 31.</p>
+
+<realworld>
+<p>Wi-Fi descends from ALOHAnet, the radio network from Hawaii in Chapter 8, and from a 1985 decision by the US government to let anyone use a few “junk” radio bands without a license. The 802.11 committee met for the first time in 1990, chaired by Vic Hayes, often called the father of Wi-Fi, and published the first standard in 1997, at 2 megabits per second.</p>
+<p>Wi-Fi’s security has a bumpy history. The original scheme, WEP, was so badly designed that by 2001 its key could be recovered by listening for a few minutes. WPA replaced it as an emergency fix in 2003, and WPA2 arrived in 2004. In 2017, a researcher named Mathy Vanhoef found a way to trick devices into reusing keys during the four-way handshake (the “KRACK” attack), which was fixed with software updates, and helped push WPA3 along.</p>
+</realworld>
+
+<h3>Listening to the air</h3>
+
+<p>To see the frames in this chapter for yourself (beacons, ACKs, RTS, the handshake), you need a card in <strong>monitor mode</strong>, which passes up every frame it hears, with a “radiotap” header of radio details in front: channel, signal strength and speed. On a Mac, hold the Option key, click the Wi-Fi icon in the menu bar, choose <em>Open Wireless Diagnostics</em>, then from its <em>Window</em> menu choose <em>Sniffer</em>. Pick a channel and press Start, and it saves a capture file in <code>/var/tmp</code>. (Your Wi-Fi is disconnected while it listens.) On Linux it depends on the card: many USB Wi-Fi adapters support monitor mode, but the Raspberry Pi’s built-in one doesn’t. The lab includes a sample capture, and a decoder for it.</p>
+
+<h3>What’s next?</h3>
+
+<p>That’s the link layer: frames, card addresses and switches, on copper, glass and air. It gets a frame from one device to another on the same network. Bob’s packets, though, need to go further: out through the router, across the internet, to a game server on another continent. In Chapter 20, we climb one layer up, to the addresses that make that possible: IPv4.</p>
+
+<lab>
+<p>Two programs. <code>wifi_sim.py</code> simulates CSMA/CA, slot by slot, to show what happens to crowded, hidden and slow devices. <code>air.py</code> decodes raw Wi-Fi frames from a monitor-mode capture.</p>
+
+<h4>1. Crowded air</h4>
+
+<terminal title="labs/ch19">
+$ cd labs/ch19
+$ python3 wifi_sim.py
+ stations  air used for data  attempts that collided  frames per second
+        2                71%                     11%              3,919
+        5                68%                     24%              3,757
+       10                64%                     33%              3,576
+       20                60%                     42%              3,346
+       50                54%                     54%              2,996
+$ python3 wifi_sim.py --stations 3 --show 110
+# = sending   x = sending, but colliding   r = RTS   . = quiet
+
+A  ........................................................####################..................................
+B  ......####################....####################............................................................
+C  ....................................................................................####################......
+</terminal>
+
+<p>With 50 busy devices, more than half of all attempts collide. Here’s the simulation’s heart: one slot at a time, every device either sends, freezes its countdown, or counts down:</p>
+
+<!-- @code labs/ch19/wifi_sim.py#sim -->
+
+<h4>2. Hidden and slow</h4>
+
+<terminal title="labs/ch19">
+$ python3 wifi_sim.py --stations 6 --hidden
+ stations  air used for data  attempts that collided  frames per second
+        6                39%                     56%              2,193
+…
+$ python3 wifi_sim.py --stations 6 --hidden --rts
+ stations  air used for data  attempts that collided  frames per second
+        6                62%                     33%              3,438
+…
+$ python3 wifi_sim.py --stations 4 --slow 1
+ stations  air used for data  attempts that collided  frames per second
+        4                24%                     20%              1,347
+
+   station A (slow, 8× longer frames):  1,137 frames delivered,  78% of the airtime, 0 given up
+   station B (normal):  1,023 frames delivered,   9% of the airtime, 0 given up
+   station C (normal):    768 frames delivered,   7% of the airtime, 0 given up
+   station D (normal):    708 frames delivered,   6% of the airtime, 0 given up
+</terminal>
+
+<p>Hidden stations waste more than half their attempts, until RTS/CTS makes their collisions short and cheap. And one slow device takes 78% of the air to deliver about a quarter of the frames. Wi-Fi 6’s OFDMA, and “airtime fairness” in better access points, exist to fix exactly this.</p>
+
+<h4>3. Frames from the air</h4>
+
+<terminal title="labs/ch19">
+$ python3 air.py --make-sample
+wrote air.pcap: 20 frames. Now try: python3 air.py air.pcap
+$ python3 air.py air.pcap
+  1  -40 dBm  ch 149  beacon from 14:c3:5e:40:0b:38: “HomeWiFi”, channel 149, WPA2 (password), Wi-Fi 5
+  2  -72 dBm  ch 3    beacon from 3c:7c:3f:12:34:56: “Flat 4B”, channel 3, WPA2 (password), Wi-Fi 4
+  3  -61 dBm  ch 6    beacon from a4:83:e7:65:43:21: “Cafe Guest”, channel 6, open, no password!, Wi-Fi 6
+  4  -64 dBm  ch 11   beacon from 00:1b:21:ab:cd:ef: “Neighbour”, channel 11, WPA3 (password), Wi-Fi 6
+  5  -58 dBm  ch 149  probe request from e2:5f:b1:3c:77:0a: “is anyone here?”
+  6  -40 dBm  ch 149  probe response from 14:c3:5e:40:0b:38: “HomeWiFi”, channel 149, WPA2 (password), Wi-Fi 5
+  7  -40 dBm  ch 149  ACK to 14:c3:5e:40:0b:38
+  8  -58 dBm  ch 149  authentication, step 1 of 2: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:38 (no password yet)
+  9  -40 dBm  ch 149  authentication, step 2 of 2: 14:c3:5e:40:0b:38 → e2:5f:b1:3c:77:0a (no password yet)
+ 10  -58 dBm  ch 149  association request: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:38
+ 11  -40 dBm  ch 149  association response: 14:c3:5e:40:0b:38 → e2:5f:b1:3c:77:0a: “welcome, you’re number 3”
+ 12  -40 dBm  ch 149  key exchange, message 1 of 4: 14:c3:5e:40:0b:38 → e2:5f:b1:3c:77:0a
+ 13  -58 dBm  ch 149  key exchange, message 2 of 4: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:38
+ 14  -40 dBm  ch 149  key exchange, message 3 of 4: 14:c3:5e:40:0b:38 → e2:5f:b1:3c:77:0a
+ 15  -58 dBm  ch 149  key exchange, message 4 of 4: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:38
+ 16  -58 dBm  ch 149  RTS: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:38
+ 17  -40 dBm  ch 149  CTS to e2:5f:b1:3c:77:0a
+ 18  -58 dBm  ch 149  data: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:32 (via 14:c3:5e:40:0b:38), encrypted
+ 19  -40 dBm  ch 149  ACK to e2:5f:b1:3c:77:0a
+ 20  -58 dBm  ch 149  data: e2:5f:b1:3c:77:0a → 14:c3:5e:40:0b:32 (via 14:c3:5e:40:0b:38), encrypted, a RETRY
+</terminal>
+
+<p>The sample is made up, but it’s built byte for byte to the real standard, so <code>tcpdump -r air.pcap -n</code> can read it too. Notice that the ACK in frame 7 doesn’t say who sent it. It doesn’t need to: it comes exactly 16 microseconds after the frame it acknowledges. And the “Cafe Guest” network has no password at all. The frames on an open network aren’t encrypted, so anyone nearby can read them.</p>
+
+<p>Management frames end with a list of “information elements”, each one a type, a length and a value. The network’s name is element 0, and its security settings are element 48:</p>
+
+<!-- @code labs/ch19/air.py#elements -->
+
+<p>Data frames use the “to the network” and “from the network” bits to say which address is which:</p>
+
+<!-- @code labs/ch19/air.py#frame -->
+
+<h4>Experiments</h4>
+<ul>
+<li>If you have a Mac, capture a minute of your own channel with the Wireless Diagnostics sniffer, convert it with <code>tcpdump -r in.pcap -w out.pcap</code> if needed, and run <code>python3 air.py out.pcap --networks</code>. How many networks can you hear? How many retries do you see?</li>
+<li>In <code>wifi_sim.py</code>, change <code>CW_MIN</code> from 15 to 3, then to 63. Which works better for 2 stations? For 50? Why can’t one number suit both?</li>
+<li>Make Wi-Fi 6’s OFDMA idea into a new mode: instead of one device per turn, let up to four devices whose countdowns reach zero in the same slot share the turn. How much does it help the 50-station case?</li>
+<li>With the Pi, run <code>iw dev wlan0 station dump</code> twice, a minute apart. How many frames did it fail to send (<code>tx failed</code>)? Do it again while something is streaming nearby.</li>
+</ul>
+</lab>

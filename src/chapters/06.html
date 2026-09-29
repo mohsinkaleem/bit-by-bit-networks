@@ -1,0 +1,250 @@
+<h3>What’s on the menu?</h3>
+
+<p>Carol now has a computer too, and she’s filling it with drawings, recipes and notes about bees. It isn’t connected to the wire yet (that’s a bigger job than it sounds, and it gets its own chapter), so for now Bob has offered to keep a copy of Carol’s pages on <em>his</em> computer, where Alice can reach them. Between the three of them there are dozens of files, and a familiar problem keeps coming up: <em>you can only fetch a file if you already know its name.</em></p>
+
+<p>The simplest fix is to let the server tell you. Bob’s cousin (who keeps upgrading everything) adds a new command to SERVE. When a client asks for <code>LIST</code>, SERVE replies with a plain text document that names every file it’s willing to share:</p>
+
+<msg title="SERVE’s reply to LIST /">
+status | OK
+header | Type: text/plain
+header | Length: 71
+body | index.mu
+body | report.mu
+body | schedule.mu
+body | school/        (a folder)
+body | volcano.png
+</msg>
+
+<p>Bob has started keeping files in <strong>folders</strong> (also called <strong>directories</strong>), so a file’s full name now includes the folders it’s in, separated by slashes: <code>/school/homework.mu</code>. The leading slash means “starting from the top folder”. A name like this is called a <strong>path</strong>, because it’s the route you follow through the folders to reach the file.</p>
+
+<p>Bob also adds one small convenience. If you ask for a folder instead of a file, SERVE sends back a file called <code>index.mu</code> from that folder, if there is one. That gives every folder a sort of front page. Asking for <code>/</code> gets Bob’s front page.</p>
+
+<h3>Documents that point at each other</h3>
+
+<p>A list of files is better than nothing, but Bob’s report still ends with “see SCHEDULE”, and Alice still has to go and fetch it by hand. What if the report could point at the schedule in a way that a program understands?</p>
+
+<p>To do that, the document needs two kinds of text mixed together: the words meant for people, and little instructions meant for the program displaying it. We need a way to tell them apart. We’ll use angle brackets: anything between <code>&lt;</code> and <code>&gt;</code> is an instruction, called a <strong>tag</strong>. Everything else is ordinary text. Our first few tags:</p>
+
+<ul>
+<li><code>&lt;title&gt;…&lt;/title&gt;</code>: the document’s title</li>
+<li><code>&lt;h&gt;…&lt;/h&gt;</code>: a heading, shown big</li>
+<li><code>&lt;b&gt;…&lt;/b&gt;</code>: bold</li>
+<li><code>&lt;link to="schedule.mu"&gt;…&lt;/link&gt;</code>: the words in between are a <strong>link</strong>. Selecting them should fetch <code>schedule.mu</code>.</li>
+<li><code>&lt;image src="volcano.png"&gt;</code>: show a picture here (fetched from <code>volcano.png</code>)</li>
+</ul>
+
+<p>A tag that starts something has a matching tag with a slash that ends it. Text written this way is called <strong>markup</strong>, since it’s “marked up” with instructions, and we’ll give it its own media type, <code>text/markup</code>, with file names ending in <code>.mu</code>. Here’s Bob’s report, before and after:</p>
+
+<div class="side-by-side">
+<div><div class="panel-head">what the file contains</div>
+<pre><span class="tag">&lt;title&gt;</span>Book report<span class="tag">&lt;/title&gt;</span>
+<span class="tag">&lt;h&gt;</span>Book report: Treasure Island<span class="tag">&lt;/h&gt;</span>
+by <span class="tag">&lt;b&gt;</span>Bob<span class="tag">&lt;/b&gt;</span>
+
+Jim Hawkins finds a map, a ship
+full of pirates, and a parrot...
+
+See the <span class="tag">&lt;link to="schedule.mu"&gt;</span>schedule<span class="tag">&lt;/link&gt;</span>
+for when we present.</pre></div>
+<div><div class="panel-head">what Alice sees</div>
+<div class="rendered"><h4>Book report: Treasure Island</h4>by <b>Bob</b><br><br>Jim Hawkins finds a map, a ship full of pirates, and a parrot…<br><br>See the <a href="#documents-that-point-at-each-other">schedule</a> for when we present.</div></div>
+</div>
+
+<p>The file itself is still just text, so you can write it in any editor. What makes it come alive is a program that understands the tags.</p>
+
+<h3>A program for following links</h3>
+
+<p>That program is a <strong>browser</strong>. Alice’s cousin writes one, and it does four things over and over:</p>
+
+<ol>
+<li><strong>Fetch</strong> a document from a server.</li>
+<li><strong>Display</strong> it, following the tags: big headings, bold words, pictures in place, links underlined.</li>
+<li><strong>Wait</strong> for Alice to pick a link.</li>
+<li>Work out what the link points to, and go back to step 1.</li>
+</ol>
+
+<p>It also remembers where Alice has been, so a <strong>Back</strong> button can take her to the previous page. That’s it. Alice can now start at Bob’s front page and wander through everything he’s shared without typing a single file name.</p>
+
+<p>There’s one surprise hiding in step 2. A picture isn’t <em>inside</em> the markup document; the <code>&lt;image&gt;</code> tag only says where to find it. So when the browser comes across an image tag, it makes a whole separate request to fetch the picture. A page with ten pictures takes eleven requests. Step through a visit to Bob’s page:</p>
+
+<!-- @include src/figs/ch06-pageload.svg -->
+
+<p>That last trick, where the server says “it moved, look over there instead”, is called a <strong>redirect</strong>. It lets Bob rearrange his folders without breaking every link that points at his old ones.</p>
+
+<h3>Links to other computers</h3>
+
+<p>Bob’s schedule wants to link to Alice’s volcano notes and Carol’s page about bees, and those live on <em>other computers</em>. A link that just says <code>volcanoes.mu</code> would send the browser looking for that file on Bob’s computer.</p>
+
+<p>So a full link needs to say which computer too. And while we’re at it, it should say which protocol to use, in case we invent others later. The three pieces get squashed into one string:</p>
+
+<!-- @include src/figs/ch06-url.svg -->
+
+<p>This string is called a <strong>URL</strong>, for Uniform Resource Locator. We’re calling our protocol the <strong>Tangled Text Protocol</strong>, so our URLs start with <code>ttp://</code>. The host names (<code>alice</code>, <code>bob</code>, <code>carol</code>) are just the computers’ names for now. How a name turns into an actual machine on a big network is a whole story of its own, told in Chapter 14.</p>
+
+<p>Links in a document can come in three flavors:</p>
+
+<ul>
+<li><strong>Absolute</strong>, like <code>ttp://carol/bees.mu</code>: a completely different computer.</li>
+<li><strong>Root-relative</strong>, like <code>/index.mu</code>: the same computer, starting from its top folder.</li>
+<li><strong>Relative</strong>, like <code>schedule.mu</code>: the same computer and the same folder as the current page.</li>
+</ul>
+
+<p>Relative links are handy: Bob can move his whole <code>school</code> folder somewhere else, and the links between the files inside it keep working.</p>
+
+<h3>A web of documents</h3>
+
+<p>Something interesting happens once Alice, Bob and Carol start linking to each other’s pages. Nobody is in charge of the overall structure. Each of them just adds links to whatever they find useful. But put all those links together and the documents form a tangled, growing <strong>web</strong>, spread across all their computers:</p>
+
+<!-- @include src/figs/ch06-web.svg -->
+
+<p>That lack of a plan is its greatest strength. Anybody can add a page and link to anything, without asking permission. The price is <strong>broken links</strong>: when Carol deleted her old drawings page, the link on her front page kept pointing at it. Nothing checks links ahead of time. You only find out a link is broken when you follow it and the server says it can’t find the page.</p>
+
+<h3>Say it with numbers</h3>
+
+<p>Speaking of which: our replies have been saying <code>OK</code> and <code>NOT FOUND</code> in words. Now that browsers need to react automatically (following redirects, showing a sensible error page), it helps to use numbers. A browser can compare numbers reliably, and a number can come with a word attached for humans. We give every reply a three-digit <strong>status code</strong>, grouped by the first digit:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Code</th><th>Meaning</th><th>Examples</th></tr>
+<tr><td><code>2xx</code></td><td>Success: here you go</td><td><code>200 OK</code></td></tr>
+<tr><td><code>3xx</code></td><td>Go somewhere else</td><td><code>301 Moved Permanently</code> (plus a <code>Location</code> header)</td></tr>
+<tr><td><code>4xx</code></td><td>You asked for something wrong</td><td><code>404 Not Found</code>, <code>400 Bad Request</code></td></tr>
+<tr><td><code>5xx</code></td><td>The server broke, not your fault</td><td><code>500 Internal Server Error</code></td></tr>
+</table>
+</div>
+
+<p>A browser that has never seen a particular code can still act sensibly just by looking at the first digit. A <code>418</code> is some kind of mistake on your end, whatever else it means.</p>
+
+<h3>The browser talks too</h3>
+
+<p>So far the browser’s request has been a single line. But the server could do a better job if it knew a little more about who’s asking, so the request grows headers too, just like the reply did in Chapter 5. Here’s a complete conversation in the Tangled Text Protocol:</p>
+
+<msg title="the browser’s request">
+request | GET /report.mu TTP/1
+header | Host: bob
+header | Accept: text/markup, image/png
+header | User-Agent: alices-browser/1.0
+blank | (blank line)
+</msg>
+
+<msg title="the server’s reply">
+status | TTP/1 200 OK
+header | Type: text/markup
+header | Length: 312
+blank | (blank line)
+body | &lt;title&gt;Book report&lt;/title&gt; …
+</msg>
+
+<ul>
+<li>The first line is the <strong>method</strong> (<code>GET</code>), the path, and the protocol version. Putting the version in means we can change the protocol later without confusing old programs.</li>
+<li><code>Host</code> says which site the browser meant. That sounds redundant, since the request already arrived at a particular computer. But it lets one computer serve several sites, and that’s exactly what Bob is doing for Carol right now. Requests for <code>ttp://carol/…</code> and <code>ttp://bob/…</code> both arrive at Bob’s computer, and <code>Host</code> tells his server which folder to look in.</li>
+<li><code>Accept</code> lists the kinds of data the browser can handle.</li>
+<li><code>User-Agent</code> says which browser is asking. It’s mostly useful to the server for keeping statistics.</li>
+</ul>
+
+<p>Now take it for a spin. This browser has its lid off: click around, and watch the requests and replies go by underneath. Try the homework link (a redirect), Carol’s old drawings (a broken link), and Bob’s front page (count the requests):</p>
+
+<div data-widget="browser"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<realworld>
+<p>You have, of course, just reinvented the World Wide Web. In 1989, Tim Berners-Lee, a software engineer at CERN, the physics laboratory near Geneva, proposed a system to help researchers find each other’s documents. By the end of 1990 he had written the three pieces you just built:</p>
+<ul>
+<li><strong>HTML</strong> (HyperText Markup Language), our markup. In real HTML, a link is <code>&lt;a href="…"&gt;</code>, a heading is <code>&lt;h1&gt;</code>, and an image is <code>&lt;img src="…"&gt;</code>.</li>
+<li><strong>HTTP</strong> (HyperText Transfer Protocol), our TTP. Real requests start with <code>GET /report.html HTTP/1.1</code> and carry <code>Host</code>, <code>Accept</code> and <code>User-Agent</code> headers. The reply’s headers are <code>Content-Type</code> and <code>Content-Length</code>.</li>
+<li><strong>URLs</strong>, like <code>https://www.example.com/docs/intro.html</code>.</li>
+</ul>
+<p>The ideas were older still. In 1945, Vannevar Bush imagined a desk-sized machine called the Memex for following trails between documents, and Ted Nelson coined the word <em>hypertext</em> in the 1960s. The web’s trick was to make it simple enough that anyone could put up a server.</p>
+<p>A modern web page is our <code>&lt;image&gt;</code> problem on a massive scale: a typical page makes around 70 separate requests, for pictures, fonts, style sheets and scripts. A lot of the engineering in Chapters 30 and 33 is about making all those requests faster.</p>
+<p>And no, the <code>404</code> code isn’t named after a room at CERN where the web’s servers lived. That’s a popular myth. The status codes were simply designed in numbered groups, like ours.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Alice, Bob and Carol now have a little web of their own. They can browse each other’s documents, follow links from computer to computer, and see pictures on the page. But every document is a fixed file sitting on a disk. It says exactly the same thing to everyone, every time, until someone edits it.</p>
+
+<p>Bob has an idea for a page that’s different every time you look at it: his thermometer’s current reading. Carol wants a page where visitors can leave messages. Neither can be a file on a disk, because nobody knows what it should say until somebody asks. In the next chapter, we teach servers to write documents on the spot.</p>
+
+<lab>
+<p>This lab gives you the whole web from this chapter: a server that hosts all three computers’ sites (each folder in <code>sites/</code> is one computer), a browser that runs in your terminal, and one surprise at the end.</p>
+
+<h4>1. Start the server</h4>
+
+<!-- @code labs/ch06/webserver.py#handle -->
+
+<terminal title="terminal 1">
+$ cd labs/ch06
+$ python3 webserver.py
+serving alice, bob, carol on port 7006. Ctrl+C to stop.
+</terminal>
+
+<h4>2. Browse, in the terminal</h4>
+
+<p>Our browser is about 150 lines. The two most important pieces work out where a link points, and fetch a URL, following redirects:</p>
+
+<!-- @code labs/ch06/browser.py#url -->
+<!-- @code labs/ch06/browser.py#fetch -->
+
+<terminal title="terminal 2">
+$ python3 browser.py
+════════════════════════════════════════════════════════════════
+ Bob's corner of the web   ttp://bob/index.mu
+════════════════════════════════════════════════════════════════
+WELCOME TO BOB'S COMPUTER!
+Things you can read here:
+- my book report[1] (due Tuesday)
+- the class schedule[2]
+- my homework notes[3]
+- Carol's page[4] has recipes and bees
+- Alice's page[5]
+[picture: /volcano.png, image/png, 944 bytes]
+(Volcano by Carol.)
+────────────────────────────────────────────────────────────────
+2 request(s) for this page
+
+link number, b(ack), g <url>, r(eload), q(uit)> 3
+</terminal>
+
+<p>Follow links by number and watch the server’s log in terminal 1. Then restart the browser with <code>-v</code> to see every request and reply in full. Things to find:</p>
+<ul>
+<li>Following link 3 takes <em>two</em> requests. Why? Find both of them in the server log.</li>
+<li>Go to Carol’s page and follow her old drawings link. What does the server log say?</li>
+<li>Type <code>g ttp://bob/volcano.png</code>. What does the browser do with a picture it can’t display?</li>
+</ul>
+
+<h4>3. Write a page</h4>
+
+<p>Create <code>sites/alice/about.mu</code> with a title, a heading, some bold text, and links to at least one page on each of the other two computers. Add a link to it from <code>sites/alice/index.mu</code>. You don’t need to restart the server; it reads files fresh on every request. Now visit it with <code>g ttp://alice/index.mu</code>.</p>
+
+<p>Then make Bob’s old path <code>/report.mu</code> redirect somewhere new: move the file into <code>sites/bob/school/</code> and add an entry to the <code>MOVED</code> table at the top of <code>webserver.py</code>. Do the links on Bob’s front page still work?</p>
+
+<h4>4. The surprise</h4>
+
+<p>With <code>webserver.py</code> still running, open this in your normal web browser (Safari, Chrome, anything):</p>
+
+<terminal>
+$ open http://localhost:7006/
+</terminal>
+
+<p>That’s your server, showing Bob’s page with Carol’s volcano, and all the links work. Our Tangled Text Protocol is so close to real HTTP that the server needed only a few extra lines (look at the bottom of <code>webserver.py</code>) to answer a real browser: turn <code>TTP/1</code> into <code>HTTP/1.0</code>, rename <code>Type</code> and <code>Length</code> to <code>Content-Type</code> and <code>Content-Length</code>, end lines with CR LF, and translate our tags into HTML. Watch terminal 1 while you click; the real browser’s requests show up marked <code>HTTP</code>.</p>
+
+<p>You can also see the real HTTP request your browser sends, headers and all, using <code>nc</code> as a fake server. Stop <code>webserver.py</code> first (Ctrl+C), then:</p>
+
+<terminal>
+$ nc -l 7006
+# now visit http://localhost:7006/hello in your browser; the request appears here:
+GET /hello HTTP/1.1
+Host: localhost:7006
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) …
+Accept: text/html,application/xhtml+xml,…
+…
+</terminal>
+
+<p>Compare it with the TTP request earlier in this chapter. It has the same shape: a method, a path, a version, then headers and a blank line. (The browser will sit there waiting for an answer that never comes; press Ctrl+C in the terminal to end it.)</p>
+
+<h4>Stretch goals</h4>
+<ul>
+<li>Our browser fetches every image, even though it can only print a line about it. Add a cache: remember the bytes of images it has already fetched, and don’t fetch them again. How many requests does going back to Bob’s front page take now? What goes wrong if Bob changes the picture?</li>
+<li>Add a <code>LIST</code> feature to <code>webserver.py</code>: if someone asks for a folder that has no <code>index.mu</code>, generate a markup page listing its files as links.</li>
+<li>Write a “spider”: a program that starts at <code>ttp://bob/index.mu</code>, follows every link it finds, and prints a list of all the pages it can reach and all the broken links. Congratulations, you’ve written the core of a search engine.</li>
+</ul>
+</lab>

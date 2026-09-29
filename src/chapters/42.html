@@ -1,0 +1,170 @@
+<h3>Eve’s hard disk</h3>
+
+<p>Eve has a new hobby, and a new, very large hard disk.</p>
+
+<dialogue>
+E: Remember Chapter 31? You locked me out of everything. I couldn’t read a single word.
+B: Good.
+E: I kept the recordings anyway. Four terabytes of your encrypted life. Every video call, every message, every search.
+B: Why? You can’t read them.
+E: Not today. But every one of them starts with an X25519 key exchange, and a big enough quantum computer can undo X25519. The day someone builds one, I get to find out what you said.
+A: Harvest now, decrypt later. It’s a real worry: for medical records, for government secrets, for anything that has to stay private for twenty years.
+B: How long have we got?
+A: Nobody knows. Maybe ten years. Maybe thirty. Maybe never. But the fix has to be in place before the computer exists, not after.
+E: Your poetry won’t age well either way.
+A: And the good news is, the fix is already here. Bob’s been using it for months without noticing.
+</dialogue>
+
+<p>Chapter 31’s cryptography rests on maths problems that ordinary computers can’t solve in any reasonable time. A quantum computer is a different kind of machine, and for two of those problems, it would change everything. This chapter is about the new locks that replace them, and how they’re already being fitted, one handshake at a time.</p>
+
+<h3>What a quantum computer would break</h3>
+
+<!-- @include src/figs/ch42-harvest.svg -->
+
+<p>An ordinary computer works on bits that are each 0 or 1. A quantum computer works on <strong>qubits</strong>, which can be in a blend of both at once, and can be linked so that a calculation explores many possibilities together, with the wrong answers cancelling each other out. That doesn’t make it faster at everything; for most jobs it’s no use at all. But for a few special problems it’s spectacularly better.</p>
+
+<p>Unfortunately, two of those problems are the ones public-key cryptography is built on. In 1994 the mathematician Peter Shor showed that a quantum computer could quickly find the factors of a big number (which breaks RSA) and solve the “discrete logarithm” problem (which breaks Diffie-Hellman, X25519, and every elliptic-curve signature). Symmetric ciphers and hashes are much better off: the best quantum trick against them, Grover’s algorithm, only turns a search through 2<sup>128</sup> keys into something like 2<sup>64</sup> steps, which longer keys fix.</p>
+
+<!-- @include src/figs/ch42-breaks.svg -->
+
+<p>Nobody has a quantum computer that can do this yet. Today’s machines have hundreds or a few thousand qubits, which make errors constantly; the latest estimates are that breaking RSA-2048 would take something like a million of them, working together for about a week. Whether that’s ten years away or much further is argued about. But look again at the red column. Every HTTPS connection in Part II began with one of those.</p>
+
+<h3>Locks made of noise</h3>
+
+<p>In 2016, the US standards agency NIST started a public contest for replacements, and cryptographers all over the world spent years attacking each other’s entries. In August 2024 it published the winners as standards: <strong>ML-KEM</strong> (FIPS 203) for agreeing on keys, and <strong>ML-DSA</strong> (FIPS 204) and <strong>SLH-DSA</strong> (FIPS 205) for signatures. ML-KEM and ML-DSA are built on <strong>lattices</strong>:</p>
+
+<!-- @include src/figs/ch42-lattice.svg -->
+
+<p>Here’s the idea underneath ML-KEM, called <strong>learning with errors</strong>. Take a set of simple equations, like the ones from school: <em>3x + 5y = 16</em>, <em>7x + 2y = 21</em>. With enough of them, you can find <em>x</em> and <em>y</em> easily, however many unknowns there are. Now add a little random noise to every answer: <em>3x + 5y = 17</em>, <em>7x + 2y = 19</em>. Suddenly, with hundreds of unknowns and arithmetic that wraps around (everything is counted modulo 3,329), there’s no known way to find them, not even with a quantum computer. The noise is the lock.</p>
+
+<p>In ML-KEM, Alice’s secret is a list of small numbers, <em>s</em>. She publishes a big random matrix <em>A</em> and the noisy result <em>t = A·s + e</em>, where <em>e</em> is more small noise. That’s her public key, and working <em>s</em> out from it is exactly the hard problem. To send her a secret, Bob mixes his own small random numbers with <em>A</em> and <em>t</em>, and adds his message on top, each bit either near 0 or near halfway round (1,665). Alice, knowing <em>s</em>, can subtract away nearly everything, leaving each bit plus a little leftover noise. Near 0 means a 0; near halfway means a 1:</p>
+
+<div data-widget="noiseclock"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>ML-KEM from scratch</h3>
+
+<p>This chapter’s <code>mlkem.py</code> is ML-KEM-768 in plain Python, straight from FIPS 203, in about 200 lines. The numbers are polynomials with 256 coefficients, and multiplying them is the slow part, so it uses a <em>number-theoretic transform</em>, a cousin of the Fourier transform, to turn each multiplication into 128 little ones. The heart of it is the public-key encryption, three short functions:</p>
+
+<!-- @code labs/ch42/mlkem.py#pke -->
+
+<p>Around that, ML-KEM itself adds a clever safety net. Bob doesn’t choose the secret directly; he picks a random message and derives the secret, and his randomness, from it. When Alice decrypts, she re-encrypts the message herself and checks that she gets exactly the ciphertext Bob sent. If anyone has tampered with it, she quietly produces a useless random secret instead, which gives an attacker no clue about what went wrong:</p>
+
+<!-- @code labs/ch42/mlkem.py#kem -->
+
+<terminal title="Bob’s MacBook">
+$ python3 mlkem.py
+Alice's encapsulation key (public): ⟦1:1,184 bytes⟧   a071c82c461e3d380fd02c34…   (3 ms)
+Alice's decapsulation key (secret): 2,400 bytes
+Bob's ciphertext:                   ⟦2:1,088 bytes⟧   80311bf059dbf269c6db77b0…   (3 ms)
+the secret Bob locked up:           47a41d297f891dcfb17dfa43e54f661e02fc946525f562ca7971d41311c564c9
+the secret Alice unlocked:          47a41d297f891dcfb17dfa43e54f661e02fc946525f562ca7971d41311c564c9   (4 ms)
+…and from a ciphertext with one bit flipped: ⟦3:c2baeefc5a325d729395ecf5afab58cb4369f602bbb93dfaf63fbc404d841950⟧
+$ python3 mlkem.py --openssl
+1. the same seed gives the same encapsulation key as OpenSSL's: ⟦4:True⟧
+2. OpenSSL locks up a secret; we unlock it:  True   (25a7f88d5325e8c5abcaaaaf3fbaae04…)
+3. we lock up a secret; OpenSSL unlocks it:  True   (a3e54078418a9db47521de30417c7c39…)
+</terminal>
+
+<callouts>
+1 | Compare X25519’s public key: 32 bytes. Post-quantum keys are much bigger.
+2 | And the “ciphertext” is Bob’s half of the exchange: 1,088 bytes, where X25519 needs 32.
+3 | Tampering doesn’t crash anything or produce an error message: just a secret that won’t match Bob’s, so the connection’s first encrypted message fails to decrypt (Chapter 32’s Finished check).
+4 | OpenSSL is written by completely different people. Agreeing with it, byte for byte, in both directions, is good evidence our code follows the standard.
+</callouts>
+
+<p>And it’s quick, even in Python: a few milliseconds each. Speed was never ML-KEM’s problem. Size is.</p>
+
+<h3>Belt and braces: hybrid key exchange</h3>
+
+<p>ML-KEM is new, and new cryptography sometimes turns out to have weaknesses nobody spotted (one of NIST’s other candidates, SIKE, was broken in 2022 by two researchers with an ordinary laptop, in about an hour). So instead of replacing X25519, TLS does both at once, and uses both secrets. That’s <strong>X25519MLKEM768</strong>, the “group” Chapter 32’s <code>openssl</code> experiment spotted. To learn the key, an attacker has to break X25519 <em>and</em> ML-KEM.</p>
+
+<!-- @include src/figs/ch42-hybrid.svg -->
+
+<p>Adding it to Chapter 32’s TLS client takes a dozen lines. Everything else stays exactly the same: the key schedule, the certificates, the records. Only the key share changes:</p>
+
+<!-- @code labs/ch42/pqtls.py#hybrid -->
+
+<terminal title="Bob’s MacBook">
+$ python3 pqtls.py example.org
+TCP connected to example.org (172.66.157.237) port 443
+
+→ ClientHello             ⟦1:1375 bytes⟧  offers TLS 1.3, ChaCha20-Poly1305, X25519MLKEM768; SNI example.org
+← ServerHello             1210 bytes  suite 0x1303, version 0x0304, server's X25519MLKEM768 key 200398146aa9…
+
+  shared secret (X25519MLKEM768): ⟦2:2edc0d46d72af0d19f8423d91bfe7a6a5df03bd47823eb653dd100daa1479795d42b797452da14d8b0b624855268798e579c64859d83eb21a1314d5a8337bc68⟧
+  handshake keys derived. From now on, everything the server sends is encrypted.
+
+← (change_cipher_spec)       1 bytes  meaningless: only there to calm old middleboxes
+← EncryptedExtensions       25 bytes  (decrypted) ALPN: http/1.1
+← Certificate             3688 bytes  (decrypted) a chain of 4 certificates
+        #0 example.org  (issued by Cloudflare TLS Issuing ECC CA 3, ECDSA P-256, until 2026-12-25)
+        …
+← CertificateVerify         79 bytes  (decrypted) signature scheme 0x0403: VALID: the server has the private key for that certificate
+← Finished                  36 bytes  (decrypted) ⟦3:matches: nobody tampered with the handshake⟧
+…
+HTTP/1.1 200 OK
+</terminal>
+
+<callouts>
+1 | Chapter 32’s ClientHello was 191 bytes. Now it’s 1,375, nearly a whole packet, almost all of it ML-KEM’s public key.
+2 | 64 bytes: ML-KEM’s 32-byte secret, then X25519’s.
+3 | The proof it all worked. The server’s Finished message is keyed from the shared secret; if our ML-KEM had produced even one wrong bit, this check would fail.
+</callouts>
+
+<p>Google and Cloudflare’s own sites accepted it too. How far has the change spread? A quick survey from Bob’s MacBook, offering the hybrid first, on 28 September 2026:</p>
+
+<table class="data">
+<tr><th>agreed X25519MLKEM768</th><td>example.org, google.com, youtube.com, cloudflare.com, facebook.com, wikipedia.org, bbc.co.uk, python.org, amazon.com, apple.com, microsoft.com, gov.uk</td></tr>
+<tr><th>stayed with X25519</th><td>github.com, netflix.com</td></tr>
+</table>
+
+<p>Twelve of fourteen. The browsers moved first: Chrome turned hybrid key exchange on by default in 2024, and the others followed, so a large share of the web’s traffic is already safe from Eve’s future computer, and most people have no idea.</p>
+
+<p>The size did cause trouble. A ClientHello that used to fit easily in one packet now nearly fills one, and a browser offering several key shares at once spills into two. When Chrome first turned it on, some old firewalls and middleboxes (Chapter 34) broke, because they assumed a ClientHello always arrived in a single packet. Chrome kept it on; the boxes got fixed. It’s Chapter 32’s “ossification” problem again.</p>
+
+<h3>The harder half: signatures</h3>
+
+<p>There’s good news about signatures: they’re less urgent. A recorded key exchange can be broken years later, but a signature only has to be unforgeable at the moment someone checks it. Nobody can go back and forge last year’s handshake. So the key exchange had to move first, and it has; certificates can follow.</p>
+
+<p>But they’re harder to move, because post-quantum signatures are big:</p>
+
+<!-- @include src/figs/ch42-sizes.svg -->
+
+<p>Every TLS handshake carries several: one in each certificate in the chain, plus the server’s CertificateVerify, and each certificate also holds a public key. example.org’s whole Certificate message above was 3,688 bytes. With ML-DSA-65 throughout, the same four certificates would come to over 20 kB. Remember TCP’s initial window (Chapter 28): a new connection can send about 14 kB before it must wait for an acknowledgement, so certificates that size cost an extra round trip on every new connection. So the web is working out ways to send fewer signatures: caching the certificates a browser has already seen, or new kinds of certificates that prove their place in a public log with a short list of hashes instead of a chain of signatures.</p>
+
+<think>
+<p>SLH-DSA’s public key is only 32 bytes, but its signatures are enormous. Why would anyone choose it?</p>
+<p>Because of what it’s built on. SLH-DSA uses nothing but a hash function (like SHA-256): its signatures are made of huge trees of hashes. If hash functions stay safe, and they’re the best-studied, most conservative tools in cryptography, so does SLH-DSA. ML-DSA depends on lattice problems being hard, which is newer mathematics. For a signature that must stay trustworthy for decades, like the one that checks a spacecraft’s or a car’s software updates, a few extra kilobytes are a small price for that certainty.</p>
+</think>
+
+<realworld>
+<p>Before anyone switched the web, there were experiments. Google tried a post-quantum key exchange in Chrome in 2016, and Google and Cloudflare ran a bigger experiment in 2019. Signal added post-quantum key agreement to its messaging protocol in 2023, and Apple to iMessage in 2024; OpenSSH made a hybrid of ML-KEM and X25519 its default key exchange in 2025. The migration isn’t only a software change: every system that stores or checks keys, from smart cards to satellites to the Mars rovers of the last chapter, has to be updated, and some of it was never designed to be.</p>
+<p>There’s also a completely different idea, with “quantum” in its name: <em>quantum key distribution</em>, which sends keys as single particles of light, so that eavesdropping disturbs them detectably. It needs special hardware at both ends of a dedicated fibre or satellite link, and it only agrees keys; it doesn’t prove who you’re talking to. For the internet, the plan is the maths in this chapter: new locks, running on the computers we already have.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Look back at what Bob’s computer fetched in this chapter: the same page from example.org, again, from a server hundreds of kilometres away. Millions of people fetch it; each time, the same bytes cross the same cables. The next chapter asks: what if the network could recognise <em>what</em> you asked for, instead of only <em>where</em> it lives, and hand you a copy from the nearest place that has one?</p>
+
+<lab>
+<p>Two programs, for macOS or Linux, standard library only. <code>mlkem.py --openssl</code> needs OpenSSL 3.5 or newer (<code>openssl version</code>). <code>pqtls.py</code> uses Chapter 31’s and Chapter 32’s labs: keep the <code>ch31</code>, <code>ch32</code> and <code>ch42</code> folders side by side.</p>
+
+<h4>1. ML-KEM</h4>
+
+<p><code>python3 mlkem.py</code>, then <code>python3 mlkem.py --openssl</code>. The fast multiplication, if you want to see how it works:</p>
+
+<!-- @code labs/ch42/mlkem.py#ntt -->
+
+<h4>2. A post-quantum HTTPS client</h4>
+
+<p><code>python3 pqtls.py example.org</code>, <code>python3 pqtls.py www.google.com /robots.txt</code>, and sites of your own choosing. What happens with one that doesn’t support X25519MLKEM768? (Chapter 32’s <code>HelloRetryRequest</code>.)</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>In the noise clock, how much noise does it take before bits start coming out wrong? ML-KEM-512 and ML-KEM-1024 use different sizes of matrix and noise. Why might a bigger matrix allow the same noise to be more secure?</li>
+<li>Flip one bit of the ciphertext in <code>mlkem.py</code>, and check that <code>decaps</code> gives a random-looking secret. Now remove the re-encryption check: what could an attacker learn by sending many carefully altered ciphertexts and watching whether the connection works?</li>
+<li>Run <code>openssl s_client -connect example.org:443 -groups X25519MLKEM768 -brief</code> and then with <code>-groups X25519</code>. Capture both with <code>tcpdump</code> (Chapter 16). How many packets does each ClientHello take?</li>
+<li>Make an ML-DSA-65 key and sign a file (the Field Guide shows how). How big is the signature? Now make a self-signed certificate with it (<code>openssl req -x509 -new -key sig.pem -subj /CN=test -out cert.pem</code>) and compare its size with an ECDSA one.</li>
+<li>Pick a site from the survey that stayed with X25519. Is it still the same today?</li>
+</ul>
+</lab>

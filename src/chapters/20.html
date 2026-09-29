@@ -1,0 +1,240 @@
+<h3>Home for the weekend</h3>
+
+<p>Alice is home for the weekend. Her laptop joins the home Wi-Fi without her touching anything, and Bob, who now checks the router’s device list the way other people check the weather, notices the new arrival.</p>
+
+<dialogue>
+B: You’re 192.168.1.7. At university you said you were 10.something.
+A: 10.23.147.8, in the library. At the café on the corner I’m 172.16.5.20.
+B: So your address changes every time you move. And the router’s settings page says <code>192.168.1.0/24</code>. What’s the slash for?
+A: It says where the network part of the address ends. In Chapter 11 we split our addresses neatly at a dot: network 4, host 2. Real addresses can be split anywhere.
+B: And why is everyone’s house 192.168.1-something? Mine, Grandpa’s, my friend’s…
+A: Because there aren’t enough addresses to go round. That’s a story for this chapter <em>and</em> the next two.
+</dialogue>
+
+<p>In Chapter 11, we invented network addresses with two parts: a network number, which routers use to find the right neighborhood, and a host number, for the one computer within it. The real internet’s addresses work the same way. This chapter looks at <strong>IPv4</strong>, the version of the Internet Protocol that has carried nearly all of the internet’s traffic since 1983: its addresses, how networks are carved out of them, and the 20-byte header on the front of every packet.</p>
+
+<h3>Four numbers and a slash</h3>
+
+<p>An IPv4 address is 32 bits long. Nobody wants to read 32 ones and zeros, so it’s written as four bytes, each in decimal, with dots between: <code>192.168.1.3</code>. That’s the whole trick behind the “dotted quad”. Each part is a byte, so each is between 0 and 255.</p>
+
+<p>The number after the slash is the <strong>prefix length</strong>: how many bits, from the left, are the network part. The rest are the host part. Every computer can work out its own network with a single operation:</p>
+
+<!-- @include src/figs/ch20-and.svg -->
+
+<p>This way of writing networks is called <strong>CIDR</strong> (“classless inter-domain routing”, from 1993; we’ll see what the classes were in a moment). The same network is sometimes written with a <strong>netmask</strong> instead, especially on older systems: <code>192.168.1.0</code> with netmask <code>255.255.255.0</code> is exactly <code>192.168.1.0/24</code>.</p>
+
+<p>Two addresses in every network are special. The one with every host bit set to 0 is the network’s own name, and isn’t given to a computer. The one with every host bit set to 1 is the <strong>broadcast address</strong>: a packet sent to <code>192.168.1.255</code> is for every computer on this network. So a /24 has 256 addresses, and 254 of them can be used. Try some others:</p>
+
+<div data-widget="subnet"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Every extra bit of prefix halves the network. A /23 has 512 addresses, a /25 has 128, a /30 has just 4, which leaves 2 usable addresses, perfect for a cable between two routers. And a /32 is a single address: a network of one.</p>
+
+<h3>Here, or somewhere else?</h3>
+
+<p>Before sending any packet, a computer asks one question: is the destination on my own network? It ANDs the destination with its own netmask, and compares the result with its own network address. If they match, the destination is right here, on the same Ethernet or Wi-Fi, and the packet goes straight to it (after a “who has?”, Chapter 21). If they don’t, the packet goes to the <strong>default gateway</strong>, the router, which will worry about where it goes next. Your computer can tell you which it would choose:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ ip route get 1.1.1.1
+1.1.1.1 ⟦1:via 192.168.1.1⟧ dev wlan0 src 192.168.1.4 uid 1000
+$ ip route get 192.168.1.3
+192.168.1.3 ⟦2:dev wlan0⟧ src 192.168.1.4 uid 1000
+$ ip route
+default via 192.168.1.1 dev wlan0 proto dhcp src 192.168.1.4 metric 600
+⟦3:192.168.1.0/24 dev wlan0⟧ proto kernel scope link src 192.168.1.4 metric 600
+</terminal>
+
+<callouts>
+1 | 1.1.1.1 isn’t on 192.168.1.0/24, so it goes via the router.
+2 | Bob’s laptop is on the same network, so the Pi sends to it directly: no “via”.
+3 | The routing table (Chapter 11). This line exists just because the Pi’s address is 192.168.1.4/24: “that whole network is right here, on my Wi-Fi”. The <code>default</code> line catches everything else.
+</callouts>
+
+<p>On a Mac, <code>route -n get 1.1.1.1</code> answers the same question, with <code>gateway: 192.168.1.1</code>.</p>
+
+<think>
+<p>Bob sets up a new printer by hand, and types its address as 192.168.1.50, but by mistake gives it the netmask 255.255.0.0 (a /16). Everyone on the network can still print to it. So what’s wrong?</p>
+<p>The printer now thinks every address from 192.168.0.0 to 192.168.255.255 is on its own network. Printing still works, because all of Bob’s computers really are on 192.168.1.x. But if the printer ever needs to reach, say, 192.168.7.20 on another network (perhaps Grandpa’s house, over a VPN, Chapter 35), it will shout “who has 192.168.7.20?” on the home Wi-Fi instead of asking the router, and nobody will answer. Wrong netmasks cause some of the strangest “it works for everyone except…” problems.</p>
+</think>
+
+<h3>Classes, and why they went away</h3>
+
+<p>The original plan, in 1981, was simpler and much more wasteful. The first few bits of an address decided how big its network was. Addresses starting with 0 were <strong>class A</strong>: a /8, with 16 million addresses each, and only 128 of them in the world. Addresses starting with 10 were <strong>class B</strong>: a /16, with 65,536 addresses. Addresses starting with 110 were <strong>class C</strong>: a /24, with 256.</p>
+
+<p>A company that needed 300 addresses was too big for a class C, so it got a class B, and wasted 65,000 addresses. The first organizations on the internet each got a whole class A, and many still have them. By the early 1990s, class Bs were running out fast, and routers were struggling with the number of class Cs. CIDR, in 1993, let networks be any power-of-two size, and let routers combine neighboring networks into one entry. (That’s the “inter-domain routing” part, and it’s Chapters 23 and 24.) Here’s the whole address space today:</p>
+
+<!-- @include src/figs/ch20-map.svg -->
+
+<h3>Addresses with special jobs</h3>
+
+<p>Some blocks are set aside for particular jobs, and you’ll see them everywhere:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Block</th><th>What it’s for</th></tr>
+<tr><td><code>10.0.0.0/8</code><br><code>172.16.0.0/12</code><br><code>192.168.0.0/16</code></td><td><strong>Private addresses</strong>, set aside in 1996 by RFC 1918. Anyone can use them inside their own network, so millions of homes use 192.168.1.x at the same time. They never appear on the public internet: Chapter 22 explains how private addresses get out.</td></tr>
+<tr><td><code>127.0.0.0/8</code></td><td><strong>Loopback</strong>: always this computer. <code>127.0.0.1</code> is where every lab in Part I ran.</td></tr>
+<tr><td><code>169.254.0.0/16</code></td><td><strong>Link-local</strong>: an address a computer makes up for itself when nobody gave it one. If you ever see one on your laptop, something is broken (Chapter 22).</td></tr>
+<tr><td><code>100.64.0.0/10</code></td><td>Private addresses for internet providers themselves (“carrier-grade NAT”, Chapter 22).</td></tr>
+<tr><td><code>224.0.0.0/4</code></td><td><strong>Multicast</strong>: a packet to one of these goes to every computer that has joined that group. <code>224.0.0.251</code> is where computers announce their names (Chapter 18’s capture, and Chapter 22).</td></tr>
+<tr><td><code>192.0.2.0/24</code><br><code>198.51.100.0/24</code><br><code>203.0.113.0/24</code></td><td><strong>Documentation</strong>: for examples in books and manuals, guaranteed never to belong to anyone. Grandpa Otto’s website in Chapter 15, 203.0.113.42, is one of these.</td></tr>
+</table>
+</div>
+
+<realworld>
+<p>32 bits allow for about 4.3 billion addresses, which seemed like plenty when IPv4 was designed in 1981, for a research network of a few hundred computers. There are now far more phones alone. The central pool, run by IANA, handed out its last blocks in February 2011, and the five regional registries that serve different parts of the world ran out one by one over the following years.</p>
+<p>Since then, IPv4 addresses have been bought and sold, often for tens of dollars each. Several of the organizations that got a whole /8 in the early days have sold parts of theirs: MIT sold half of 18.0.0.0/8 in 2017. The real long-term fix is IPv6, with 128-bit addresses (Chapter 25). The short-term fix, which has lasted thirty years so far, is NAT (Chapter 22).</p>
+</realworld>
+
+<h3>The header, field by field</h3>
+
+<p>Every IPv4 packet starts with a header of at least 20 bytes. Here it is, drawn the way the standard draws it, 32 bits to a row, with the real values from the Pi’s request to <code>info.cern.ch</code> from Chapter 16:</p>
+
+<!-- @include src/figs/ch20-header.svg -->
+
+<ul>
+<li><strong>Version</strong> is 4. (IPv6 packets start with a 6, so a computer can tell them apart from the very first four bits.)</li>
+<li><strong>Header length</strong> counts in 4-byte words, so 5 means 20 bytes. It can be bigger if there are <strong>options</strong> after the addresses, but options are so rarely used today that many routers treat packets with them with suspicion.</li>
+<li><strong>DSCP</strong> marks a packet’s priority, so networks that care can let video calls go ahead of downloads. <strong>ECN</strong> lets routers warn about congestion without dropping packets (Chapter 28).</li>
+<li><strong>Total length</strong> is the whole packet, header and all: at most 65,535 bytes, though packets that big are never sent in practice.</li>
+<li><strong>Identification</strong>, <strong>flags</strong> and <strong>fragment offset</strong> are for chopping packets up, below.</li>
+<li><strong>Time to live</strong> is Chapter 11’s hop limit: every router takes one off, and throws the packet away at zero.</li>
+<li><strong>Protocol</strong> says what’s inside: 1 for ICMP (Chapter 21), 6 for TCP, 17 for UDP.</li>
+<li><strong>Header checksum</strong> is Chapter 10’s Internet checksum, of the header only. Because every router changes the time to live, every router has to fix the checksum too.</li>
+<li>The <strong>source</strong> and <strong>destination</strong> addresses stay the same from one end to the other. At least, that was the plan. Chapter 22 is about the box that breaks it.</li>
+</ul>
+
+<h3>Too big to fit</h3>
+
+<p>Every link has a <strong>maximum transmission unit</strong>, or MTU: the biggest packet it can carry in one frame. For Ethernet and Wi-Fi it’s 1,500 bytes. For Bob’s PPPoE internet connection, it’s 1,492 (Chapter 18). What happens when a packet is too big for the next link? In IPv4, the router can chop it into <strong>fragments</strong>, each a complete little packet with its own header. Here’s a real one, from the Pi:</p>
+
+<!-- @include src/figs/ch20-frag.svg -->
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo tcpdump -i wlan0 -n -v icmp &
+$ ping -c 1 -s 3000 1.1.1.1
+23:52:34.703316 IP (tos 0x0, ttl 64, ⟦1:id 32267, offset 0, flags [+]⟧, proto ICMP (1), length 1500)
+    192.168.1.4 > 1.1.1.1: ICMP echo request, id 15084, seq 1, length 1480
+23:52:34.703330 IP (tos 0x0, ttl 64, id 32267, offset 1480, flags [+], proto ICMP (1), length 1500)
+    192.168.1.4 > 1.1.1.1: ⟦2:ip-proto-1⟧
+23:52:34.703332 IP (tos 0x0, ttl 64, id 32267, offset 2960, ⟦3:flags [none]⟧, proto ICMP (1), length 68)
+    192.168.1.4 > 1.1.1.1: ip-proto-1
+23:52:34.721734 IP (tos 0x0, ttl 58, id 57636, offset 0, flags [+], proto ICMP (1), ⟦4:length 1492⟧)
+    1.1.1.1 > 192.168.1.4: ICMP echo reply, id 15084, seq 1, length 1472
+23:52:34.721767 IP (tos 0x0, ttl 58, id 57636, offset 1472, flags [+], proto ICMP (1), ⟦4:length 28⟧)
+    1.1.1.1 > 192.168.1.4: ip-proto-1
+…three more pieces…
+</terminal>
+
+<callouts>
+1 | All three pieces share identification 32267. <code>[+]</code> means “more fragments are coming”.
+2 | Only the first fragment has the ICMP header in it, so <code>tcpdump</code> can’t say much about the others. (That’s why the packet filter in Chapter 16 checked the fragment offset before looking for port numbers.)
+3 | The last piece: no “more” flag.
+4 | The reply’s pieces were cut again, into 1,492 and 28 bytes, by a router in front of the 1,492-byte link.
+</callouts>
+
+<p>Fragmentation works, but it causes trouble. If any fragment is lost, the whole packet is lost, and a lost fragment can’t be resent on its own. Firewalls and load balancers can’t see port numbers in the later pieces. Attackers have abused overlapping fragments to sneak past security checks. So modern computers avoid it. They set the <strong>don’t fragment</strong> flag on their packets (it was set on the Pi’s request to CERN), and if a packet is too big, the router throws it away and sends back a “too big, the limit here is 1,492” message instead. That’s <strong>path MTU discovery</strong>, which you saw in Chapter 10’s lab, and it’s why the ping above had to be deliberately oversized. IPv6 went further, and doesn’t let routers fragment at all.</p>
+
+<h3>What’s next?</h3>
+
+<p>Twice in this chapter we skipped over the “who has?” that happens before a packet goes anywhere, and the “too big” and “time exceeded” messages routers send back. They’re the small talk of the internet, and Chapter 21 is about them: ARP and ICMP, and how <code>ping</code> and <code>traceroute</code> really work.</p>
+
+<lab>
+<p>Two programs. <code>ipcalc.py</code> is a subnet calculator made only of bit operations. <code>fragment.py</code> builds IP headers, chops packets into fragments, and reassembles the real ones from the Pi, which are in <code>frag.pcap</code>.</p>
+
+<h4>1. Subnets, with nothing but bits</h4>
+
+<terminal title="labs/ch20">
+$ cd labs/ch20
+$ python3 ipcalc.py 192.168.1.3/24
+address    192.168.1.3      11000000.10101000.00000001|00000011
+netmask    255.255.255.0    11111111.11111111.11111111|00000000   (/24)
+network    192.168.1.0      11000000.10101000.00000001|00000000   all host bits 0
+broadcast  192.168.1.255    11000000.10101000.00000001|11111111   all host bits 1
+hosts      192.168.1.1 to 192.168.1.254   (254 usable)
+kind       private (RFC 1918): for homes and offices, never seen on the internet
+$ python3 ipcalc.py 10.23.147.8/13
+address    10.23.147.8      00001010.00010|111.10010011.00001000
+netmask    255.248.0.0      11111111.11111|000.00000000.00000000   (/13)
+network    10.16.0.0        00001010.00010|000.00000000.00000000   all host bits 0
+broadcast  10.23.255.255    00001010.00010|111.11111111.11111111   all host bits 1
+hosts      10.16.0.1 to 10.23.255.254   (524,286 usable)
+kind       private (RFC 1918): for homes and offices, never seen on the internet
+$ python3 ipcalc.py 192.168.1.0/24 --split 4
+192.168.1.0/24 cut into 4 pieces of 64 addresses:
+  192.168.1.0/26       192.168.1.0 to 192.168.1.63
+  192.168.1.64/26      192.168.1.64 to 192.168.1.127
+  192.168.1.128/26     192.168.1.128 to 192.168.1.191
+  192.168.1.192/26     192.168.1.192 to 192.168.1.255
+$ python3 ipcalc.py 192.168.1.3/24 --to 192.168.1.4 1.1.1.1 192.168.2.9
+192.168.1.4      192.168.1.0 == 192.168.1.0  →  same network: send it straight there
+1.1.1.1          1.1.1.0 != 192.168.1.0  →  another network: send it to the router, 192.168.1.1
+192.168.2.9      192.168.2.0 != 192.168.1.0  →  another network: send it to the router, 192.168.1.1
+</terminal>
+
+<p>Alice’s university network is a /13: over half a million addresses in one network. With the 13-bit split, the second byte is shared between the network part and the host part, which is why it’s so hard to do in your head. In code, it’s one AND and one OR:</p>
+
+<!-- @code labs/ch20/ipcalc.py#info -->
+
+<p>Python has a module that does all this, <code>ipaddress</code>. <code>python3 ipcalc.py --check</code> compares the two on 10,000 random networks. And <code>python3 ipcalc.py --mine</code> shows all of your own computer’s addresses, including the loopback one.</p>
+
+<h4>2. A header, by hand</h4>
+
+<terminal title="labs/ch20">
+$ python3 fragment.py header
+An IPv4 header for a ping from the Pi to 1.1.1.1, with 64 bytes of ICMP inside:
+
+  version + header length    45           version 4, 5 × 4 = 20 bytes
+  priority                   00
+  total length               00 54        = 84 bytes
+  identification             49 c3        = 18883
+  flags + fragment offset    40 00        “don’t fragment”, offset 0
+  hops left (TTL)            40           = 64
+  protocol                   01           = 1, ICMP
+  checksum                   2d 38
+  source                     c0 a8 01 04  192.168.1.4
+  destination                01 01 01 01  1.1.1.1
+
+Checking it: the checksum of the whole header, checksum included, is 0. Zero means it's intact.
+</terminal>
+
+<!-- @code labs/ch20/fragment.py#header -->
+
+<h4>3. Chop, and glue back together</h4>
+
+<terminal title="labs/ch20">
+$ python3 fragment.py split 3028 --mtu 1500 --then 1492
+A 3,028-byte packet (3,008 bytes of data) over a 1,500-byte link:
+  offset     0 (  0 × 8)   1480 bytes of data  more to come   → 1,500-byte packet
+      the next link cuts it again: offset     0,  1472 bytes, more
+      the next link cuts it again: offset  1472,     8 bytes, more
+  offset  1480 (185 × 8)   1480 bytes of data  more to come   → 1,500-byte packet
+      the next link cuts it again: offset  1480,  1472 bytes, more
+      the next link cuts it again: offset  2952,     8 bytes, more
+  offset  2960 (370 × 8)     48 bytes of data  the last one   → 68-byte packet
+$ python3 fragment.py reassemble frag.pcap --shuffle
+…
+1.1.1.1 → 192.168.1.4, identification 57636, 5 pieces arrived as:
+    offset  1480,  1472 bytes, more
+    offset  1472,     8 bytes, more
+    offset     0,  1472 bytes, more
+    offset  2952,     8 bytes, more
+    offset  2960,    48 bytes, last
+  → reassembled 3,008 bytes: an ICMP echo reply, checksum over the whole thing ✓
+</terminal>
+
+<p>The prediction for the 1,492-byte link matches the real reply exactly, piece for piece. Here’s the chopping:</p>
+
+<!-- @code labs/ch20/fragment.py#split -->
+
+<p>And the gluing, which has to cope with pieces arriving in any order:</p>
+
+<!-- @code labs/ch20/fragment.py#reassemble -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Work out by hand how many usable addresses a /20 has, and what the netmask is. Check with <code>ipcalc.py</code>.</li>
+<li>Add a <code>--join</code> option that takes two neighboring networks, like <code>192.168.0.0/24</code> and <code>192.168.1.0/24</code>, and says whether they can be combined into one shorter prefix. That’s exactly what routers do to keep their tables small (Chapter 23).</li>
+<li>In <code>reassemble</code>, remove one piece from the list before gluing. What happens? Real computers wait about 30 seconds for missing pieces, then give up. Why not wait forever?</li>
+<li>Ping with “don’t fragment” and a size that’s too big: <code>ping -D -s 1472 1.1.1.1</code> on a Mac, or <code>ping -M do -s 1472 1.1.1.1</code> on Linux. On a 1,492-byte connection it fails, and 1,464 works. Watch it with <code>tcpdump</code> to see the router’s “too big” message.</li>
+</ul>
+</lab>

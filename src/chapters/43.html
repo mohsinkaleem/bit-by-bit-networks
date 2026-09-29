@@ -1,0 +1,151 @@
+<h3>Seventeen copies of the same video</h3>
+
+<p>Grandpa Otto has made a film. It’s eleven minutes long, it’s about his runner beans, and he’s put it on the garden website (Chapter 36’s Pi), and told the whole street. At seven o’clock, everyone watches it at once, and the Pi’s home connection grinds to a halt.</p>
+
+<dialogue>
+G: Seventeen people wanted to see my beans, and nobody could.
+B: Your upload is the problem. Every one of them asked your Pi for the whole film, so the same bytes went up your line seventeen times.
+G: But it’s the same film! They all live on the same street. Couldn’t the first copy just be passed round?
+A: That’s what a CDN does for big websites (Chapter 34): copies near everyone. But you have to pay a company to set it up, and the network itself still doesn’t know that seventeen people asked for the same thing.
+B: Because the network doesn’t know what anyone asked for. It only knows where they sent their packets.
+A: Some people think that’s the wrong way round. If the network knew <em>what</em> you wanted, any router on the way that already had a copy could just hand it over.
+G: Like asking in the village shop whether anyone has a copy of the parish newsletter, instead of writing to the printer.
+A: Exactly like that.
+</dialogue>
+
+<p>Every protocol in this book, from Chapter 11’s routers onwards, has been about delivering packets to an <em>address</em>: a place. This chapter looks at a different design, <strong>named-data networking</strong> (NDN), in which packets carry the name of the <em>thing</em> they’re about instead, and see how it changes almost everything: caching, security, even what a router is. It’s still a research project, but it’s a real one, with a real network you can talk to.</p>
+
+<h3>Where, or what?</h3>
+
+<!-- @include src/figs/ch43-whatwhere.svg -->
+
+<p>The internet’s designers in the 1970s were building a better telephone network for computers: a way for one machine to hold a conversation with another, like logging in to a distant computer. For that, addresses are exactly right. But most of what people do now isn’t conversation. It’s fetching things: the same film, the same software update, the same news page, requested by millions, and every one of those requests is still framed as a conversation with one particular machine. We’ve spent thirty years patching around that, with caches (Chapter 30), CDNs and anycast (Chapter 34).</p>
+
+<p>In 2006, Van Jacobson (Chapter 13’s congestion control, Chapter 16’s packet filter) gave a talk arguing that the patches should become the design. That became <em>content-centric networking</em>, and then, from 2010, the NDN project, led from UCLA.</p>
+
+<h3>Two kinds of packet</h3>
+
+<p>NDN has just two kinds of packet. An <strong>Interest</strong> asks for data by name. A <strong>Data</strong> packet answers it, carrying the name, the content, and a signature. Names look like file paths, and are just as hierarchical: <code>/grandpa/garden/beans.mp4/seg=3</code>. Neither packet has an address in it, source or destination.</p>
+
+<p>Everything is built of Type-Length-Value pieces, nested inside each other: a type number, a length, then that many bytes, which may themselves be more TLVs:</p>
+
+<!-- @code labs/ch43/ndn.py#tlv -->
+
+<!-- @include src/figs/ch43-packets.svg -->
+
+<!-- @code labs/ch43/ndn.py#packets -->
+
+<p>The research community runs a worldwide <strong>NDN testbed</strong>: two dozen routers at universities from California to Japan, forwarding NDN over the ordinary internet on UDP port 6363. Each one runs a ping server that answers any Interest under its name. So Bob asked UCLA’s, by name, from his MacBook:</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 ndn.py get /ndn/edu/ucla/ping/2718
+Interest /ndn/edu/ucla/ping/2718: 42 bytes, to suns.cs.ucla.edu
+  Data /ndn/edu/ucla/ping/2718
+    content:   (empty)
+    fresh for: ⟦1:1000 ms⟧
+    signature: SHA-256 digest, ⟦2:checked: it matches⟧
+</terminal>
+
+<callouts>
+1 | How long a cached copy may be served to someone who insists on fresh data. After that, routers can still keep it; they just can’t claim it’s new.
+2 | The signature covers the name and the content together. This one is only a digest (it proves the packet wasn’t damaged, not who made it); real applications sign with a key, and the key has a name too.
+</callouts>
+
+<p>A ping is just an empty piece of data with a name nobody asked for before. But the packets are the real thing: an NDN router, written by other people, accepted our Interest and sent back a Data packet our code could read and check.</p>
+
+<h3>Inside an NDN router</h3>
+
+<p>An NDN router keeps three tables. Two of them are new:</p>
+
+<!-- @include src/figs/ch43-router.svg -->
+
+<p>Notice what the pending interest table does. It’s a list of breadcrumbs: every router on the path remembers where an Interest came from, so the Data can find its way back without any address. Because of that, a router never forwards Data that nobody asked for, and a request for the same thing from a hundred people turns into one request upstream: multicast (like Chapter 26’s multicast groups, but with no group to join), for free. And because every Data packet is signed, a copy from a stranger’s cache is exactly as trustworthy as one from the original.</p>
+
+<p>This chapter’s <code>ndn.py router</code> is all of that in about seventy lines:</p>
+
+<!-- @code labs/ch43/ndn.py#router -->
+
+<h3>Grandpa’s Pi joins in</h3>
+
+<p>Bob ran the router on the Pi. It serves Grandpa’s garden notes itself, under <code>/grandpa</code>, and passes anything under <code>/ndn</code> on to the UCLA testbed router. Then, from his MacBook, he asked for things by name, through it:</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 ndn.py get /grandpa/garden/beans.txt --via 192.168.1.4
+Interest /grandpa/garden/beans.txt: 42 bytes, to 192.168.1.4
+  Data /grandpa/garden/beans.txt
+    content:   'Runner beans: 2.1 kg this week. The slugs have gone.\n'
+    fresh for: 10000 ms
+    signature: SHA-256 digest, checked: it matches
+$ python3 ndn.py get /ndn/edu/ucla/ping/31415 --via 192.168.1.4
+…
+$ python3 ndn.py get /ndn/edu/ucla/ping/31415 --via 192.168.1.4
+…
+</terminal>
+
+<p>And then he asked for another name twice at the same moment, from two programs at once, and finally tried a trick of Eve’s: sending the Pi a Data packet that nobody had asked for. Here is what the Pi’s router made of it all:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 ndn.py router
+NDN router on UDP port 6363: /grandpa is served here; /ndn goes to suns.cs.ucla.edu (131.179.196.48)
+  Interest /grandpa/garden/beans.txt from 192.168.1.3:60460: ⟦1:made the Data here⟧ (134 bytes), and cached it
+  Interest /ndn/edu/ucla/ping/31415 from 192.168.1.3:62658: not here; ⟦2:forwarded to the testbed⟧
+  Data /ndn/edu/ucla/ping/31415 from the testbed: sent to 1 waiting, and cached
+  Interest /ndn/edu/ucla/ping/31415 from 192.168.1.3:59958: ⟦3:in my content store! Answered it myself.⟧
+  Interest /ndn/edu/ucla/ping/16180 from 192.168.1.3:55780: not here; forwarded to the testbed
+  Interest /ndn/edu/ucla/ping/16180 from 192.168.1.3:62024: ⟦4:already asked upstream. Now 2 waiting.⟧
+  Data /ndn/edu/ucla/ping/16180 from the testbed: sent to 2 waiting, and cached
+  Data /ndn/edu/ucla/ping/31415 from 192.168.1.3:49908: ⟦5:nobody asked for it. Dropped.⟧
+</terminal>
+
+<callouts>
+1 | <code>/grandpa</code> is served by an application on the Pi itself: the Pi is the “producer”.
+2 | Longest prefix match on the name: <code>/ndn</code> leads to California.
+3 | The second time, the Pi had a copy, so the request never left the house.
+4 | Two requests for the same name, one Interest upstream: the second just joined the waiting list. With a film instead of a ping, that’s Grandpa’s seventeen viewers sharing one upload.
+5 | Eve can’t push data into an NDN network. With no Interest waiting, there’s nowhere for it to go.
+</callouts>
+
+<p>Now scale it up to Grandpa’s street:</p>
+
+<div data-widget="cachenet"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Security in the data, not the pipe</h3>
+
+<p>Chapter 32’s TLS protects a <em>connection</em>: it proves you’re talking to the right server, and hides what you say. That fits the conversation model: the data is trustworthy because of where it came from. In NDN, data might come from anywhere, a neighbour’s router, a cache on a train, so trust has to come from the data itself. Every Data packet is signed by its producer, and the signature covers its name, so a copy can’t be swapped for another or renamed. Keys are named too (<code>/grandpa/KEY/…</code>), and are just more Data, signed by other keys, up to one you already trust: Chapter 32’s certificate chains, woven into the network.</p>
+
+<p>It has costs. Checking signatures on every packet is work. And names can reveal what you’re asking for, just as DNS questions and SNI do (Chapters 29 and 32); encrypting content hides the film, but not necessarily its name. These are among the questions NDN’s researchers are still working on.</p>
+
+<think>
+<p>Bob is halfway through downloading Grandpa’s film on his phone when he walks out of the house, and his phone switches from Wi-Fi to the mobile network. With TCP (Chapter 27), what happens? With NDN?</p>
+<p>With TCP, the connection is tied to the phone’s old address. The address changes, and the connection breaks: the app has to notice, connect again, and ask to resume (Chapter 30’s range requests), unless it uses QUIC (Chapter 33), which was designed to survive exactly this. With NDN there’s no connection to break, and no address to change. The phone simply sends its next Interests, for the next segments, out of its new interface. The breadcrumbs for any Interests still in flight on the old path are wasted, and those few segments are asked for again. Everything else carries on. Moving <em>producers</em> is harder: routers have to learn where a name now lives, which is exactly the job routing protocols do for addresses.</p>
+</think>
+
+<realworld>
+<p>NDN is not about to replace IP, and may never: the internet is very hard to change underneath (think how long IPv6 has taken, Chapter 25). But its ideas are everywhere. <strong>IPFS</strong> fetches files by a name that <em>is</em> their hash, so any copy anywhere is as good as the original, and BitTorrent has shared files that way for twenty years. CDNs are information-centric networking built on top of IP. And some NDN research has become products: Cisco’s “hybrid ICN” carries NDN names inside IPv6 addresses, so ordinary routers can carry it.</p>
+<p>The testbed Bob used is real and running: at the time of writing its status page listed 24 routers, on four continents, most of them answering pings like the one in this chapter. If you want to go further, the NDN project’s own forwarder (NFD) and tools, like <code>ndnping</code> and <code>ndncatchunks</code>, speak exactly the packets this chapter built by hand.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Grandpa’s street is about to learn a different lesson about networks. A storm is coming, and the one cable that connects the whole village to the outside world runs along the same poles as the power lines.</p>
+
+<lab>
+<p>One program, <code>ndn.py</code>, for macOS or Linux, no packages. It speaks the real NDN packet format (version 0.3) over UDP port 6363.</p>
+
+<h4>1. Ask the testbed</h4>
+
+<p><code>python3 ndn.py get /ndn/edu/ucla/ping/1234</code> (use any number; each one is a new name). Other routers on the testbed answer to their own names: <code>/ndn/edu/arizona/ping/…</code> via <code>--via hobo.cs.arizona.edu</code>, for example. The testbed’s status page, <code>testbed-status.named-data.net</code>, lists them all.</p>
+
+<h4>2. Be a router</h4>
+
+<p>On one computer (a Pi is ideal), <code>python3 ndn.py router</code>. On another, <code>python3 ndn.py get /grandpa/garden/beans.txt --via</code> <em>the router’s address</em>, then ask for a testbed name through it twice.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Ask for <code>/ndn/edu/ucla/ping</code> with <code>--prefix</code> through your router, after asking for a longer name. What comes back, and from where? Now add <code>--fresh</code>, and wait two seconds before asking: what changes, and why?</li>
+<li>Send the router the very same Interest bytes twice (same nonce). What does it do, and what kind of network fault is it guarding against (Chapter 11)?</li>
+<li>Run two routers, one pointing at the other with <code>--upstream</code> (each needs its own computer, or change <code>PORT</code>). Ask for the same name through both. Which one answers the second time?</li>
+<li>Replace the digest with an HMAC signature (type 4) using a key only Grandpa and Bob share, and make <code>get</code> refuse Data whose signature is wrong. What would it take to use a real public-key signature instead (Chapter 31’s Ed25519 is type 5)?</li>
+<li>Serve a file in segments: split it into 1,000-byte pieces named <code>…/seg=0</code>, <code>…/seg=1</code> and so on, and write a <code>get</code> that fetches them in order. How many Interests should it keep in flight at once? (Chapter 13’s sliding window, again.)</li>
+</ul>
+</lab>

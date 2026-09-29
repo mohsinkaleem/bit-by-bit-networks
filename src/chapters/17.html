@@ -1,0 +1,266 @@
+<h3>A cable from the shop</h3>
+
+<p>Bob has decided to stop blaming the internet and start with the bit he can touch. His gaming computer is on Wi-Fi, two rooms away from the router, and he’s going to run a cable to it instead. At the shop there was a whole wall of network cables: “Cat 5e”, “Cat 6”, “Cat 6a”, and a shiny “Cat 8” at three times the price. He bought a Cat 6, and now he’s on a video call with Alice, holding up the end of it.</p>
+
+<dialogue>
+B: It says “4 twisted pairs” on the packet. Why are they twisted? Wouldn’t straight wires be simpler?
+A: Much simpler. And much noisier. The twists are the clever part.
+B: And will Cat 8 make my game faster?
+A: Not even slightly. Your internet connection is slower than any of them.
+note: Grandpa Otto, who has been listening from the armchair, joins in.
+B: Grandpa, why don’t we just use radio for everything, like on your ship?
+</dialogue>
+
+<p>In Chapter 2, Alice and Bob sent bits down a wire as voltages, and discovered clock drift and noise. That’s the <strong>physical layer</strong>: how bits become something that can travel, and back again. Everything else in this book sits on top of it. This chapter looks at the three things that carry nearly all of the internet’s bits today: copper wires, glass fibers and radio waves.</p>
+
+<h3>Why the wires are twisted</h3>
+
+<p>A wire is also an antenna. Every electric motor, power cable and fluorescent light nearby induces small, random voltages in it. That’s <strong>interference</strong>, and in Chapter 2 it was enough to flip bits. The trick that fixes it is one of the most elegant in all of engineering:</p>
+
+<!-- @include src/figs/ch17-twist.svg -->
+
+<p>This is called <strong>differential signaling</strong>. It needs two wires for every signal, which sounds wasteful, but it lets the signal be much weaker and much faster than it could be on a single wire. The twisting matters too. In a twisted pair, each wire spends half its length nearer the source of interference and half further away, so on average they pick up exactly the same amount. And a twisted pair gives off less interference of its own, so it doesn’t disturb the pairs next to it (that’s called <strong>crosstalk</strong>).</p>
+
+<p>The “category” printed on a cable says how well it does all this, measured by the highest frequency it can carry cleanly:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Cable</th><th>Tested up to</th><th>Fast enough for</th></tr>
+<tr><td>Cat 5e</td><td>100 MHz</td><td>1 Gb/s, up to 100 m</td></tr>
+<tr><td>Cat 6</td><td>250 MHz</td><td>1 Gb/s up to 100 m, or 10 Gb/s up to about 55 m</td></tr>
+<tr><td>Cat 6a</td><td>500 MHz</td><td>10 Gb/s, up to 100 m</td></tr>
+<tr><td>Cat 8</td><td>2,000 MHz</td><td>25 or 40 Gb/s, up to 30 m (it’s meant for data centers)</td></tr>
+</table>
+</div>
+
+<p>Every kind of twisted-pair Ethernet has the same limit of 100 meters. Beyond that, the signal fades too much. And Alice was right about Bob’s cable: his home internet connection is a few hundred megabits a second at most, so even Cat 5e has plenty to spare.</p>
+
+<h3>Inside the plug</h3>
+
+<p>Bob’s cable has eight wires in four pairs, each with its own color, and a plug called an <strong>RJ45</strong> on each end:</p>
+
+<!-- @include src/figs/ch17-rj45.svg -->
+
+<p>Gigabit Ethernet sends in both directions on the same pair at the same time. How can a receiver hear the other end while its own transmitter is shouting down the same wires? Because it knows exactly what it’s sending, it can subtract its own signal from what it hears, and what’s left is the other end’s. (Your phone does the same thing so the other person doesn’t hear their own voice echoing back.) It’s called <strong>echo cancellation</strong>, and it needs a lot of fast arithmetic, which is why gigabit Ethernet only became cheap in the 2000s.</p>
+
+<h3>More levels, more bits</h3>
+
+<p>Back in Chapter 2, one bit was one voltage: high or low. That’s simple, but it means the wire has to change voltage a billion times a second to carry a billion bits. The faster a signal changes, the higher its frequency, and the more the cable weakens and distorts it. So faster Ethernet cheats: it uses more than two voltage levels, and sends several bits in each <strong>symbol</strong>:</p>
+
+<!-- @include src/figs/ch17-levels.svg -->
+
+<p>Here’s how the speeds were reached. Each one uses a bigger trick than the last:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Speed</th><th>Pairs used</th><th>Symbols per second, per pair</th><th>Levels</th><th>How</th></tr>
+<tr><td>10 Mb/s (1990)</td><td>1 each way</td><td>20 million</td><td>2</td><td>Manchester encoding, Chapter 2’s mid-bit flip</td></tr>
+<tr><td>100 Mb/s (1995)</td><td>1 each way</td><td>125 million</td><td>3</td><td>every 4 bits sent as 5, to guarantee flips (“4B5B”), then MLT-3</td></tr>
+<tr><td>1 Gb/s (1999)</td><td>all 4, both ways</td><td>125 million</td><td>5</td><td>PAM-5, and echo cancellation</td></tr>
+<tr><td>10 Gb/s (2006)</td><td>all 4, both ways</td><td>800 million</td><td>16</td><td>PAM-16, and a lot of error correction</td></tr>
+</table>
+</div>
+
+<p>Gigabit Ethernet sends symbols no faster than 100 Mb/s Ethernet did. It gets ten times the speed from four pairs instead of one, both directions at once, and more levels. The general rule is:</p>
+
+<p style="text-align:center"><strong>bits per second = symbols per second × bits per symbol × number of lanes</strong></p>
+
+<p>Every fast link you’ll ever meet, wired or wireless, pushes on all three. But more levels come at a price. The levels always fit between the same highest and lowest voltage, so the more of them there are, the closer together they are, and the less noise it takes to push one into its neighbor. In 1948, Claude Shannon worked out exactly how much any channel can carry: it depends only on how wide a range of frequencies it has, and how loud the signal is compared with the noise. No clever coding can beat <strong>Shannon’s limit</strong>, but modern Ethernet and Wi-Fi come remarkably close.</p>
+
+<h3>Glass and light</h3>
+
+<p>Copper has two big problems. It gets weaker quickly: 100 meters is its limit at high speeds. And it picks up interference, however well it’s twisted. Glass has neither problem.</p>
+
+<!-- @include src/figs/ch17-fiber.svg -->
+
+<p>An <strong>optical fiber</strong> is a thread of extremely pure glass, with a core and an outer layer, the cladding, made of slightly different glass. Light that hits the boundary at a shallow angle is reflected back in, every time, so it bounces its way along, even round gentle bends. The bits are pulses of light from a laser, and a detector at the other end turns them back into electricity. Light isn’t affected by electrical interference at all, and in the best fiber it only loses half its brightness every 15 kilometers or so.</p>
+
+<p>It gets better. Light of different colors doesn’t interfere, so one fiber can carry dozens of colors at once, each an independent channel, a trick called <strong>wavelength-division multiplexing</strong>. The cables under the oceans carry tens of terabits per second on each pair of fibers, and there are over 500 of those cables.</p>
+
+<think>
+<p>Light in a vacuum travels at about 300,000 km per second. Glass slows it down to about 200,000 km per second. Mumbai and Geneva are 6,721 km apart. What’s the fastest possible ping between them?</p>
+<p>There and back is 13,442 km, and at 200,000 km/s that takes 67 milliseconds. Nothing can beat it. A real ping from a house in India to <code>info.cern.ch</code>, near Geneva, takes about 150 milliseconds, because real cables don’t follow the shortest path, and every router on the way adds a little delay. There’s a lab for this.</p>
+</think>
+
+<h3>Bandwidth isn’t speed</h3>
+
+<p>When people say a connection is “fast”, they usually mean it has a lot of <strong>bandwidth</strong>: it carries a lot of bits per second. But look at what that really means:</p>
+
+<!-- @include src/figs/ch17-packets.svg -->
+
+<p>A faster link doesn’t make the light go faster. It just packs the bits closer together, so each packet takes less time to put onto the wire. That’s why there are two completely different kinds of “slow”:</p>
+
+<ul>
+<li><strong>Latency</strong> is how long one bit takes to arrive: the length of the road. It’s set by distance, the speed of light, and every queue on the way. A game or a video call cares about latency.</li>
+<li><strong>Bandwidth</strong> is how many bits arrive per second: the width of the road. Downloading a big file cares about bandwidth.</li>
+</ul>
+
+<p>Bob’s game sends small packets, a few dozen times a second. It needs hardly any bandwidth at all. If it lags, it’s latency, or packets getting lost, and a more expensive cable won’t fix either.</p>
+
+<h3>Thin air</h3>
+
+<p>Grandpa Otto was a ship’s signalman, so he knows radio well. A radio transmitter makes the electrons in its antenna swing back and forth billions of times a second, and that sends out a wave of electric and magnetic fields that travels at the speed of light. Wi-Fi uses frequencies around 2.4, 5 and 6 gigahertz. A 2.4 GHz wave is 12.5 cm long, and a 5 GHz wave is 6 cm long.</p>
+
+<p>The two main bands have different characters. 2.4 GHz goes through walls better and reaches further, but it only has room for three channels that don’t overlap, and it’s crowded: microwave ovens, Bluetooth and every neighbor’s router use it too. 5 GHz and 6 GHz fade faster through walls, but they have room for much wider channels, and wider channels carry more bits (Shannon again). Chapter 19 looks at how Wi-Fi shares the air.</p>
+
+<p>Radio signals get weak <em>very</em> quickly, so their strength is measured on a logarithmic scale, in <strong>dBm</strong>: decibels compared with one milliwatt. 0 dBm is 1 milliwatt, −10 dBm is a tenth of that, −20 dBm is a hundredth, and so on:</p>
+
+<!-- @include src/figs/ch17-dbm.svg -->
+
+<p>What really matters isn’t how strong the signal is, but how much stronger it is than the background noise. That’s the <strong>signal-to-noise ratio</strong>, or SNR, and in decibels it’s just a subtraction: −58 dBm of signal minus −95 dBm of noise is 37 dB. Here’s what Bob’s laptop and Grandpa Otto’s Pi reported:</p>
+
+<terminal title="Bob’s MacBook">
+$ system_profiler SPAirPortDataType
+…
+          Current Network Information:
+            HomeWiFi:
+              PHY Mode: ⟦1:802.11ac⟧
+              Channel: ⟦2:149 (5GHz, 80MHz)⟧
+              Security: WPA2 Personal
+              Signal / Noise: ⟦3:-58 dBm / -94 dBm⟧
+              Transmit Rate: ⟦4:702⟧
+              MCS Index: ⟦4:8⟧
+</terminal>
+
+<callouts>
+1 | The version of Wi-Fi in use, also called Wi-Fi 5 (Chapter 19).
+2 | Channel 149, in the 5 GHz band, 80 MHz wide.
+3 | 36 dB of signal-to-noise ratio: very good.
+4 | 702 megabits per second, using “MCS 8”: the eighth entry in Wi-Fi’s table of modulations, which means 256 dots on the grid below, and two antennas sending at once. A minute later the Mac reported 650, with MCS 7: Wi-Fi adjusts to the conditions many times a second.
+</callouts>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ iw dev wlan0 link
+Connected to 14:c3:5e:40:0b:38 (on wlan0)
+	SSID: HomeWiFi
+	freq: 5745.0
+	signal: ⟦5:-40 dBm⟧
+	⟦6:tx bitrate: 433.3 MBit/s⟧
+</terminal>
+
+<callouts>
+5 | The Pi sits right next to the router, so its signal is 18 dB, or about 60 times, stronger than the laptop’s.
+6 | But it only has one antenna, so it gets one stream instead of two. It uses MCS 9, the densest grid there is in Wi-Fi 5.
+</callouts>
+
+<p>So how do the bits get onto the wave? The transmitter varies both the wave’s strength and its timing (its <em>phase</em>), and each combination is a different symbol. Draw every possible combination as a dot on a grid, and you get a <strong>constellation</strong>. With 256 dots, each symbol carries 8 bits. Noise smudges where each dot lands, and the receiver has to guess which dot was meant:</p>
+
+<div data-widget="qam"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>This is exactly Chapter 2’s voltage levels, in two dimensions. A Wi-Fi card is constantly measuring how well its symbols are getting through, and moving to a denser grid or a sparser one to match. That’s why Wi-Fi gets slower as you walk away from the router, even though radio waves always travel at the speed of light: with less signal above the noise, each symbol has to carry fewer bits.</p>
+
+<realworld>
+<p>Ethernet was invented in 1973 by Bob Metcalfe and David Boggs at Xerox PARC. It ran at 2.94 megabits per second, over a thick coaxial cable shared by every computer, which is Chapter 8’s shared wire exactly. Twisted-pair Ethernet with a hub in the middle arrived in 1990, and since then each new generation has been ten times faster than the last, from 10 megabits to 800 gigabits and beyond.</p>
+<p>The first telegraph cable across the Atlantic was laid in 1858. Its first message, 98 words from Queen Victoria, took about 16 hours to get through, and the cable failed after three weeks. The first fiber-optic cable across the Atlantic, TAT-8, was laid in 1988 and carried 280 megabits per second. Today’s newest cables carry hundreds of terabits per second, nearly a million times more.</p>
+</realworld>
+
+<h3>Plugging in</h3>
+
+<p>Bob plugs his new cable in, and a light on the switch blinks green. In that moment, the two ends sent each other bursts of pulses listing every speed they support, and picked the fastest one they share. This is called <strong>auto-negotiation</strong>. You can see what they agreed with <code>ethtool</code> on Linux:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ ethtool eth0
+Settings for eth0:
+	Supported link modes:   10baseT/Half 10baseT/Full
+	                        100baseT/Half 100baseT/Full
+	                        1000baseT/Half 1000baseT/Full
+	Supports auto-negotiation: Yes
+	Speed: Unknown!
+	Duplex: Unknown! (255)
+	Link detected: no
+</terminal>
+
+<p>This Pi uses Wi-Fi, so there’s no cable, and nothing to negotiate with. Here’s a classic puzzle for network detectives: a computer on a gigabit switch, with a gigabit card, that only ever connects at 100 megabits. The usual cause is a damaged cable. 100 Mb/s only needs two of the four pairs, so if one wire in the other two pairs is broken, the ends quietly agree on 100 Mb/s instead of failing altogether.</p>
+
+<h3>What’s next?</h3>
+
+<p>Bob’s cable works, and his game has one less thing to go wrong. Now that the bits can travel, Chapter 18 looks at how they’re grouped into frames. We’ll take a real Ethernet frame apart, meet the switches inside every home router, and see how one switch can pretend to be several.</p>
+
+<lab>
+<p>Two programs this time. <code>lightspeed.py</code> works out the fastest possible ping between two places, and compares it with a real one. <code>signals.py</code> shows why more levels mean more mistakes, and reads your own Wi-Fi’s signal and noise.</p>
+
+<h4>1. The speed of light is too slow</h4>
+
+<terminal title="labs/ch17">
+$ cd labs/ch17
+$ python3 lightspeed.py London "New York"
+London → New York: 5,570 km as the crow flies
+  light in a vacuum:   18.6 ms one way,   37.2 ms there and back
+  light in fiber:      27.3 ms one way,   54.6 ms there and back   ← no network can beat this
+$ python3 lightspeed.py Mumbai Geneva --ping info.cern.ch
+Mumbai → Geneva: 6,721 km as the crow flies
+  light in a vacuum:   22.4 ms one way,   44.8 ms there and back
+  light in fiber:      33.0 ms one way,   65.9 ms there and back   ← no network can beat this
+  ping info.cern.ch: fastest of 5 was 149.2 ms, 2.3× the fiber limit.
+  The rest is detours: cables don't follow great circles, and every router and queue adds a little.
+</terminal>
+
+<p>Try it from the city nearest you, to a server whose location you know. (Cloudflare’s <code>1.1.1.1</code> is a bad choice: it answers from whichever of its hundreds of sites is nearest to you, which is exactly the point of Chapter 34.) The distance comes from the “haversine” formula for distances on a sphere:</p>
+
+<!-- @code labs/ch17/lightspeed.py#distance -->
+
+<p>And here’s how long it takes just to put a packet onto the wire at different speeds:</p>
+
+<terminal title="labs/ch17">
+$ python3 lightspeed.py --wire
+Time just to put one packet onto the wire (serialization delay):
+
+        packet     10 Mb/s    100 Mb/s      1 Gb/s     10 Gb/s    400 Gb/s
+      64 bytes       51 µs     5.12 µs      512 ns       51 ns        1 ns
+   1,500 bytes     1.20 ms      120 µs       12 µs     1.20 µs       30 ns
+   9,000 bytes     7.20 ms      720 µs       72 µs     7.20 µs      180 ns
+
+Meanwhile, light takes 4.9 ms to travel 1,000 km of fiber, whatever the speed.
+  at   1 Gb/s, 0.6 MB are inside those 1,000 km of glass at any moment
+  at  10 Gb/s, 6.1 MB are inside those 1,000 km of glass at any moment
+  at 400 Gb/s, 245.2 MB are inside those 1,000 km of glass at any moment
+</terminal>
+
+<p>Those last lines matter a lot in Chapter 28: a sender needs to keep that much data “in flight” to use a long, fast link fully.</p>
+
+<h4>2. More levels, more mistakes</h4>
+
+<terminal title="labs/ch17">
+$ python3 signals.py levels
+Fraction of symbols the receiver gets wrong:
+
+  levels  bits each  noise 0.05   noise 0.1   noise 0.2   noise 0.3
+       2          1        0.0%        0.0%        0.0%        0.1%
+       4          2        0.0%        0.1%        7.3%       20.1%
+       8          3        0.4%       13.4%       41.3%       55.2%
+      16          4       16.8%       47.5%       69.3%       77.6%
+$ python3 signals.py qam --snr 25
+…
+    64-QAM     64          6     0.0%   fine
+   256-QAM    256          8     9.9%
+  1024-QAM   1024         10    55.4%
+…
+With under 1% of symbols wrong, error-correcting codes can fix the rest, so Wi-Fi would pick 64-QAM.
+</terminal>
+
+<!-- @code labs/ch17/signals.py#levels -->
+
+<h4>3. Your own Wi-Fi</h4>
+
+<terminal title="labs/ch17 (macOS)">
+$ python3 signals.py wifi
+interface en0, channel 149 (5GHz, 80MHz), 802.11ac
+  signal   -58 dBm   (very good)
+  noise    -94 dBm
+  SNR      36 dB: the signal is 3,981 times stronger than the noise
+  Shannon's limit for 80 MHz at 36 dB: 957 Mb/s per antenna pair
+  link rate right now: 650 Mb/s (MCS 7)
+</terminal>
+
+<p>On Linux it uses <code>iw</code> (install it with <code>sudo apt install iw</code> if it’s missing). Most Linux Wi-Fi drivers don’t report the noise, so the program assumes a typical −95 dBm. Walk around your home with a laptop, and run it in each room.</p>
+
+<!-- @code labs/ch17/signals.py#wifi -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Find the noise level at which 4 levels start making mistakes: <code>python3 signals.py levels --noise 0.12 0.14 0.16</code>. Now add error correction: send every symbol three times and take a vote. How much noise can you survive now, and what did it cost?</li>
+<li>Run <code>python3 signals.py qam --snr N</code> for N from 5 to 40. At what SNR does each constellation become “fine”? Compare your numbers with Wi-Fi’s rule of thumb that 256-QAM needs about 30 dB.</li>
+<li>Stand next to your router, then in the furthest corner of your home, and run <code>signals.py wifi</code> in both places. How many dB did you lose? How many times weaker is that?</li>
+<li>Ping a server on another continent with <code>lightspeed.py --ping</code>. Which is bigger, the fiber limit or the extra? Now try <code>traceroute</code> to the same server: can you spot which hop crosses the ocean?</li>
+</ul>
+</lab>

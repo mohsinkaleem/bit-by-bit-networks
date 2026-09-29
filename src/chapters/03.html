@@ -1,0 +1,267 @@
+<h3>Bob gets a word in</h3>
+
+<p>The new wire is a big success. Every evening, Alice’s messages pop up on Bob’s little display, and Eve is stuck staring at dark windows. There’s just one problem, and Bob points it out on the walk to school:</p>
+
+<dialogue>
+B: It’s great. But I can’t say anything back.
+A: You could flash the flashlight at me?
+B: Eve.
+A: Right. Eve.
+</dialogue>
+
+<p>A link where information only ever flows one way is called <strong>simplex</strong>. Radio and TV broadcasts are simplex; your car radio has no way to talk back to the station. For Alice and Bob, that won’t do. They need two-way communication, and there are two ways to get it.</p>
+
+<p>The first is easy: string up a <em>second</em> pair of wires, with a sender chip at Bob’s end and a receiver at Alice’s. Now there are two one-way links, one in each direction. Both of them can talk at the same time without getting in each other’s way, like cars on a two-lane road. This is called <strong>full duplex</strong>.</p>
+
+<p>The second way is to keep the one pair of wires and <em>share</em> it. Alice sends on it, and Bob sends on it too, but never at the same time. It’s like a one-lane bridge, where traffic has to take turns. This is called <strong>half duplex</strong>.</p>
+
+<!-- @include src/figs/ch03-roads.svg -->
+
+<p>Full duplex is simpler and faster. So why would anyone bother with half duplex? Because wire isn’t free. Bob’s dad’s spool is empty, and copper costs money. Across a street, a second pair of wires is a minor expense. Across a continent it’s a fortune, which is why early telegraph companies worked hard to squeeze more out of every wire they strung. And some kinds of links simply don’t <em>have</em> a second lane. When we get to radio, everybody in the room shares the same air.</p>
+
+<p>Alice and Bob decide to try half duplex. It turns out to be a much better teacher.</p>
+
+<h3>One wire, two voices</h3>
+
+<p>With a shared wire, each end needs both a sender and a receiver. Alice’s cousin builds a new chip for each house that does both jobs, called a <strong>transceiver</strong> (<em>trans</em>mitter plus re<em>ceiver</em>).</p>
+
+<p>There’s one subtle new rule. When a transceiver isn’t talking, it has to completely let go of the wire. If Alice’s chip held the line at 0 V while Bob was trying to send +5 V, the two would fight, and Bob’s signal would never get through. So a quiet transceiver disconnects its sender and just listens. That leaves the wire free for whoever wants to talk.</p>
+
+<p>That raises the question this whole chapter is really about: who gets to talk, and when?</p>
+
+<h3>Everybody talks at once</h3>
+
+<p>On the very first night, Alice and Bob both sit down at 9:30 and start typing at the same moment. Alice’s chip puts +5 V on the wire just as Bob’s puts −5 V on it. Two senders are now pushing the same wire in opposite directions, and the result is a mess:</p>
+
+<!-- @include src/figs/ch03-collision.svg -->
+
+<p>This is called a <strong>collision</strong>, and it ruins both messages. Worse, it’s sneaky. Wherever Alice and Bob happen to send the same bit, the wire looks perfectly normal. If you only looked at those moments, you’d think everything was fine.</p>
+
+<p>The fix begins with noticing. Here’s the trick: a transceiver can keep <em>listening</em> while it talks. If Alice sends +5 V but her own receiver measures something else, somebody else must be on the wire. That’s a collision, and she knows it immediately. This is called <strong>collision detection</strong>.</p>
+
+<p>What should she do when she detects one? Stop talking, obviously, and try again later. But when? If Alice and Bob both wait exactly one second and try again, they’ll collide again, and again, forever. It’s the same as two polite people meeting in a corridor who both step left, then both step right, then both step left again.</p>
+
+<p>The fix is to add randomness. After a collision, each side waits a <em>random</em> amount of time before trying again. Maybe Alice waits 3 ticks and Bob waits 7. Alice goes first, Bob hears that the line is busy, and he politely waits for her to finish. If they’re unlucky and pick the same wait, they collide again, and this time they both pick from a <em>bigger</em> range of random waits, which makes another tie less likely. This trick is called <strong>random backoff</strong>, and we’ll give it a much closer look in Chapter 8 when a lot more people join the wire.</p>
+
+<p>One more piece of politeness: <strong>listen before you talk</strong>. Before starting a message, a transceiver checks that the line has been quiet for a moment. There’s no point starting to talk while Bob is halfway through a sentence.</p>
+
+<h3>The Chatterbox</h3>
+
+<p>While we’re upgrading, the keypad and little display are getting cramped. Alice’s cousin builds them each a proper machine: a keyboard for typing, the transceiver chip inside, and a roll of paper that a tiny printer writes incoming messages onto. They call it the <strong>Chatterbox</strong>.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 250" role="img" aria-label="Two Chatterbox machines, each with a keyboard and paper roll, connected by one pair of wires">
+  <use href="#alice" x="40" y="120" width="60" height="100"/>
+  <use href="#chatterbox" x="106" y="88" width="150" height="125"/>
+  <path d="M141,82 L221,82 L221,26 L141,26 Z" fill="#fffdf6" stroke="#8c6d3f" stroke-width="1.5"/>
+  <text x="181" y="46" class="mid mono xs" fill="#333">HEY ALICE</text>
+  <text x="181" y="64" class="mid mono xs" fill="#333">SURE! ~ BOB</text>
+  <use href="#bob" x="620" y="120" width="60" height="100"/>
+  <use href="#chatterbox" x="464" y="88" width="150" height="125"/>
+  <path d="M499,82 L579,82 L579,26 L499,26 Z" fill="#fffdf6" stroke="#8c6d3f" stroke-width="1.5"/>
+  <text x="539" y="46" class="mid mono xs" fill="#333">HI BOB</text>
+  <text x="539" y="64" class="mid mono xs" fill="#333">WANT TO PLAY?</text>
+  <path d="M256,170 C330,200 390,200 464,170" class="wire"/>
+  <path d="M256,182 C330,212 390,212 464,182" class="wire" opacity="0.7"/>
+  <text x="360" y="236" class="mid hand lg">one shared pair of wires</text>
+  <path d="M300,150 l40,0" class="line s-red" marker-end="url(#ah-red)"/>
+  <path d="M420,140 l-40,0" class="line s-blue" marker-end="url(#ah-blue)"/>
+  <text x="360" y="130" class="mid hand muted">…but only one at a time</text>
+</svg>
+<figcaption>The Chatterbox: type on the keyboard, and messages from the other side print on the paper roll.</figcaption>
+</figure>
+
+<p>Now that there’s a machine at each end handling the details, Alice and Bob need to decide exactly what the machines should do. They need rules.</p>
+
+<realworld>
+<p>The Chatterbox is a <strong>teleprinter</strong>, a machine that was everywhere from the 1920s to the 1970s. Newsrooms received wire-service stories on them, and businesses sent telegrams through a worldwide teleprinter network called Telex. Early computers borrowed them as their keyboards and screens: you typed into a Teletype and the computer’s reply clattered out on paper.</p>
+<p>That history lives on in your laptop. On macOS and Linux, a terminal window is still called a <code>tty</code>, short for TeleTYpewriter. Open a terminal and type <code>tty</code> to see yours.</p>
+</realworld>
+
+<h3>Where does a message end?</h3>
+
+<p>Bob’s Chatterbox has a practical problem. Letters arrive one at a time, but the printer should print a whole message on its own line, and the machine needs to know when Alice has finished so Bob can reply. So how does it know where one message ends?</p>
+
+<p>Alice and Bob borrow an idea from walkie-talkies: end every message with the word OVER. The first night, it works perfectly. The second night, Alice reports on her video game:</p>
+
+<!-- @include src/figs/ch03-over.svg -->
+
+<p>Bob’s Chatterbox saw OVER after GAME and decided the message was done. It printed “GAME”, then “LOL” arrived as an orphan with no start. The trouble is that OVER is a perfectly ordinary word, and people are going to type it. <em>Any</em> word you pick as a marker can turn up inside a message.</p>
+
+<p>What they need is a signal that can never appear in a normal message. Remember the extra symbol in the codebook from Chapter 1, <code>~</code>, the one with no job? Now it gets one. From now on, <code>~</code> never stands for itself. It means “the next symbol is a <strong>control code</strong>, an instruction for the machine, not part of the message”:</p>
+
+<ul>
+<li><code>~S</code> means “a message Starts here”.</li>
+<li><code>~E</code> means “the message Ends here”.</li>
+</ul>
+
+<p>So GAME OVER LOL goes out as <code>~S GAME OVER LOL ~E</code>, and the OVER in the middle is just letters.</p>
+
+<p>But what if Alice actually wants to <em>type</em> a <code>~</code>? Maybe she’s drawing a wave, or explaining this very protocol to Bob (“the end code is ~E”). If she types it raw, Bob’s machine will think a control code is starting. The answer is <strong>escaping</strong>: a real <code>~</code> in the text is sent as two in a row, <code>~~</code>. When Bob’s machine sees <code>~</code>, it looks at the next symbol: <code>S</code> means start, <code>E</code> means end, and another <code>~</code> means “print a real ~”. Every possible message can now be sent, and none of them can be confused with a control code.</p>
+
+<div data-widget="framing"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Wrapping a message in markers so the receiver can tell where it begins and ends is called <strong>framing</strong>, and the wrapped-up message is called a <strong>frame</strong>. Every link on the internet frames its data somehow. Escaping is a price we pay for it: a message full of <code>~</code>s gets longer, because every <code>~</code> doubles.</p>
+
+<realworld>
+<p>Real protocols use exactly this trick. The ASCII character set (Chapter 5) even has built-in control codes named STX and ETX, for “start of text” and “end of text”, left over from the teleprinter days.</p>
+<p>PPP, the protocol dial-up modems used to connect you to the internet, marks the edges of every frame with a special <em>flag</em> byte, <code>01111110</code>, borrowed from an older protocol family called HDLC. If that byte turns up inside the data, PPP escapes it with a second special byte, <code>01111101</code>, which is exactly our <code>~~</code> trick. Engineers call it <strong>byte stuffing</strong>.</p>
+<p>There’s another way to find the end of a message without any markers at all: say up front how long it is. We’ll switch to that approach in Chapter 5, when we start sending pictures.</p>
+</realworld>
+
+<h3>Did you get that?</h3>
+
+<p>With framing sorted out, there’s another question. After Alice sends a message, how does she know Bob’s Chatterbox actually got it? Maybe there was noise, maybe a collision she somehow missed, or maybe Bob’s machine is switched off.</p>
+
+<p>The answer is to have Bob’s machine reply. When a complete, well-formed message arrives, Bob’s Chatterbox prints it and automatically sends back a tiny message of its own: <code>~A</code>, meaning “got it”. Engineers call a reply like this an <strong>acknowledgement</strong>, or <strong>ack</strong> for short.</p>
+
+<p>If Alice’s machine doesn’t get an <code>~A</code> within a few seconds, it assumes the message was lost and sends it again. This waiting limit is called a <strong>timeout</strong>. And if it tries five times with no answer, it gives up and prints <code>BOB ISN’T ANSWERING</code>, because at that point the problem is probably an unplugged Chatterbox, not bad luck.</p>
+
+<p>Step through what that looks like. Time runs down the page, and each diagonal arrow is one message crossing the wire. The arrows slope because every message takes a little time to cross:</p>
+
+<!-- @include src/figs/ch03-sequence.svg -->
+
+<p>Diagrams like this are called <strong>sequence diagrams</strong>, and we’ll draw a lot of them. They’re the best way to see a protocol in action, especially when things go wrong.</p>
+
+<p>Look closely at the last two steps, because they uncover a real problem. When no <code>~A</code> arrives, Alice can’t tell <em>why</em>. Was her message lost on the way there, or was Bob’s <code>~A</code> lost on the way back? From her side, both look exactly the same: silence. Sending again is the right move if her message was lost. But if it was the <code>~A</code> that got lost, Bob gets the message twice and prints it twice.</p>
+
+<p>Printing “MEET AT NOON” twice is harmless. Now imagine the message was “TRANSFER $10 TO BOB”.</p>
+
+<h3>Our first real protocol</h3>
+
+<p>Let’s write down everything the Chatterboxes do, as a proper list of rules. This is our first complete <strong>protocol specification</strong>:</p>
+
+<ol>
+<li><strong>Symbols.</strong> Everything on the wire uses the 5-bit codebook from Chapter 1, sent with a start pulse per symbol as in Chapter 2.</li>
+<li><strong>Control codes.</strong> <code>~</code> always begins a two-symbol control code: <code>~S</code> starts a message, <code>~E</code> ends it, <code>~A</code> acknowledges one, <code>~N</code> asks for a garbled message to be resent, and <code>~~</code> is a literal <code>~</code>.</li>
+<li><strong>Listen before talking.</strong> Only start sending after the line has been quiet for at least two symbol-times.</li>
+<li><strong>Listen while talking.</strong> If you ever hear something other than what you just sent, it’s a collision. Stop immediately and back off for a random time, picking from a range that doubles after each collision.</li>
+<li><strong>Acknowledge.</strong> When a complete message arrives, print it and send <code>~A</code> as soon as the line is quiet. If a message arrives garbled (for example, with an unknown control code), throw it away and send <code>~N</code>.</li>
+<li><strong>Retry.</strong> If no <code>~A</code> arrives within 10 symbol-times, or a <code>~N</code> arrives, send the message again. After 5 tries, give up and tell the user.</li>
+</ol>
+
+<p>A protocol has three parts, and this one has all three. There are <strong>message formats</strong> (what a frame looks like), <strong>rules</strong> (what to do when), and the <strong>states</strong> each side can be in. That last part is easiest to see as a diagram. At any moment, each Chatterbox is in exactly one state, and events like “sent the last symbol” or “heard a collision” move it to another:</p>
+
+<!-- @include src/figs/ch03-states.svg -->
+
+<p>Drawing a protocol this way, as a <strong>state machine</strong>, is how engineers make sure they haven’t forgotten a case. For every state, you ask: what could happen here, and where do we go next? A missing arrow in the drawing usually means a bug in the code.</p>
+
+<realworld>
+<p>ASCII has control characters named ACK (acknowledge) and NAK (negative acknowledge), which are exactly our <code>~A</code> and <code>~N</code>. They date from the 1960s and are still in the character set today.</p>
+<p>The internet’s protocols are written up as documents called <strong>RFCs</strong> (“Request for Comments”), published by the Internet Engineering Task Force. They contain lists of rules, message formats and state machines, just like ours. The RFC for TCP, the protocol that carries most of your web browsing, includes a state machine diagram with eleven states. You’ll get to know it well in Chapter 27.</p>
+</realworld>
+
+<h3>Two problems we can’t fix yet</h3>
+
+<p>The Chatterbox Protocol works well most of the time, but the lab for this chapter will show you two ways it fails. They’re important enough to name now.</p>
+
+<p>The first is the one we just saw: <strong>duplicates</strong>. When an <code>~A</code> is lost, the message gets delivered twice, and Bob’s Chatterbox has no way to tell that the second copy is a repeat.</p>
+
+<think>
+<p>How could Bob’s Chatterbox tell a brand-new message from a resent copy of the last one? What would Alice need to add to every message?</p>
+<details><summary>A hint</summary><p>Numbering things helps. If every message carried a number, and a resent message kept its old number, Bob could recognize a repeat and ignore it (but still send <code>~A</code>, so Alice stops retrying). It turns out you don’t even need big numbers for this. We’ll work it all out in Chapter 13.</p></details>
+</think>
+
+<p>The second problem is sneakier: <strong>undetected corruption</strong>. If noise changes an ordinary letter, turning “HI BOB” into “HI BOQ”, the message still has a perfectly valid <code>~S</code> and <code>~E</code>. Bob’s machine has no idea anything went wrong. It prints “HI BOQ” and cheerfully sends <code>~A</code>. Our protocol only catches damage that happens to break the framing. We’ll need a way to check the letters themselves, and that’s Chapter 10.</p>
+
+<h3>What’s next?</h3>
+
+<p>Alice and Bob can finally have a conversation. It’s slow and a little clunky, and sometimes Bob gets Alice’s messages twice, but they’re talking. Along the way we met collisions, backoff, framing, escaping, acknowledgements and timeouts, and we wrote our first protocol specification.</p>
+
+<p>The Chatterbox has one big limitation, though: it only does one thing. It sends typed messages and prints received ones. What if Alice wants to send Bob her book report, or a drawing, or a high-score table? In the next chapter, we replace the Chatterbox with a real computer that can run any program we like, and find out what changes when the things talking are programs rather than people.</p>
+
+<lab>
+<p>Two programs this time. <code>framing.py</code> is the framing code on its own, so you can poke at it. <code>chatterbox.py</code> runs two Chatterboxes that share one simulated wire and follow the whole protocol, including collisions, backoff, acknowledgements and retries.</p>
+
+<h4>1. Framing</h4>
+
+<!-- @code labs/ch03/framing.py#frame -->
+
+<terminal title="labs/ch03">
+$ cd labs/ch03
+$ python3 framing.py naive
+Alice sends 'START GAME OVER LOL OVER'
+   Bob gets ['GAME', '(garbage: LOL)']
+$ python3 framing.py demo
+'HI BOB'                 -> '~SHI BOB~E'                     -> ['HI BOB']
+'GAME OVER'              -> '~SGAME OVER~E'                  -> ['GAME OVER']
+'SEE YOU ~ SOON'         -> '~SSEE YOU ~~ SOON~E'            -> ['SEE YOU ~ SOON']
+'~~~'                    -> '~S~~~~~~~E'                     -> ['~~~']
+'~E IS THE END CODE'     -> '~S~~E IS THE END CODE~E'        -> ['~E IS THE END CODE']
+''                       -> '~S~E'                           -> ['']
+$ python3 framing.py test
+all framing tests passed
+</terminal>
+
+<p>Try these:</p>
+<ul>
+<li>Change <code>frame()</code> so it <em>doesn’t</em> escape, and run <code>test</code>. Which tests fail, and why?</li>
+<li>Our parser reads <code>~</code> and then looks one symbol ahead. What does it do if a stream ends with a lone <code>~</code>? Add a test for it, and fix <code>parse()</code> if you don’t like the answer.</li>
+<li>Escaping makes some messages longer. Work out the <em>worst case</em>: how long can the framed version of an <em>n</em>-symbol message get?</li>
+</ul>
+
+<h4>2. Two Chatterboxes, one wire</h4>
+
+<p>Run it with no options. Alice and Bob both start talking at tick 0, so they collide straight away:</p>
+
+<terminal>
+$ python3 chatterbox.py
+t=   0  Alice  starts sending 'HI BOB' (try 1)
+t=   0  Bob    starts sending 'HEY ALICE' (try 1)
+t=   0  Alice  collision! backs off 3 ticks
+t=   0  Bob    collision! backs off 2 ticks
+t=   3  Alice  starts sending 'HI BOB' (try 2)
+t=   3  Bob    starts sending 'HEY ALICE' (try 2)
+t=   3  Alice  collision! backs off 9 ticks
+t=   3  Bob    collision! backs off 4 ticks
+t=   7  Bob    starts sending 'HEY ALICE' (try 3)
+t=  19  Alice  prints 'HEY ALICE'
+t=  23  Bob    got ~A: 'HEY ALICE' delivered
+…
+The wire, one symbol per tick  ( . = quiet,  # = collision ):
+     0 │#..#...~SHEY ALICE~E..~A..~SHI BOB~E..~A..~SWANT TO PLAY CHESS?~
+    64 │E..~A..~SSURE! ~~ BOB~E..~A
+</terminal>
+
+<p>Look at the wire trace at the bottom. You can see both collisions (<code>#</code>), the quiet gaps, each framed message, and the <code>~A</code> replies. Notice that Bob’s <code>~</code> went out as <code>~~</code>.</p>
+
+<p>Now take away the randomness. With <code>--no-backoff</code>, both sides always wait exactly 4 ticks after a collision:</p>
+
+<terminal>
+$ python3 chatterbox.py --no-backoff
+t=   0  Alice  starts sending 'HI BOB' (try 1)
+t=   0  Bob    starts sending 'HEY ALICE' (try 1)
+t=   0  Alice  collision! backs off 4 ticks
+t=   0  Bob    collision! backs off 4 ticks
+t=   4  Alice  starts sending 'HI BOB' (try 2)
+…
+t=  16  Alice  gives up on 'HI BOB' after 5 tries
+t=  16  Bob    gives up on 'HEY ALICE' after 5 tries
+</terminal>
+
+<p>That’s the corridor dance: perfectly polite and perfectly stuck. Finally, add some noise. <code>--noise 0.03</code> garbles 3% of the symbols each Chatterbox hears. With seed 19 you get to see both of the problems from the end of the chapter:</p>
+
+<terminal>
+$ python3 chatterbox.py --noise 0.03 --seed 19
+…
+t=  19  Bob    prints 'HI BOB'
+t=  29  Alice  heard no ~A in time: will send again
+…
+t=  54  Bob    prints 'HI BOB'   <- a DUPLICATE!
+$ python3 chatterbox.py --noise 0.03 --seed 5
+t=  14  Bob    prints 'HIOBOB'   <- CORRUPTED, and nobody noticed!
+…
+</terminal>
+
+<p>Experiments:</p>
+<ul>
+<li>Try a handful of seeds with <code>--noise 0.03</code>. How often does a message get silently corrupted, compared with how often one gets thrown away as garbled? Which problem looks more dangerous to you?</li>
+<li>In <code>pick_backoff()</code>, change the range from <code>4 * 2 ** tries</code> to a fixed <code>randint(1, 3)</code>. Does it still work? How many collisions happen before anything gets through? What if you add a third Chatterbox (look at how <code>run()</code> builds the list)?</li>
+<li>Set <code>ACK_TIMEOUT</code> to 2. What goes wrong, and why? What’s the smallest value that works, and what does that have to do with how long an <code>~A</code> takes to arrive?</li>
+<li>The Chatterboxes never actually <em>send</em> <code>~N</code>. Make one send <code>~N</code> whenever it throws away a garbled message. Does that make recovery faster than waiting for a timeout?</li>
+</ul>
+
+<h4>Stretch goal: stop the duplicates</h4>
+
+<p>Add a message number to every frame, for example as a single symbol right after <code>~S</code> that alternates between <code>A</code> and <code>B</code>. Make the receiver remember the last number it printed, so it throws away (but still acknowledges) a frame with the same number. Run seed 19 again. Did the duplicate disappear? Can you think of a situation where alternating between just two numbers isn’t enough? (Chapter 13 has the answer.)</p>
+</lab>

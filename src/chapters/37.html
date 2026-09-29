@@ -1,0 +1,209 @@
+<h3>Grandpa’s question</h3>
+
+<p>It’s Sunday, and the family is round at Grandpa Otto’s. He has been reading Bob’s notebooks.</p>
+
+<dialogue>
+G: I type the name of my garden website, I press Enter, and there it is. What actually happens?
+B: Where do I start? There’s DNS, and TCP, and TLS…
+A: Start at the beginning, and don’t skip anything. We’ll record the whole thing on the Pi, and go through it packet by packet.
+G: How long will that take?
+A: For the Pi? About a fifth of a second. For us, one chapter.
+</dialogue>
+
+<p>“What happens when you type a URL and press Enter?” is a famous interview question, because a complete answer touches every layer of networking. That’s this chapter: one page, <code>https://example.org/</code>, fetched from Grandpa’s Pi, with every step pointing back to the chapter that explained it. Here’s the route we’ll take:</p>
+
+<!-- @include src/figs/ch37-journey.svg -->
+
+<h3>Before the first packet</h3>
+
+<p>A browser does a surprising amount of work before it sends anything. It decides whether you typed an address or a search. It adds <code>https://</code>, and checks its HSTS list (Chapter 30) in case the site insists on it. Then it looks for shortcuts, because the fastest network request is the one you don’t make:</p>
+
+<ul>
+<li>Is the page in the <strong>HTTP cache</strong>, and still fresh (Chapter 30)? Then there’s nothing more to do.</li>
+<li>Is there already an open connection to this site (Chapters 30 and 33)? Then skip straight to sending the request.</li>
+<li>Is the address in the <strong>DNS cache</strong>, the browser’s own or the operating system’s (Chapter 29)? Then skip the lookup.</li>
+<li>Did the site once say <code>Alt-Svc: h3</code>, or does its DNS have an HTTPS record (Chapter 33)? Then try QUIC.</li>
+</ul>
+
+<p>For this chapter we’ll assume none of the shortcuts work, and use <code>curl</code> on the Pi, with its ARP cache emptied first, so that every step happens for real. The capture was decrypted with curl’s <code>SSLKEYLOGFILE</code> (Chapter 32), so we can see inside everything.</p>
+
+<h3>Which way is out?</h3>
+
+<p>The Pi’s routing table (Chapter 20) says that anything not on the home network goes to the <strong>default route</strong>: the router, 192.168.1.1, on <code>wlan0</code>. DHCP set that up when the Pi joined the network (Chapter 22), along with which DNS server to use: the router again. But a packet on Wi-Fi needs the router’s MAC address, and the cache is empty, so the very first packet isn’t about example.org at all:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ tshark -r enter.pcap -o tls.keylog_file:enterkeys.txt
+    2 0.800062 RaspberryPi_5e:10:c2 → Broadcast    ⟦1:ARP⟧ 42 Who has 192.168.1.1? Tell 192.168.1.4
+    3 0.805186 FibRSolGloba_40:0b:32 → RaspberryPi_5e:10:c2 ARP 42 192.168.1.1 is at 14:c3:5e:40:0b:32
+    4 0.805196  192.168.1.4 → 192.168.1.1  ⟦2:DNS 71 Standard query 0x555a A example.org⟧
+    5 0.805199  192.168.1.4 → 192.168.1.1  DNS 71 Standard query 0x92a4 AAAA example.org
+    6 0.842533  192.168.1.1 → 192.168.1.4  DNS 127 Standard query response 0x92a4 AAAA example.org AAAA 2606:4700:10::ac42:9ded AAAA 2606:4700:10::6814:1a88
+    7 0.842556  192.168.1.1 → 192.168.1.4  DNS 103 Standard query response 0x555a ⟦3:A example.org A 172.66.157.237 A 104.20.26.136⟧
+</terminal>
+
+<callouts>
+1 | Chapter 21’s “who has?”, broadcast to every device on the Wi-Fi. The answer took 5 ms: Wi-Fi is much slower than a cable, even across a room (Chapter 19).
+2 | Two DNS questions, for an IPv4 address and an IPv6 one, sent at the same moment. Each is a UDP datagram of 71 bytes (Chapter 26).
+3 | Two addresses: the same site, answered from two Cloudflare address blocks. The router didn’t have them cached and asked upstream, which took 37 ms. The Pi has no global IPv6 address (Chapter 25), so it will use IPv4.
+</callouts>
+
+<p>Each of those frames went out over the air, after Chapter 19’s polite wait for silence, as radio waves on the 5 GHz band (Chapter 17), and the ones addressed to a single device were acknowledged, radio to radio.</p>
+
+<h3>Across the internet</h3>
+
+<p>Now the Pi knows where to go: 172.66.157.237. Every packet from here on goes first to the router, which rewrites its source address to the house’s public one (NAT, Chapter 22), then along the internet provider’s PPPoE line (which is why nothing bigger than 1,492 bytes gets through, Chapter 27), and from router to router, each looking up the longest matching prefix in its table (Chapters 20 and 23). Which network carries it where is settled by BGP, the treaty between thousands of networks (Chapter 24). And because Cloudflare announces example.org’s addresses from hundreds of cities at once, the packets end up at the nearest one (anycast, Chapter 34), a few milliseconds away.</p>
+
+<p>Then come the handshakes. Here’s the whole exchange, drawn out:</p>
+
+<!-- @include src/figs/ch37-timeline.svg -->
+
+<terminal title="Grandpa Otto’s Pi">
+    8 0.842737  192.168.1.4 → 172.66.157.237 TCP 74 33140 → 443 ⟦1:[SYN]⟧ Seq=0 Win=64240 Len=0 MSS=1460 SACK_PERM TSval=2711007550 TSecr=0 WS=1024
+    9 0.880670 172.66.157.237 → 192.168.1.4  TCP 74 443 → 33140 [SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1400 SACK_PERM TSval=4262641160 TSecr=2711007550 WS=8192
+   10 0.880689  192.168.1.4 → 172.66.157.237 TCP 66 33140 → 443 [ACK] Seq=1 Ack=1 Win=64512 Len=0 TSval=2711007588 TSecr=4262641160
+   11 0.883079  192.168.1.4 → 172.66.157.237 ⟦2:SSL 1454⟧
+   12 0.883085  192.168.1.4 → 172.66.157.237 TLSv1.2 249 Client Hello (SNI=example.org)
+   14 0.924940 172.66.157.237 → 192.168.1.4  TLSv1.3 1506 Server Hello, Change Cipher Spec
+   20 0.927914 172.66.157.237 → 192.168.1.4  TLSv1.3 826 ⟦3:Encrypted Extensions, Certificate, Certificate Verify, Finished⟧
+   22 0.931510  192.168.1.4 → 172.66.157.237 TLSv1.3 146 Change Cipher Spec, Finished
+   23 0.932002  192.168.1.4 → 172.66.157.237 HTTP2 189 ⟦4:Magic, SETTINGS[0], WINDOW_UPDATE[0], HEADERS[1]: GET /⟧
+   25 0.971037 172.66.157.237 → 192.168.1.4  HTTP2 619 SETTINGS[0], WINDOW_UPDATE[0], SETTINGS[0]
+   27 0.974450 172.66.157.237 → 192.168.1.4  HTTP2 247 ⟦5:HEADERS[1]: 200 OK⟧
+   29 0.974596 172.66.157.237 → 192.168.1.4  HTTP2 810 DATA[1]
+   30 0.974599 172.66.157.237 → 192.168.1.4  HTTP2 97 DATA[1] (text/html)
+   32 0.974710  192.168.1.4 → 172.66.157.237 HTTP2 114 GOAWAY[0]
+   33 0.974730  192.168.1.4 → 172.66.157.237 TLSv1.3 90 Alert (Level: Warning, Description: Close Notify)
+   34 0.975678  192.168.1.4 → 172.66.157.237 TCP 66 33140 → 443 ⟦6:[FIN, ACK]⟧ Seq=1926 Ack=6590 Win=81920 Len=0
+</terminal>
+
+<callouts>
+1 | Chapter 27’s handshake, with Chapter 28’s window scaling. The server offers a smaller MSS, 1,400, leaving room for tunnels inside its own network.
+2 | The first half of a ClientHello too big for one segment. Wireshark only recognises it once the second part arrives. It’s big because curl offers a post-quantum key exchange (Chapter 42) alongside X25519.
+3 | Everything after the ServerHello is encrypted, but these keys unlock it: the certificate chain, the signature, the Finished MAC (Chapter 32).
+4 | One round trip after the ClientHello, the request itself, in HTTP/2 (Chapter 33).
+5 | The answer, from Cloudflare’s cache (Chapter 34): 40 ms after the request, one round trip.
+6 | curl only wanted one page, so it closes the connection at every layer: GOAWAY for HTTP/2, close_notify for TLS, and FIN for TCP (Chapter 27).
+</callouts>
+
+<p>(A few frames, mostly TCP’s bare acknowledgements, are left out.) Replay it for yourself, one packet at a time:</p>
+
+<div data-widget="replay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>One packet, every layer</h3>
+
+<p>Take just one of those packets, number 23, the request. It carries a whole stack of the protocols in this book, each wrapped inside the one below, and each read by a different machine on the way:</p>
+
+<!-- @include src/figs/ch37-onion.svg -->
+
+<p>The Wi-Fi header gets it to the router, which throws it away and writes a new one for the next link. The IP header gets it across the internet, rewritten by NAT on the way. The TCP header gets it to the right program, in the right order, at the right speed. The TLS record keeps everything inside it secret and unchanged. And inside all that, 28 bytes of compressed headers that say, in effect, what Grandpa typed.</p>
+
+<h3>And then the page</h3>
+
+<p>The 713 bytes of example.org are one tiny page, which came back in a single round trip. Most pages are nothing like that. The browser reads the HTML, and finds the stylesheets, scripts, fonts and pictures it refers to, often dozens of them, from a dozen different sites. Files on the same site go over the same HTTP/2 connection, all at once. Each other site needs its own DNS lookup, handshakes and all, which is why pages that load things from many sites are slow, and why browsers start those lookups and connections the moment they see a name mentioned. For a big download, what matters is no longer the round trips but the bandwidth, and how quickly TCP’s congestion control (Chapter 28) finds it: a long Wikipedia article spends most of its time there.</p>
+
+<h3>Doing it all by hand</h3>
+
+<p>This chapter’s lab repeats every step itself, timing each one: it reads the routing and ARP tables, asks the DNS server with Chapter 29’s code, opens the TCP connection, does TLS, and speaks HTTP/2 with Chapter 33’s frames:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 pressenter.py https://example.org/
+1. the URL: scheme https, host example.org, path /
+
+2. this computer: default route via 192.168.1.1 on wlan0; the router's MAC address is 14:c3:5e:40:0b:32
+
+3. DNS: asking 192.168.1.1
+   A     172.66.157.237, 104.20.26.136   [UDP, 4.8 ms]
+   AAAA  2606:4700:10::ac42:9ded, 2606:4700:10::6814:1a88   [UDP, 1.4 ms]
+   ⟦1:HTTPS 1 . alpn=h2⟧ ipv4hint=104.20.26.136,172.66.157.237 ipv6hint=2606:4700:10::6814:1a88,2606:4700   [UDP, ⟦2:60.8 ms⟧]
+   ⏱  DNS: 67.0 ms (three questions to 192.168.1.1)
+
+4. TCP: connecting to 172.66.157.237
+   192.168.1.4:35322 → 172.66.157.237:443  (the port on our side was picked by the operating system)
+   ⏱  TCP handshake: 25.3 ms (SYN, SYN-ACK, ACK: one round trip)
+
+5. TLS
+   TLSv1.3, TLS_AES_256_GCM_SHA384; ALPN chose 'h2'
+   certificate for example.org, *.example.org, from Cloudflare TLS Issuing ECC CA 3, until Dec 25 22:13:27 2026 GMT
+   ⏱  TLS handshake: 46.0 ms (ClientHello … Finished: one more round trip)
+
+6. HTTP/2
+   → HTTP/2 preface, SETTINGS, HEADERS: GET /
+   ← HEADERS: 200, text/html; charset=utf-8, server cloudflare, ⟦3:cache HIT, age 553 s⟧
+   ⏱  waiting for the first byte: 49.8 ms (the request's round trip, and the server's thinking)
+   ← DATA: 713 bytes
+   ⏱  downloading: 0.4 ms
+
+the whole thing: 189 ms
+
+   DNS                          █████████████████████                                           67.0 ms
+   TCP handshake                                     ████████                                   25.3 ms
+   TLS handshake                                             ███████████████                    46.0 ms
+   waiting for the first byte                                               ███████████████     49.8 ms
+   downloading                                                                             █     0.4 ms
+</terminal>
+
+<callouts>
+1 | The lab asks for the HTTPS record too, as browsers now do: HTTP/2 only, for example.org, and no Encrypted Client Hello.
+2 | The A and AAAA answers were in the router’s cache from the capture a minute earlier; this one had to be looked up.
+3 | Served from Cloudflare’s cache, where it had been sitting for nine minutes.
+</callouts>
+
+<p>For a long page, the picture changes completely:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ python3 pressenter.py https://en.wikipedia.org/wiki/Computer_network
+…
+the whole thing: 1350 ms
+
+   DNS                          ███                                                             74.5 ms
+   TCP handshake                   ██                                                           47.3 ms
+   TLS handshake                     ███                                                        64.0 ms
+   waiting for the first byte           ████                                                    92.8 ms
+   downloading                              ████████████████████████████████████████████████  1070.8 ms
+</terminal>
+
+<think>
+<p>That was the slowest possible way to fetch example.org: nothing cached, nothing reused. If Grandpa reloads the page a minute later, in a real browser, which of those nearly forty packets still need to happen?</p>
+<p>Possibly none. The router’s MAC address is in the ARP cache for a while (Chapter 21); the addresses are in the DNS cache for their TTL (Chapter 29); the browser keeps the connection open, so there’s no TCP or TLS handshake (Chapter 30); and if the page is still fresh in the HTTP cache, there’s no request either. Even when a new connection is needed, TLS session tickets skip most of the handshake, and QUIC with 0-RTT (Chapter 33) can send the request in the very first packet. Most of the engineering in this book is about making the second visit cheaper than the first.</p>
+</think>
+
+<realworld>
+<p>“What happens when you type google.com into your browser and press Enter?” is asked in so many job interviews that people have written book-length answers, including a famous community-written one on GitHub that starts with the electrical signal from the keyboard. Even so, the typical page today is far busier than example.org: the HTTP Archive, which regularly loads millions of websites and records what they do, finds that a median page makes around seventy requests, to many different sites, and weighs a couple of megabytes.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Nearly forty packets, eight kinds of protocol, a dozen machines, and it all worked, in less time than it takes to blink. But every step in this chapter is something that can go wrong: a missing route, a wrong DNS answer, a blocked port, a packet too big for a tunnel, a certificate that doesn’t match. Chapter 38, the last in Part II, is about what to do when it breaks: how to find out <em>which</em> step failed, with the tools from this book.</p>
+
+<lab>
+<p>One program, which uses Chapter 29’s DNS code and Chapter 33’s HTTP/2 code; keep the lab folders side by side. It works on macOS and Linux.</p>
+
+<h4>1. Press Enter, slowly</h4>
+
+<p><code>python3 pressenter.py https://example.org/</code>, or any HTTPS address that speaks HTTP/2. Run it twice in a row: which step gets faster, and why? The heart of it is four small functions, one for each layer:</p>
+
+<!-- @code labs/ch37/pressenter.py#steps -->
+
+<p>Finding the way out uses what the operating system already knows:</p>
+
+<!-- @code labs/ch37/pressenter.py#local -->
+
+<h4>2. Record your own page load</h4>
+
+<p>On Linux (or a Mac, with <code>sudo</code> and Wireshark installed), empty the ARP cache, capture, and fetch a page with curl writing its keys:</p>
+
+<terminal title="Linux">
+$ sudo ip neigh flush dev wlan0
+$ tshark -i wlan0 -f "arp or port 53 or port 443" -w enter.pcap -a duration:10 &
+$ SSLKEYLOGFILE=keys.txt curl -s -o /dev/null https://example.org/
+$ tshark -r enter.pcap -o tls.keylog_file:keys.txt
+</terminal>
+
+<h4>Experiments</h4>
+<ul>
+<li>Fetch the same page with <code>curl --http3-only</code> while capturing (Chapter 33). How many packets does it take now, and how much sooner does the request go out?</li>
+<li>Add a timing for each DNS question in <code>pressenter.py</code> against <code>1.1.1.1</code> instead of your router. Which is faster, the first time and the second?</li>
+<li>Make <code>pressenter.py</code> follow the page’s links: parse the HTML for <code>&lt;img src=…&gt;</code> and <code>&lt;link href=…&gt;</code>, and fetch those on the same HTTP/2 connection (Chapter 33’s streams). How much longer does the whole page take than its HTML?</li>
+<li>Run it on a phone’s hotspot, and compare the waterfall with your home network’s. Which bars change?</li>
+</ul>
+</lab>

@@ -1,0 +1,460 @@
+<h3>Two windows, one street</h3>
+
+<p>What does it actually mean for two computers to “talk”? Take away the screens and the cables and the blinking lights, and it comes down to something simple: one side does something the other side can notice, and both sides agreed beforehand on what that something means.</p>
+
+<p>That’s all there is to it. Everything in this book, from the Wi-Fi in your house to the undersea cables that carry the internet between continents, is an elaborate answer to one question: how do we make something get noticed, reliably, a long way away, by the right someone, and mean the right thing?</p>
+
+<p>We’re going to build our answer one piece at a time, and we’ll start somewhere that has nothing to do with computers.</p>
+
+<p>Meet Alice and Bob. They’re best friends, they live across a narrow street from each other, and their bedroom windows face each other. Their parents have a strict rule: lights out and no phones after nine. Alice and Bob have a rule of their own: a conversation isn’t over just because the grown-ups say so.</p>
+
+<p>Alice has a flashlight.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 300" role="img" aria-label="Alice and Bob at facing windows at night; Alice shines a flashlight across the street">
+  <defs>
+    <clipPath id="c1-winA"><rect x="100" y="120" width="96" height="84" rx="3"/></clipPath>
+    <clipPath id="c1-winB"><rect x="524" y="120" width="96" height="84" rx="3"/></clipPath>
+  </defs>
+  <rect width="720" height="300" rx="10" class="night"/>
+  <g class="star">
+    <circle cx="300" cy="30" r="1.8" class="twinkle"/><circle cx="420" cy="54" r="1.5"/><circle cx="460" cy="24" r="2" class="twinkle" style="animation-delay:1.2s"/>
+    <circle cx="270" cy="80" r="1.3"/><circle cx="660" cy="30" r="1.6" class="twinkle" style="animation-delay:.6s"/><circle cx="40" cy="36" r="1.7"/>
+  </g>
+  <use href="#moon" x="338" y="24" width="44" height="44"/>
+  <text x="360" y="104" class="hand lg mid on-night">9:30 pm</text>
+  <rect x="30" y="90" width="210" height="210" fill="#4a5878"/>
+  <path d="M14,96 L135,34 L256,96 Z" fill="#313c5a"/>
+  <rect x="100" y="120" width="96" height="84" rx="3" fill="#2c3b5e"/>
+  <g clip-path="url(#c1-winA)"><use href="#alice" x="118" y="128" width="56" height="94"/></g>
+  <rect x="100" y="120" width="96" height="84" rx="3" fill="none" stroke="#1d2740" stroke-width="6"/>
+  <rect x="480" y="90" width="210" height="210" fill="#4a5878"/>
+  <path d="M464,96 L585,34 L706,96 Z" fill="#313c5a"/>
+  <rect x="524" y="120" width="96" height="84" rx="3" fill="#2c3b5e"/>
+  <g clip-path="url(#c1-winB)"><use href="#bob" x="544" y="128" width="56" height="94"/></g>
+  <rect x="524" y="120" width="96" height="84" rx="3" fill="none" stroke="#1d2740" stroke-width="6"/>
+  <path d="M206,176 L524,150 L524,202 Z" class="beam"/>
+  <use href="#flashlight" x="164" y="167" width="42" height="18"/>
+  <circle cx="206" cy="176" r="6" class="glow blink"/>
+  <text x="148" y="236" class="hand xl mid on-night">Alice</text>
+  <text x="572" y="236" class="hand xl mid on-night">Bob</text>
+  <rect x="0" y="282" width="720" height="18" fill="#22324d"/>
+</svg>
+<figcaption>Two windows, one street, one flashlight.</figcaption>
+</figure>
+
+<h3>Is the coast clear?</h3>
+
+<p>Here’s the simplest conversation Alice and Bob could have. At school they make a plan: they’ll meet at the treehouse on Saturday morning, but only if Alice’s mom forgets to sign her up for swimming lessons. Alice won’t know until tonight. So they agree that at 9:30, Bob will look out his window. If Alice’s flashlight is on, the treehouse is a go. If it’s off, it isn’t.</p>
+
+<p>At 9:30 Bob peeks through his curtains, and there it is: a little circle of light in Alice’s window. Treehouse on Saturday.</p>
+
+<p>Look at what just happened. Alice sent Bob a message, but the message didn’t contain any words. The light didn’t say “the treehouse is on”. It only said “on”, and the meaning came from the plan they made beforehand. Bob didn’t have to ask the question out loud, because they had already agreed what the question was.</p>
+
+<p>That kind of agreement is the most important idea in this book, and it has a name: a <strong>protocol</strong>. A protocol is a set of rules that both sides agree on in advance, so that a signal can mean something. “Light at 9:30 means the treehouse is on” is a protocol. It’s a tiny one, but it’s real.</p>
+
+<p>The answer to a single yes-or-no question is the smallest amount of information you can send, and we call it one <strong>bit</strong>. It’s the atom of communication. Everything else, from a text message to a song to a movie, is built out of lots and lots of bits.</p>
+
+<realworld>
+<p>The word <em>protocol</em> comes from diplomacy, where it means the etiquette for how officials greet each other and exchange documents. Computer scientists borrowed it in the 1960s, and it fits: a network protocol is etiquette for machines.</p>
+<p><em>Bit</em> is short for “binary digit”. The statistician John Tukey coined the word, and Claude Shannon made it famous in his 1948 paper that founded information theory. Shannon gave “information” a precise meaning: one bit is what you learn from the answer to a yes/no question when both answers were equally likely.</p>
+<p>Signalling with lights is much older than computers. Navies used shuttered signal lamps well into the twentieth century, and many ships still carry one as a backup for when the radio fails.</p>
+</realworld>
+
+<h3>The trouble with darkness</h3>
+
+<p>The treehouse plan works so well that they use it again the next week. This time, Bob looks out at 9:30 and sees… nothing. Alice’s window is dark.</p>
+
+<p>Does that mean no treehouse? Probably. But maybe Alice fell asleep early. Maybe the batteries died. Maybe her dad took the flashlight away. Maybe she’s standing at the window right now, frantically clicking a broken switch. From across the street, all of those look exactly the same: dark.</p>
+
+<p>It’s a sneaky problem, and it turns up all over networking. When “no” and “nothing” look the same, the receiver can’t tell an answer from a failure. Silence is ambiguous.</p>
+
+<p>Alice fixes it with some colored cellophane. She makes two covers for the flashlight, one green and one red. Green means yes and red means no. Darkness now means “Alice isn’t saying anything”, which is a completely different thing.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 220" role="img" aria-label="Three windows: a green light meaning yes, a red light meaning no, and a dark window meaning no message">
+  <defs>
+    <radialGradient id="c1-gg"><stop offset="0" stop-color="#45b872" stop-opacity="0.9"/><stop offset="1" stop-color="#45b872" stop-opacity="0"/></radialGradient>
+    <radialGradient id="c1-gr"><stop offset="0" stop-color="#e0566f" stop-opacity="0.9"/><stop offset="1" stop-color="#e0566f" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g transform="translate(60,20)">
+    <rect width="150" height="120" rx="6" fill="#2c3b5e" stroke="#1d2740" stroke-width="6"/>
+    <circle cx="75" cy="60" r="55" fill="url(#c1-gg)"/><circle cx="75" cy="60" r="18" fill="#45b872"/>
+    <text x="75" y="160" class="hand xl mid f-green">green = YES</text>
+  </g>
+  <g transform="translate(285,20)">
+    <rect width="150" height="120" rx="6" fill="#2c3b5e" stroke="#1d2740" stroke-width="6"/>
+    <circle cx="75" cy="60" r="55" fill="url(#c1-gr)"/><circle cx="75" cy="60" r="18" fill="#e0566f"/>
+    <text x="75" y="160" class="hand xl mid f-red">red = NO</text>
+  </g>
+  <g transform="translate(510,20)">
+    <rect width="150" height="120" rx="6" fill="#2c3b5e" stroke="#1d2740" stroke-width="6"/>
+    <text x="45" y="54" class="hand xl on-night" opacity="0.6">?</text><text x="92" y="84" class="hand xl on-night" opacity="0.4">?</text>
+    <text x="75" y="160" class="hand xl mid">dark = no message</text>
+    <text x="75" y="186" class="hand mid muted">(asleep? dead batteries?)</text>
+  </g>
+</svg>
+<figcaption>Two colors for two answers, so darkness can mean “no message at all”.</figcaption>
+</figure>
+
+<p>Now if Bob sees a dark window at 9:30, he knows something went wrong and can ask Alice about it in the morning. What matters is that he won’t mistake a failure for an answer.</p>
+
+<p>That’s a bigger step than it looks. The window now has three possible states: green, red and dark. Two of them carry information, and the third means “no signal at all”. The same idea will come back when we swap the flashlight for electricity. There, it’ll be the difference between a positive voltage, a negative voltage and a wire that’s been cut.</p>
+
+<h3>One flash at a time</h3>
+
+<p>Alice and Bob quickly want more than one question a night. So at school they write a list:</p>
+
+<ol>
+<li>Did you finish the math homework?</li>
+<li>Is your cousin still visiting?</li>
+<li>Did you see the new episode?</li>
+<li>Want to trade lunches tomorrow?</li>
+</ol>
+
+<p>At 9:30, Alice will answer all four in order, one flash per question, and Bob will write the answers down.</p>
+
+<p>Alice’s answers are yes, yes, no, yes. So she flashes green… and then green again. How is Bob supposed to know there were two greens? From across the street, green followed by green looks like one long green. Did she answer one question or two?</p>
+
+<p>They fix it by putting a short moment of darkness between flashes: flash, dark, flash, dark. Each flash is now its own separate answer, and the gaps work like the spaces between words.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 230" role="img" aria-label="A timeline of flashes. Without gaps, two greens merge into one long green. With gaps, each flash is separate.">
+  <text x="20" y="44" class="hand xl">Without gaps</text>
+  <rect x="170" y="24" width="160" height="34" rx="4" class="f-green"/>
+  <rect x="330" y="24" width="80" height="34" rx="4" class="f-red"/>
+  <rect x="410" y="24" width="80" height="34" rx="4" class="f-green"/>
+  <text x="250" y="80" class="hand lg mid f-red">one long “yes”? or two?</text>
+  <text x="20" y="134" class="hand xl">With gaps</text>
+  <rect x="170" y="114" width="70" height="34" rx="4" class="f-green"/>
+  <rect x="240" y="114" width="30" height="34" fill="#2c3b5e"/>
+  <rect x="270" y="114" width="70" height="34" rx="4" class="f-green"/>
+  <rect x="340" y="114" width="30" height="34" fill="#2c3b5e"/>
+  <rect x="370" y="114" width="70" height="34" rx="4" class="f-red"/>
+  <rect x="440" y="114" width="30" height="34" fill="#2c3b5e"/>
+  <rect x="470" y="114" width="70" height="34" rx="4" class="f-green"/>
+  <rect x="540" y="114" width="30" height="34" fill="#2c3b5e"/>
+  <text x="205" y="170" class="mid sm">Q1: yes</text><text x="305" y="170" class="mid sm">Q2: yes</text>
+  <text x="405" y="170" class="mid sm">Q3: no</text><text x="505" y="170" class="mid sm">Q4: yes</text>
+  <text x="255" y="102" class="mid xs muted">dark</text><text x="355" y="102" class="mid xs muted">dark</text>
+  <text x="455" y="102" class="mid xs muted">dark</text>
+  <line x1="170" y1="204" x2="690" y2="204" class="line thin" marker-end="url(#ah-ink)"/>
+  <text x="690" y="224" class="end sm muted">time</text>
+</svg>
+<figcaption>Short dark gaps keep neighboring flashes from blurring together.</figcaption>
+</figure>
+
+<p>With gaps, Alice can send as many answers in a row as she likes. A sequence of bits like this is called a <strong>bit stream</strong>, and Bob decodes it by counting: first flash, first question; second flash, second question; and so on. Sending bits one after another over a single channel like this is called <strong>serial</strong> communication. Alice could instead use four flashlights at once, one per question, which would be <strong>parallel</strong> communication. Over long distances serial wins, because it only needs one channel, and that trade-off will keep coming up.</p>
+
+<think>
+<p>The gap trick depends on Bob’s sense of timing. What happens if Alice speeds up and her gaps get shorter and shorter? What if Bob blinks at the wrong moment? Keep those questions in mind, because they’re what Chapter 2 is about.</p>
+</think>
+
+<h3>Twenty questions, minus fifteen</h3>
+
+<p>Answering a list of questions written in advance is useful, but it isn’t really a conversation. What Alice wants is to send <em>words</em>, any words she likes, including ones Bob isn’t expecting. Can yes-or-no flashes do that?</p>
+
+<p>They can, using the same trick as the game Twenty Questions. The questions don’t have to be yes/no; they just need exactly two possible answers. “Is your letter in the first half or the second half of the alphabet?” has two answers, so one flash can answer it: red for the first half, green for the second.</p>
+
+<p>There’s one snag. The alphabet has 26 letters, and 26 doesn’t keep splitting evenly (26 → 13 → 6½?). So Alice and Bob add six extra symbols to make an even 32: a space, a period, a comma, a question mark, an exclamation mark, and a squiggle, <code>~</code>, that they don’t have a use for yet. (They will. It saves the day in Chapter 3.)</p>
+
+<p>Why 32? Because 32 can be cut exactly in half five times in a row: 32 → 16 → 8 → 4 → 2 → 1. Each cut takes one question and each question takes one flash, so five flashes are enough to pick out any symbol. Here it is with the letter K:</p>
+
+<!-- @include src/figs/ch01-halving.svg -->
+
+<p>Don’t believe it works for every letter? Test it. Think of a symbol and let this box read your mind:</p>
+
+<div data-widget="halving"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Counting on two fingers</h3>
+
+<p>There’s something neat hiding in those answers. When we found K, the answers were left, right, left, right, left. Write left as 0 and right as 1, and you get <code>01010</code>. That happens to be how you write the number 10 in binary. And K is the 10th symbol on our list, if you count from zero the way computers do: A is 0, B is 1, C is 2 … K is 10.</p>
+
+<p>That’s no coincidence. To see why, take a closer look at how we write ordinary numbers. You’ve been doing it since you were little, so you probably don’t think about it anymore. Take 7,305. The digits mean 7 thousands, 3 hundreds, 0 tens and 5 ones. Each position is worth ten times the position to its right, and the digit in it says how many of that value to add. That’s why it’s called <strong>base 10</strong>, or <strong>decimal</strong>.</p>
+
+<p><strong>Binary</strong>, or base 2, works exactly the same way, but with 2 instead of 10. Each position is worth twice the one to its right: 1, 2, 4, 8, 16 and so on. And because each place can only hold “none” or “one” of its value, the only digits are 0 and 1.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 380" role="img" aria-label="Place values: 7305 in decimal is 7 thousands, 3 hundreds, 0 tens, 5 ones. 01010 in binary is 0 sixteens, 1 eight, 0 fours, 1 two, 0 ones, which is 10.">
+  <text x="20" y="28" class="slab lg b">Decimal: each place is worth 10× the place to its right</text>
+  <g>
+    <path d="M310,68 Q260,44 210,68" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="260" y="46" class="mid hand muted">×10</text>
+    <path d="M410,68 Q360,44 310,68" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="360" y="46" class="mid hand muted">×10</text>
+    <path d="M510,68 Q460,44 410,68" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="460" y="46" class="mid hand muted">×10</text>
+    <rect x="168" y="72" width="84" height="70" rx="8" class="box"/><text x="210" y="90" class="mid xs muted">1000s</text><text x="210" y="130" class="mid slab xl b">7</text>
+    <rect x="268" y="72" width="84" height="70" rx="8" class="box"/><text x="310" y="90" class="mid xs muted">100s</text><text x="310" y="130" class="mid slab xl b">3</text>
+    <rect x="368" y="72" width="84" height="70" rx="8" class="box"/><text x="410" y="90" class="mid xs muted">10s</text><text x="410" y="130" class="mid slab xl b">0</text>
+    <rect x="468" y="72" width="84" height="70" rx="8" class="box"/><text x="510" y="90" class="mid xs muted">1s</text><text x="510" y="130" class="mid slab xl b">5</text>
+    <text x="360" y="172" class="mid mono">7×1000 + 3×100 + 0×10 + 5×1 = <tspan class="b">7,305</tspan></text>
+  </g>
+  <text x="20" y="218" class="slab lg b">Binary: each place is worth 2× the place to its right</text>
+  <g>
+    <path d="M276,258 Q235,236 194,258" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="235" y="238" class="mid hand muted">×2</text>
+    <path d="M360,258 Q319,236 278,258" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="319" y="238" class="mid hand muted">×2</text>
+    <path d="M444,258 Q403,236 362,258" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="403" y="238" class="mid hand muted">×2</text>
+    <path d="M528,258 Q487,236 446,258" class="line thin s-muted" marker-end="url(#ah-muted)"/><text x="487" y="238" class="mid hand muted">×2</text>
+    <rect x="157" y="262" width="74" height="70" rx="8" class="t-red" stroke="var(--red)" stroke-width="2"/><text x="194" y="280" class="mid xs muted">16s</text><text x="194" y="320" class="mid slab xl b">0</text>
+    <rect x="241" y="262" width="74" height="70" rx="8" class="t-green" stroke="var(--green)" stroke-width="2"/><text x="278" y="280" class="mid xs muted">8s</text><text x="278" y="320" class="mid slab xl b">1</text>
+    <rect x="325" y="262" width="74" height="70" rx="8" class="t-red" stroke="var(--red)" stroke-width="2"/><text x="362" y="280" class="mid xs muted">4s</text><text x="362" y="320" class="mid slab xl b">0</text>
+    <rect x="409" y="262" width="74" height="70" rx="8" class="t-green" stroke="var(--green)" stroke-width="2"/><text x="446" y="280" class="mid xs muted">2s</text><text x="446" y="320" class="mid slab xl b">1</text>
+    <rect x="493" y="262" width="74" height="70" rx="8" class="t-red" stroke="var(--red)" stroke-width="2"/><text x="530" y="280" class="mid xs muted">1s</text><text x="530" y="320" class="mid slab xl b">0</text>
+    <text x="362" y="362" class="mid mono">0×16 + 1×8 + 0×4 + 1×2 + 0×1 = <tspan class="b">10</tspan>  (the letter K)</text>
+  </g>
+</svg>
+<figcaption>Same idea, different base. Binary just runs out of digits sooner.</figcaption>
+</figure>
+
+<p>So <code>01010</code> means no 16s, one 8, no 4s, one 2 and no 1s: 8 + 2 = 10. When Alice picks the right half, she’s really saying “add this place’s value”. The first question decides whether to add 16, the second whether to add 8, and so on down to 1.</p>
+
+<p>Try it. Flip the lights below and watch the number, and the symbol it stands for, change:</p>
+
+<div data-widget="bits" data-bits="5"></div>
+
+<p>Press “Count all the way up” and you’ll see a pattern. The rightmost light flips every time, the next one every second time, the next every fourth time, and so on. It’s just like a car’s odometer, except each digit rolls over after 1 instead of after 9.</p>
+
+<h3>How many bits is enough?</h3>
+
+<p>Every extra bit doubles the number of different things you can say. One bit gives you two possibilities, 0 or 1. Two bits give you four: 00, 01, 10 and 11. Three bits give you eight. You can picture each extra bit as one more fork in the road:</p>
+
+<!-- @include src/figs/ch01-tree.svg -->
+
+<div class="table-scroll">
+<table class="data" style="max-width:560px">
+<tr><th>Bits</th><th>Possibilities</th><th>Enough for…</th></tr>
+<tr><td>1</td><td>2</td><td>yes or no</td></tr>
+<tr><td>2</td><td>4</td><td>the four seasons</td></tr>
+<tr><td>3</td><td>8</td><td>the days of the week (with one left over)</td></tr>
+<tr><td>4</td><td>16</td><td>not quite the alphabet…</td></tr>
+<tr><td>5</td><td>32</td><td>the alphabet plus six extras</td></tr>
+<tr><td>8</td><td>256</td><td>upper- and lowercase letters, digits, punctuation (Chapter 5)</td></tr>
+<tr><td>32</td><td>about 4.3 billion</td><td>every address on the original internet (Chapter 20)</td></tr>
+</table>
+</div>
+
+<p>With <em>n</em> bits you get 2<sup><em>n</em></sup> possibilities. Going the other way, to pick one thing out of <em>N</em> you need enough bits that 2<sup>bits</sup> is at least <em>N</em>. The 26 letters need 5 bits, because 4 bits only get you to 16. Mathematicians write that as log<sub>2</sub>(26) ≈ 4.7 and round up to 5.</p>
+
+<h3>The codebook</h3>
+
+<p>Alice and Bob don’t want to play Twenty Questions in their heads for every letter. So they write out every symbol with its 5-bit code, once and for all, and each keeps a copy by the window:</p>
+
+<codebook5/>
+
+<p>The codebook is part of their protocol, too. It only works because they both have the same copy. If Bob’s copy listed the letters in a different order, every message would come out as gibberish.</p>
+
+<p>Now Alice can say anything. To send “HI BOB”, she looks up each symbol and flashes its five bits:</p>
+
+<!-- @include src/figs/ch01-hibob.svg -->
+
+<p>Bob watches, writes down the bits, splits them into groups of five and looks each group up. <code>00111</code> is H. <code>01000</code> is I. <code>11010</code> is a space. And so on.</p>
+
+<p>That’s thirty flashes for six characters. It’s slow, but it works, and it can carry any message they can spell, which is a big deal. Our flashlight started out answering one yes/no question, and now it’s a general-purpose messaging system.</p>
+
+<think>
+<p>What happens if Bob misses one flash in the middle of “HI BOB”, say because he sneezed? Every group of five after that point is off by one, and the rest of the message turns into nonsense. How could Alice and Bob notice that it happened, or recover from it? Hold on to that thought; we’ll deal with lost bits in Chapters 3 and 10.</p>
+</think>
+
+<realworld>
+<p>Alice and Bob’s codebook is very close to a real one. In the 1870s, the French telegraph engineer Émile Baudot built a telegraph system around a 5-bit code. An improved version, known as ITA2 or just “Baudot code”, ran the world’s teleprinters for most of the twentieth century. It squeezed more than 32 symbols out of 5 bits with a trick: two special codes switched between a “letters” mode and a “figures” mode, a bit like the Shift key on a keyboard.</p>
+<p>The even older Morse code took a different approach. It gives common letters short codes (E is a single dot) and rare letters long ones (Q is dash-dash-dot-dash), which makes typical messages shorter. That’s an early form of <em>compression</em>. The catch is that the codes have different lengths, so Morse needs pauses of different lengths to show where each letter ends.</p>
+<p>Modern computers use 8-bit codes, which leave room for lowercase letters, digits and punctuation. We’ll switch to those in Chapter 5.</p>
+</realworld>
+
+<h3>The night shift</h3>
+
+<p>The system works, but Alice has a lot on her plate. She has to decide what to say, turn every letter into five bits with the codebook, then flash each bit in the right color with a neat little gap afterwards. It’s hard to think about what you’re writing while you’re counting flashes.</p>
+
+<p>So Alice gets help. Her little brother Max is great with the codebook. Their grandpa Otto used to be a signalman in the navy, and he loves nothing more than working a lamp. They split the job three ways:</p>
+
+<ul>
+<li><strong>Alice</strong> writes the message and hands it to Max one letter at a time.</li>
+<li><strong>Max</strong> looks up each letter and hands Grandpa Otto five bits on a slip of paper.</li>
+<li><strong>Grandpa Otto</strong> flashes each bit, green or red, followed by a dark gap.</li>
+</ul>
+
+<p>Across the street, Bob’s household does the same jobs in reverse. His uncle Ray, a night owl, watches Alice’s window and writes down 1s and 0s. Bob’s sister Nia collects them five at a time and looks up the letters. Bob just gets to read the message.</p>
+
+<figure class="fig stepper" data-widget="stepper">
+<svg class="dia" viewBox="0 0 720 400" role="img" aria-label="Three layers on each side of the street: message, codebook, and lamp. The message HI travels down Alice's side, across as flashes, and up Bob's side.">
+  <!-- the bit train travels underneath the boxes -->
+  <g data-show="3">
+    <path d="M270,325 L450,325" class="beam" stroke="#ffe68a" stroke-width="30" opacity="0.4"/>
+    <g>
+      <g>
+        <circle cx="0" cy="0" r="5.5" class="f-red"/><circle cx="13" cy="0" r="5.5" class="f-red"/><circle cx="26" cy="0" r="5.5" class="f-green"/>
+        <circle cx="39" cy="0" r="5.5" class="f-green"/><circle cx="52" cy="0" r="5.5" class="f-green"/><circle cx="65" cy="0" r="5.5" class="f-red"/>
+        <circle cx="78" cy="0" r="5.5" class="f-green"/><circle cx="91" cy="0" r="5.5" class="f-red"/><circle cx="104" cy="0" r="5.5" class="f-red"/>
+        <circle cx="117" cy="0" r="5.5" class="f-red"/>
+      </g>
+      <animateMotion begin="indefinite" dur="2.2s" fill="freeze" path="M150,325 L300,325"/>
+    </g>
+  </g>
+  <!-- Alice's side -->
+  <rect x="20" y="20" width="250" height="90" rx="10" class="box"/>
+  <use href="#alice-head" x="26" y="30" width="62" height="62"/>
+  <text x="96" y="46" class="slab b lg">Alice</text><text x="96" y="66" class="sm muted">writes the message</text>
+  <text x="96" y="94" class="mono lg b f-red" data-show="1">“HI”</text>
+  <rect x="20" y="145" width="250" height="90" rx="10" class="box"/>
+  <g transform="translate(38,168)"><rect width="34" height="42" rx="3" class="f-teal" stroke="#17423e" stroke-width="2"/><path d="M7,11 h20 M7,19 h20 M7,27 h13" stroke="#fff" stroke-width="2.5"/></g>
+  <text x="96" y="171" class="slab b lg">Max</text><text x="96" y="191" class="sm muted">looks up the codebook</text>
+  <text x="96" y="219" class="mono b" data-show="2">00111 01000</text>
+  <rect x="20" y="270" width="250" height="110" rx="10" class="box"/>
+  <use href="#flashlight" x="30" y="306" width="54" height="23"/>
+  <text x="96" y="298" class="slab b lg">Grandpa Otto</text><text x="96" y="318" class="sm muted">flashes each bit</text>
+  <text x="96" y="352" class="hand lg muted" data-show="3">green, red, dark…</text>
+  <!-- Bob's side -->
+  <rect x="450" y="20" width="250" height="90" rx="10" class="box"/>
+  <use href="#bob-head" x="456" y="30" width="62" height="62"/>
+  <text x="526" y="46" class="slab b lg">Bob</text><text x="526" y="66" class="sm muted">reads the message</text>
+  <text x="526" y="94" class="mono lg b f-blue" data-show="6">“HI”</text>
+  <rect x="450" y="145" width="250" height="90" rx="10" class="box"/>
+  <g transform="translate(468,168)"><rect width="34" height="42" rx="3" class="f-teal" stroke="#17423e" stroke-width="2"/><path d="M7,11 h20 M7,19 h20 M7,27 h13" stroke="#fff" stroke-width="2.5"/></g>
+  <text x="526" y="171" class="slab b lg">Nia</text><text x="526" y="191" class="sm muted">groups bits in fives</text>
+  <text x="526" y="219" class="mono sm b" data-show="5">00111→H 01000→I</text>
+  <rect x="450" y="270" width="250" height="110" rx="10" class="box"/>
+  <g transform="translate(466,312)"><path d="M0,12 Q22,-8 44,12 Q22,32 0,12 Z" class="f-surface" stroke="var(--ink)" stroke-width="2.5"/><circle cx="22" cy="12" r="7" class="f-navy"/></g>
+  <text x="526" y="298" class="slab b lg">Uncle Ray</text><text x="526" y="318" class="sm muted">writes down 1s and 0s</text>
+  <text x="526" y="352" class="mono b" data-show="4">0011101000</text>
+  <!-- handoffs -->
+  <path d="M145,112 L145,141" class="line s-red" marker-end="url(#ah-red)" data-show="1"/>
+  <path d="M145,237 L145,266" class="line s-red" marker-end="url(#ah-red)" data-show="2"/>
+  <path d="M575,268 L575,239" class="line s-blue" marker-end="url(#ah-blue)" data-show="5"/>
+  <path d="M575,143 L575,114" class="line s-blue" marker-end="url(#ah-blue)" data-show="6"/>
+  <!-- peer conversations -->
+  <g data-show="7">
+    <line x1="272" y1="65" x2="448" y2="65" class="line dash s-teal"/><text x="360" y="58" class="hand lg mid">English</text>
+    <line x1="272" y1="190" x2="448" y2="190" class="line dash s-teal"/><text x="360" y="183" class="hand lg mid">codebook</text>
+    <text x="360" y="304" class="hand lg mid">flashes</text>
+  </g>
+</svg>
+<ol class="steps">
+  <li>Alice writes “HI” and hands the letters to Max, one at a time. She doesn’t need to know anything about bits.</li>
+  <li>Max looks up each letter in the codebook: H is <code>00111</code> and I is <code>01000</code>. He hands the bits down to Grandpa Otto.</li>
+  <li>Grandpa Otto flashes the ten bits across the street: red, red, green, green, green… with a dark gap after each one. He has no idea they spell “HI”, and he doesn’t need to.</li>
+  <li>Uncle Ray watches the window and writes down a 1 for every green and a 0 for every red.</li>
+  <li>Nia splits Ray’s bits into groups of five and looks each group up: H, then I.</li>
+  <li>Bob reads the finished message: “HI”.</li>
+  <li>Each person has a partner across the street who speaks the same “language”: Otto and Ray speak flashes, Max and Nia speak codebook, Alice and Bob speak English. But only the bottom pair actually sends anything across the street. Everyone else talks to their partner indirectly, through the layers below.</li>
+</ol>
+<figcaption>Three layers on each side, each with one job.</figcaption>
+</figure>
+
+<p>Look closely at who knows what. Grandpa Otto doesn’t know the codebook at all; he just flashes whatever bits he’s handed. Max doesn’t need to know anything about lamps, and he doesn’t care what the message says. Alice never has to think about bits. Each person only needs to understand their own job, plus how to hand things to the person above or below them.</p>
+
+<p>This way of splitting up a hard problem is called <strong>layering</strong>, and every real network is built from layers. Each layer does one job and only talks to the layers directly above and below it. Notice the dashed lines across the street in the last step, too. Every layer has a partner on the other side who speaks its language, and each of those pairs has its own little protocol.</p>
+
+<h3>Foggy, with a chance of bells</h3>
+
+<p>Here’s where layering really pays off. One night a thick fog rolls in, and Bob’s family can’t see Alice’s window at all. The flashlight is useless.</p>
+
+<p>Grandpa Otto has an idea. He fetches Alice’s bicycle, which has a bell and a squeaky rubber horn. A ding means 1 and a honk means 0. Across the street, Uncle Ray listens instead of watching.</p>
+
+<p>Here’s the lovely part: <em>nobody else has to change anything.</em> Max still hands Otto five bits at a time. Nia still gets five bits at a time from Ray. Alice and Bob don’t even find out there was fog. Only the bottom layer changed. Because each layer depends only on what its neighbors hand it, you can swap a layer out without the others noticing.</p>
+
+<figure class="fig">
+<svg class="dia" viewBox="0 0 720 250" role="img" aria-label="Two layer stacks. The top two layers are identical; only the bottom layer changes from flashlight to bell and horn.">
+  <text x="185" y="28" class="slab lg b mid">Clear night</text>
+  <text x="535" y="28" class="slab lg b mid">Foggy night</text>
+  <g opacity="0.55">
+    <rect x="40" y="42" width="290" height="46" rx="8" class="box"/><text x="185" y="71" class="mid">Alice → Bob: English</text>
+    <rect x="40" y="98" width="290" height="46" rx="8" class="box"/><text x="185" y="127" class="mid">Max → Nia: 5-bit codes</text>
+    <rect x="390" y="42" width="290" height="46" rx="8" class="box"/><text x="535" y="71" class="mid">Alice → Bob: English</text>
+    <rect x="390" y="98" width="290" height="46" rx="8" class="box"/><text x="535" y="127" class="mid">Max → Nia: 5-bit codes</text>
+  </g>
+  <rect x="40" y="154" width="290" height="60" rx="8" class="box"/>
+  <use href="#flashlight" x="56" y="172" width="54" height="23"/>
+  <text x="124" y="180" class="sm b">Otto → Ray</text><text x="124" y="200" class="sm">green = 1, red = 0</text>
+  <g opacity="0.35"><path d="M360,60 q20,-10 40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0" class="line s-muted" stroke-width="6"/>
+    <path d="M370,150 q20,-10 40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0 t40,0" class="line s-muted" stroke-width="6"/></g>
+  <rect x="390" y="154" width="290" height="60" rx="8" class="t-yellow" stroke="var(--yellow)" stroke-width="3"/>
+  <g transform="translate(404,164)"><path d="M20,2 Q7,6 7,20 L4,31 L36,31 L33,20 Q33,6 20,2 Z" class="f-yellow" stroke="#8c6d3f" stroke-width="2"/><circle cx="20" cy="35" r="4" fill="#8c6d3f"/></g>
+  <text x="456" y="180" class="sm b">Otto → Ray</text><text x="456" y="200" class="sm">ding = 1, honk = 0</text>
+  <text x="535" y="240" class="hand lg mid f-red">only this layer changed!</text>
+</svg>
+<figcaption>Swap the bottom layer and nobody upstairs notices.</figcaption>
+</figure>
+
+<p>We’ll rely on this idea over and over. Real networks swap their bottom layer all the time: the same web page can reach you over copper wire, fiber-optic glass, Wi-Fi or a satellite link, and your web browser never knows the difference.</p>
+
+<h3>What’s next?</h3>
+
+<p>Our flashlight network works, but it has real problems. Alice and Bob need a clear line of sight and no fog. Any neighbor who can see Alice’s window can read every message, and there’s a neighbor named Eve who is <em>very</em> nosy, which will matter eventually. And it’s slow. A person can manage maybe two flashes a second before mistakes creep in.</p>
+
+<p>In the next chapter we’ll string a wire between the two houses, swap light for electricity, and replace the humans with a machine that can send thousands of bits a second. It’ll turn out that keeping time is harder than it sounds.</p>
+
+<lab>
+<p>This first lab is a warm-up. There’s no networking yet, just Alice and Bob’s codebook in Python, so you can get used to running the lab files. Open a terminal and go to this chapter’s lab folder:</p>
+
+<terminal>
+$ cd labs/ch01
+$ python3 codebook.py
+</terminal>
+
+<p>Running it with no arguments prints the help text. Here’s the heart of the program. The codebook is just a string, and a symbol’s position in the string <em>is</em> its code:</p>
+
+<!-- @code labs/ch01/codebook.py#encode -->
+
+<p>Two Python built-ins do all the binary work. <code>format(10, "05b")</code> writes 10 in binary (<code>b</code>), padded with zeros to 5 digits (<code>05</code>), giving <code>"01010"</code>. <code>int("01010", 2)</code> goes the other way, reading the string as a base-2 number.</p>
+
+<h4>1. Encode and decode</h4>
+
+<terminal title="labs/ch01">
+$ python3 codebook.py encode "HI BOB"
+  H   00111   🟥 🟥 🟩 🟩 🟩
+  I   01000   🟥 🟩 🟥 🟥 🟥
+  ␣   11010   🟩 🟩 🟥 🟩 🟥
+  B   00001   🟥 🟥 🟥 🟥 🟩
+  O   01110   🟥 🟩 🟩 🟩 🟥
+  B   00001   🟥 🟥 🟥 🟥 🟩
+
+All together: 00111 01000 11010 00001 01110 00001
+$ python3 codebook.py decode 00111 01000
+HI
+</terminal>
+
+<p>Now watch Grandpa Otto at work. The <code>flash</code> command blinks each bit in your terminal, with a dark gap after each one, and prints each letter as soon as five bits have arrived:</p>
+
+<terminal>
+$ python3 codebook.py flash "HELLO"
+</terminal>
+
+<h4>2. Crack a message</h4>
+
+<p>Bob found this on a slip of paper under his door. What does it say? Try it by hand with the codebook first, then check with <code>decode</code>.</p>
+
+<msg>
+bits | 00001 10001 01000 01101 00110 11010 10010 01101 00000 00010 01010 10010
+</msg>
+
+<details><summary>Show the answer</summary><p><code>BRING SNACKS</code>. Alice has her priorities straight.</p></details>
+
+<h4>3. Break the protocol on purpose</h4>
+
+<p>Make a copy of <code>codebook.py</code> called <code>scrambled.py</code>, and change the order of the letters in <code>SYMBOLS</code> (swap a few around). Encode a message with <code>scrambled.py</code>, then decode it with the original <code>codebook.py</code>. What comes out? That’s what happens when two sides don’t share the same protocol.</p>
+
+<p>Then flip it around: if you and a friend both use the same scrambled codebook, you have a (very weak) secret code. We’ll see in Chapter 31 why a shuffled alphabet is easy to crack, and what real encryption does instead.</p>
+
+<h4>4. Play with binary in Python</h4>
+
+<p>Start the Python REPL with <code>python3</code> and try these:</p>
+
+<terminal title="python3">
+$ python3
+>>> bin(10)
+'0b1010'
+>>> int("11010", 2)
+26
+>>> 2 ** 5
+32
+>>> import math
+>>> math.log2(26)
+4.700439718141092
+>>> [format(n, "03b") for n in range(8)]
+['000', '001', '010', '011', '100', '101', '110', '111']
+</terminal>
+
+<p>That last line is every leaf of the three-bit tree from earlier in this chapter.</p>
+
+<h4>Stretch goal: Morse vs. Baudot</h4>
+
+<p>Write a function that turns text into Morse code (a dictionary from letter to dots and dashes is enough). Count how many “flashes” it takes to send <code>HI BOB</code> in Morse, then compare with our 30. Which one wins for a message full of E’s and T’s? What about Q’s and Z’s? What does Morse need that our fixed 5-bit code doesn’t?</p>
+</lab>

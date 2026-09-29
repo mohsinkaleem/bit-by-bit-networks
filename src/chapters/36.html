@@ -1,0 +1,220 @@
+<h3>Too many things on one Pi</h3>
+
+<p>Grandpa Otto’s Pi is getting crowded. It serves the garden website. It streams the slug camera. Bob has added a little program that checks the weather forecast every hour and emails Grandpa when frost is coming, and a database of everything Grandpa has ever planted.</p>
+
+<dialogue>
+B: The camera’s web page wants port 80. So does the garden website. And last night the weather bot had a bug, opened thousands of connections, and took everything else down with it.
+A: They’re all sharing one network: one set of addresses, one set of ports, one firewall. Give each of them its own.
+B: Four Pis?
+A: One Pi, pretending to be four. Each program in a box, with its own network card, its own address, its own ports. Plugged into a switch that only exists in software.
+B: That sounds like what Docker does.
+A: It is exactly what Docker does. Let’s do it by hand first.
+</dialogue>
+
+<p>A <strong>container</strong> is a program running in a box of its own: its own files, its own list of processes, its own hostname, and, the part this chapter is about, its own network. It isn’t a separate computer, and not even a virtual one: it’s an ordinary process, which the Linux kernel shows a different view of the machine. Docker, Podman and Kubernetes are, underneath, tools for setting up those views. We’ve already used the network part twice without explaining it: Chapter 34’s firewall and Chapter 35’s two houses both lived in <strong>network namespaces</strong>.</p>
+
+<h3>A network of your own</h3>
+
+<!-- @include src/figs/ch36-netns.svg -->
+
+<p>Any process can ask the kernel for a fresh network namespace, with a single system call, <code>unshare</code>. Python 3.12 can call it directly. This chapter’s <code>nsdemo.py</code> takes port 8080 on the Pi, then starts a child process, which asks for a new namespace and looks around:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo python3 nsdemo.py
+this process, on the host:         devices: lo, eth0, wlan0          port 8080: Address already in use;  can reach 1.1.1.1
+a child, after unshare(NEWNET):    devices: ⟦1:lo⟧                       ⟦2:port 8080 is free⟧;  can't reach 1.1.1.1 (Network is unreachable)
+…after switching on its loopback:  devices: lo                       port 8080 is free;  can't reach 1.1.1.1 (Network is unreachable)
+the host again (unchanged):        devices: lo, eth0, wlan0          port 8080: Address already in use;  can reach 1.1.1.1
+</terminal>
+
+<callouts>
+1 | A brand-new namespace has nothing in it but a loopback interface, switched off: no Wi-Fi, no addresses, no routes. It’s like a computer with its network card pulled out.
+2 | Port 8080 is taken on the host, and free here: ports belong to namespaces, not to the computer. So every container can have its own web server on port 80.
+</callouts>
+
+<!-- @code labs/ch36/nsdemo.py#unshare -->
+
+<p>Namespaces aren’t only for containers. Look at what <code>lsns</code> lists on the Pi, before we’ve made any of our own:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ lsns -t net
+        NS TYPE NPROCS   PID USER       NETNSID NSFS COMMAND
+4026531833 net     209     1 root    unassigned      /sbin/init splash
+4026532596 net       1   834 polkitd unassigned      ├─/usr/lib/polkit-1/polkitd --no-debug --log-level=notice
+4026532597 net       1   704 root    unassigned      └─/usr/libexec/accounts-daemon
+</terminal>
+
+<p>Everything runs in the first one, except two system services, which systemd has quietly put into empty network namespaces of their own: they never need the network, so if anyone ever breaks into them, they can’t use it either.</p>
+
+<h3>Virtual cables and a software switch</h3>
+
+<p>An empty namespace is safe, but useless. To connect it, Linux offers a <strong>veth pair</strong>: two virtual network interfaces joined like the two ends of a cable. Whatever goes in one end comes out of the other, and each end can live in a different namespace. And to connect several namespaces at once, there’s a <strong>bridge</strong>: Chapter 9’s learning switch, as a piece of software, with virtual cables plugged into it. This chapter’s <code>box.sh</code> builds three boxes, <code>web</code>, <code>db</code> and <code>bot</code>, like this:</p>
+
+<!-- @code labs/ch36/box.sh#bridge -->
+
+<!-- @code labs/ch36/box.sh#boxes -->
+
+<!-- @include src/figs/ch36-byhand.svg -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./box.sh
+== inside the db box: its own interfaces, addresses and routes
+   lo               UNKNOWN        127.0.0.1/8 ::1/128
+   ⟦1:eth0@if52⟧        UP             10.36.0.3/24 fe80::7401:8ff:feb6:78b2/64
+   default via 10.36.0.1 dev eth0
+   10.36.0.0/24 dev eth0 proto kernel scope link src 10.36.0.3
+== box to box, across the bridge
+   db → web ping: rtt min/avg/max/mdev = ⟦2:0.035/0.054/0.073/0.019 ms⟧
+   db → web http: 200
+== both web and bot are listening on port 80, in their own namespaces
+   web: LISTEN 0      5      0.0.0.0:80 0.0.0.0:*
+   bot: LISTEN 0      5      0.0.0.0:80 0.0.0.0:*
+…
+== the host's switch: which MAC address is on which cable
+   51: veth-web@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 ⟦3:master br36 state forwarding⟧ priority 32 cost 2
+   52: veth-db@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br36 state forwarding priority 32 cost 2
+   53: veth-bot@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br36 state forwarding priority 32 cost 2
+   ⟦4:8e:ad:b1:81:0a:4c dev veth-web master br36⟧
+   76:01:08:b6:78:b2 dev veth-db master br36
+   7a:26:94:75:a0:df dev veth-bot master br36
+</terminal>
+
+<callouts>
+1 | Called eth0 inside, like a real network card. “@if52” says its other end is interface number 52 on the host: <code>veth-db</code>.
+2 | Round trips of a few hundredths of a millisecond: the packets never leave the Pi’s memory.
+3 | Each host-side end is plugged into the bridge. “Forwarding” is the spanning tree state from Chapter 9: even software switches guard against loops.
+4 | The bridge learned each box’s MAC address from the traffic, exactly as Chapter 9’s switch did.
+</callouts>
+
+<h3>Getting out, and getting in</h3>
+
+<p>The boxes can talk to each other, but not to the world: their addresses, 10.36.0.x, mean nothing outside the Pi. Two more pieces fix that, and you’ve met both. The host becomes the boxes’ router (they all have a default route to 10.36.0.1), with forwarding switched on, and it does NAT, exactly like the home router in Chapter 22: going out, it swaps their private source addresses for its own. And to let the world <em>in</em>, a destination NAT rule “publishes” a port: connections to the Pi’s port 8036 are rewritten to go to the web box’s port 80:</p>
+
+<!-- @code labs/ch36/box.sh#nat -->
+
+<terminal title="Grandpa Otto’s Pi, and then Bob’s MacBook">
+== out to the internet, through the host's NAT
+   bot → https://example.org: HTTP 200, from ⟦1:10.36.0.4⟧ to 104.20.26.136
+== the NAT, remembered by conntrack
+   tcp      6 119 FIN_WAIT src=10.36.0.4 dst=104.20.26.136 sport=36680 dport=443 src=104.20.26.136 ⟦2:dst=192.168.1.4⟧ sport=443 dport=36680 [ASSURED] …
+$ curl http://192.168.1.4:8036/
+Hello from the web box
+$ sudo conntrack -L -p tcp --dport 8036
+tcp      6 119 TIME_WAIT src=192.168.1.3 dst=192.168.1.4 sport=62019 ⟦3:dport=8036⟧ ⟦4:src=10.36.0.2⟧ dst=192.168.1.3 sport=80 dport=62019 [ASSURED] …
+</terminal>
+
+<callouts>
+1 | The bot thinks it’s 10.36.0.4…
+2 | …but replies come back to 192.168.1.4, the Pi: the masquerade rule rewrote the source on the way out. (And then the home router rewrote it again, to the public address.)
+3 | The Mac connected to the Pi’s port 8036…
+4 | …and the reply really comes from the web box, on port 80. conntrack turns it back into “192.168.1.4:8036” before the Mac sees it.
+</callouts>
+
+<p>Follow a packet on each of those journeys:</p>
+
+<div data-widget="podnet"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>What Docker and Podman do</h3>
+
+<p>That’s all a container runtime does for networking, automatically, every time: <code>docker run</code> makes a namespace, a veth pair, plugs one end into a bridge (<code>docker0</code>), gives the container an address, and adds NAT rules; <code>-p 8036:80</code> adds the DNAT rule. They add one more thing on their own networks: a small DNS server, so containers can find each other by name. Here are two containers on a Podman network on Bob’s MacBook, one fetching a page from the other:</p>
+
+<terminal title="Bob’s MacBook">
+$ podman network create garden
+$ podman network inspect garden --format '{{range .Subnets}}{{.Subnet}} gw {{.Gateway}}{{end}} dns={{.DNSEnabled}} iface={{.NetworkInterface}}'
+10.89.0.0/24 gw 10.89.0.1 dns=true iface=⟦1:podman1⟧
+$ podman run -d --network garden --name web alpine sh -c 'while true; do printf "HTTP/1.0 200 OK\r\nContent-Length: 29\r\n\r\nHello from the web container\n" | nc -l -p 80; done'
+$ podman run --rm --network garden --name db alpine sh -c 'ip -o -4 addr show eth0; ip route; nslookup web | grep -A1 ^Name; wget -qO- http://web/'
+2: eth0    inet ⟦2:10.89.0.5/24⟧ brd 10.89.0.255 scope global eth0
+default via 10.89.0.1 dev eth0  metric 100
+10.89.0.0/24 dev eth0 scope link  src 10.89.0.5
+Name:	⟦3:web.dns.podman⟧
+Address: 10.89.0.4
+Hello from the web container
+</terminal>
+
+<callouts>
+1 | The bridge: <code>box.sh</code>’s br36, with a different name.
+2 | The container’s eth0, the inside end of a veth pair.
+3 | Podman’s DNS server, listening on the bridge’s own address, knows every container on the network by name.
+</callouts>
+
+<p>But containers need a Linux kernel, and a Mac doesn’t have one. So on a Mac, Docker and Podman quietly run a small Linux virtual machine, and the containers live inside it. Looking inside, the picture has one more layer than you might expect:</p>
+
+<terminal title="Bob’s MacBook">
+$ podman run -d -p 8036:80 --network garden --name pub alpine sh -c '…the same little web server…'
+$ curl http://localhost:8036/
+Hello from the published container
+$ lsof -nP -iTCP:8036 -sTCP:LISTEN
+COMMAND   PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+⟦1:gvproxy⟧ 19647  bob   39u  IPv6 0xf7abf8279ef84942      0t0  TCP *:8036 (LISTEN)
+$ podman machine ssh podman unshare --rootless-netns ip -br addr
+lo               UNKNOWN        127.0.0.1/8 ::1/128
+⟦2:enp0s1⟧           UNKNOWN        192.168.127.2/24 fe80::5489:bdff:fe77:8195/64
+podman1          UP             10.89.0.1/24 fe80::8c79:7dff:fec4:a1d9/64
+⟦3:veth0@if2⟧        UP             fe80::7085:acff:fe19:2dd1/64
+veth1@if2        UP             fe80::842f:7cff:fec4:7a76/64
+</terminal>
+
+<callouts>
+1 | On the Mac itself, a program that belongs to Podman accepts the connection, and passes it into the virtual machine.
+2 | Inside the VM, Podman runs without administrator rights (“rootless”), so it can’t change the VM’s real network. Instead it makes a namespace of its own, and a helper called pasta gives it a copy of the VM’s network card…
+3 | …and inside that, the bridge and one veth per container. A namespace, in a VM, on a Mac.
+</callouts>
+
+<!-- @include src/figs/ch36-podman.svg -->
+
+<h3>Kubernetes: networks for fleets</h3>
+
+<p>Docker and Podman manage the containers on one computer. <strong>Kubernetes</strong> runs thousands of them across hundreds of computers, starting, stopping and moving them as computers fail and demand changes. Its networking is the same pieces again, at a larger scale:</p>
+
+<!-- @include src/figs/ch36-k8s.svg -->
+
+<p>Two more ideas complete it. A <strong>NetworkPolicy</strong> is a firewall per pod (“only the garden pods may talk to the database”), written once, and turned into rules on every node. And an <strong>Ingress</strong> or <strong>Gateway</strong> is a layer 7 load balancer (Chapter 34) at the cluster’s edge, which ends TLS and sends each request to the right Service by its name and path. Almost everything in this part of the book, from ARP to BGP, VXLAN, NAT, DNS and load balancing, is running inside a Kubernetes cluster at once.</p>
+
+<think>
+<p>People often call containers “lightweight virtual machines”. From the network’s point of view, what’s the real difference?</p>
+<p>A virtual machine has its own kernel: its own TCP, its own firewall code, its own drivers for a pretend network card. A container shares the host’s kernel, and only gets its own <em>view</em> of it. That’s why containers start in milliseconds and cost almost nothing, and it’s also why some limits are shared. All of <code>box.sh</code>’s boxes use the host’s conntrack table, for instance, whose size is fixed: a container that opens a million connections can fill it, and then new connections fail in <em>every</em> container on the computer, which is roughly what Bob’s weather bot did. And a bug in the kernel’s network code is a bug in every container at once.</p>
+</think>
+
+<realworld>
+<p>The idea is old. Unix got <code>chroot</code>, which gives a program its own view of the files, in 1979; FreeBSD’s “jails” added separate networking in 2000. Linux gained namespaces one kind at a time from 2002, with network namespaces arriving around 2008 and 2009, and control groups (limits on memory and processor time) at about the same time. None of it was easy to use until Docker, in 2013, wrapped it all in a single command, and added a simple way to package a program with everything it needs.</p>
+<p>Kubernetes came from Google in 2014, based on its internal system Borg, which had been running all of Google’s services in containers for a decade. Its rule that every pod gets a routable address of its own was a reaction to Borg, where programs shared their computer’s address and had to be given ports, which made everything else complicated.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>That’s every piece of Part II. Chapter 37 puts them all together: Bob types an address into his browser and presses Enter, and we follow what happens, layer by layer, from the key press to the page, using everything from Chapter 16 to here.</p>
+
+<lab>
+<p>Two programs for Linux, which both need <code>sudo</code>: a shell script that builds the network in this chapter, and a Python script that uses namespaces directly (it needs Python 3.12 or newer). A Raspberry Pi is ideal. On a Mac or Windows, Docker Desktop or Podman shows the same ideas from the outside (experiment 4).</p>
+
+<h4>1. Containers by hand</h4>
+
+<p><code>sudo ./box.sh</code> builds the three boxes, tests them, shows the bridge, the NAT and the namespaces, and removes everything again. <code>sudo ./box.sh keep</code> leaves them running, so you can explore: <code>sudo ip netns exec db bash</code> gives you a shell inside the db box (type <code>exit</code> to leave), and from another computer, <code>curl http://your-pi:8036/</code> reaches the web box. <code>sudo ./box.sh down</code> tidies up.</p>
+
+<h4>2. Namespaces from Python</h4>
+
+<p><code>sudo python3 nsdemo.py</code> makes a namespace with <code>unshare</code>. With the boxes running, <code>sudo python3 nsdemo.py web</code> steps into one with <code>setns</code>, which is what <code>ip netns exec</code> and <code>docker exec</code> do:</p>
+
+<!-- @code labs/ch36/nsdemo.py#setns -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo python3 nsdemo.py web
+this process, on the host:         devices: lo, eth0, wlan0, br36, veth-web, veth-db, veth-bot port 8080 is free;  can reach 1.1.1.1
+after setns() into “web”:          devices: lo, eth0                 port 8080 is free;  can reach 1.1.1.1
+
+and its addresses and routes, from inside:
+lo               UNKNOWN        127.0.0.1/8 ::1/128
+eth0@if59        UP             10.36.0.2/24 fe80::b872:d6ff:feba:cdac/64
+default via 10.36.0.1 dev eth0
+10.36.0.0/24 dev eth0 proto kernel scope link src 10.36.0.2
+</terminal>
+
+<h4>Experiments</h4>
+<ul>
+<li>With the boxes running, capture on the bridge (<code>sudo tshark -i br36</code>) while the db box fetches from the web box. Then capture on <code>wlan0</code> while the bot box fetches example.org. Which addresses appear where?</li>
+<li>Delete the masquerade rule (<code>sudo nft flush chain ip box36 post</code>) and try to reach the internet from the bot box. The packets still leave (check with tshark on wlan0): why does no answer ever come back?</li>
+<li>Make a second bridge, br37, with its own box, on 10.37.0.0/24. Can it reach the boxes on br36? What would you have to add? (That’s what separate Docker networks give you: isolation by default.)</li>
+<li>With Docker or Podman: <code>docker run --rm alpine ip route</code>, and then <code>docker run --rm --network host alpine ip route</code>. What changed, and what did the container give up?</li>
+</ul>
+</lab>

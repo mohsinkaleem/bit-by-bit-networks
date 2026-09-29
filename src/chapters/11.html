@@ -1,0 +1,247 @@
+<h3>Joining without merging</h3>
+
+<p>The school across town has built a network of its own, with a few hundred computers and a dozen switches. Our street and the school want to connect, so that Bob can send homework to his teacher, and Carol can send bee drawings to the school newsletter.</p>
+
+<p>The obvious thing to do is run a cable from one of our switches to one of theirs. It would work, and that’s the trouble. Every “who’s there?” broadcast from our street would flood the whole school, and every broadcast from the school would flood our street. Every switch on both sides would have to learn the card address of every computer on both sides. And when the library and the next town want to join too, it all gets worse. As we saw at the end of Chapter 9, card addresses are like fingerprints: fine for a village, hopeless for a country.</p>
+
+<p>What we want is to keep the two networks separate, with their own broadcasts and their own switch tables, and only let through the traffic that actually needs to cross. That calls for a new kind of box. It sits with one foot in each network, with a network card plugged into each, and passes messages from one side to the other. It’s called a <strong>router</strong>.</p>
+
+<!-- @include src/figs/ch11-router.svg -->
+
+<p>A switch passes frames along without really thinking about them. A router is more like a post office. It receives a message, reads where it’s going, and decides which way to send it. And, crucially, it doesn’t pass along broadcasts. Each network’s chatter stays on its own side.</p>
+
+<p>But to decide which way to send something, the router needs to know where the destination <em>is</em>. And a card address can’t tell it that.</p>
+
+<h3>An address that says where</h3>
+
+<p>Think about how a letter finds its way to you. The address on the envelope doesn’t say “the person with this fingerprint”. It says a country, a town, a street and a house number. A sorting office in another country only has to read the first line to know which way to send it. Only the very last post office needs to care about the house number.</p>
+
+<p>So let’s give every computer a second address, one with a “where” built in. We number the networks: our street is network 1, the school is network 2. Then we number the computers within each network. Alice is host 1 on network 1, so her address is <strong>1.1</strong>. Bob is 1.2, Carol 1.3 and Dave 1.4. The teacher’s computer at school is 2.1.</p>
+
+<!-- @include src/figs/ch11-address.svg -->
+
+<p>These are <strong>network addresses</strong>, and they’re made up of a <strong>network part</strong> and a <strong>host part</strong>. Each computer still has its card address, but that’s only used for getting frames across its own network. The network address is for the whole journey.</p>
+
+<p>The router is plugged into two networks, so it gets an address on each: 1.254 on our street and 2.254 at school. (Routers traditionally get the highest numbers, to keep them out of the way.)</p>
+
+<h3>Near or far?</h3>
+
+<p>Now, when Alice sends a message, her computer makes one simple decision. It compares the network part of the destination with its own.</p>
+
+<ul>
+<li><strong>Same network?</strong> Then the destination is somewhere on Alice’s own street, and she can send it a frame directly, just as she always has.</li>
+<li><strong>Different network?</strong> Then she can’t reach it directly. She sends it to the router on her street instead, and lets the router worry about it. That router is called her <strong>default gateway</strong>: the way out.</li>
+</ul>
+
+<p>That’s all an ordinary computer needs to know about the network: its own address and its gateway’s address. Everything else is the routers’ job.</p>
+
+<p>There’s one detail left. To send a frame on her own network, Alice needs a <em>card</em> address, and all she knows is the network address, 1.254 or 1.2. So she asks. She broadcasts one short question to her own network, and the right computer answers:</p>
+
+<!-- @include src/figs/ch11-whohas.svg -->
+
+<p>Alice keeps the answer in a little table, so she only has to ask now and then.</p>
+
+<think>
+<p>Look at step 2 again. Alice broadcasts “who has 1.254?”, and she believes whoever answers. What if Eve answers first: “1.254? That’s me, card <code>0e:55</code>”?</p>
+<p>Then every frame Alice sends to her gateway goes to Eve instead. Eve can read everything, pass it on to the real router so that nobody notices, and even change things on the way. This is a real attack called <strong>ARP spoofing</strong>, and on an ordinary home or office network it works remarkably well. It’s one of the reasons we’ll need encryption in Part II.</p>
+</think>
+
+<h3>New frame, same packet</h3>
+
+<p>Let’s follow a message all the way. Grandpa Otto, who flashed Alice’s messages with a lamp back in Chapter 1, has retired to a cottage in the next town. The town has a network of its own, network 4, and Otto’s computer is 4.2. There’s a router on each network, and a cable between the routers. Step through Alice’s “HELLO GRANDPA” as it travels:</p>
+
+<!-- @include src/figs/ch11-hops.svg -->
+
+<p>This is the most important idea in the chapter, so it’s worth saying again. There are two envelopes, one inside the other:</p>
+
+<ul>
+<li>The <strong>packet</strong> carries the network addresses of the two ends of the journey: “to 4.2, from 1.1”. It travels the whole way unchanged. (You might remember that in Chapter 10 each packet got a header with its piece number. This is the same packet, and the header just grew a couple of new fields.)</li>
+<li>The <strong>frame</strong> carries card addresses, and it only ever gets the packet across <em>one</em> network. At every router, the old frame is thrown away and a new one is built for the next stretch.</li>
+</ul>
+
+<p>This is layering, from Chapter 1, doing exactly what it’s for. The routers work at the packet layer. They don’t care what kind of network is on each side. One side could be Ethernet cable and the other side radio, or a laser beam, or Grandpa Otto flashing a lamp. Each stretch just needs <em>some</em> way to get a frame from one end to the other.</p>
+
+<h3>A town full of routers</h3>
+
+<p>The library wants in too, and soon the town has four networks. To make things more reliable, the routers are joined in a ring, so there are two ways between any two of them:</p>
+
+<div data-widget="routing"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Each router needs a <strong>routing table</strong>: a list of every network, and which neighbor to hand packets for it to. We could type the tables in by hand, and on a network this small it wouldn’t be too bad. But every time a network is added, or a cable breaks, someone would have to update every table in town. Much better if the routers could work it out for themselves.</p>
+
+<h3>Routers that gossip</h3>
+
+<p>The trick is for each router to tell its neighbors what it knows. Every so often, each router sends every neighbor its whole table: “here are all the networks I can reach, and how many hops away each one is.” When R1 hears from R2 that network 3 is 1 hop away from R2, it learns something useful: network 3 is 2 hops away from R1, going via R2. If that’s better than anything R1 knew before, it goes in the table.</p>
+
+<p>That’s it! Try it in the widget above. Press <b>Share tables</b> a couple of times, and watch the tables fill in. After one round, each router knows its neighbors’ networks. After two, it knows everything. Now send a packet to Grandpa Otto. Then cut the cable between R1 and R4 by clicking on it, and share again.</p>
+
+<!-- @code labs/ch11/routing_sim.py#share -->
+
+<p>The last condition in <code>hear()</code> is important. If a router hears news about a route it’s already using, it believes the news even when it’s <em>worse</em>. That’s how bad news spreads. When a cable is cut, the routers at each end notice the silence and cross out every route that went that way. Their neighbors hear about it on the next round, and the network finds another way around.</p>
+
+<think>
+<p>In the widget, cut <em>both</em> of R4’s cables, so Grandpa Otto’s town is completely cut off, and keep pressing <b>Share tables</b>. Watch what happens to network 4 in the other routers’ tables.</p>
+<details><summary>What’s going on?</summary>
+<p>R1 and R3 cross out network 4 straight away. But R2 still remembers “network 4, 2 hops, via R1”, and it tells R1 so. R1 thinks: “great, a new way to network 4, 3 hops via R2!” Then R2 hears that R1’s route has got longer, updates its own to 4 hops, and tells R1… They pass the bad route back and forth, counting up by one every round. This is called <strong>counting to infinity</strong>. It only stops because we decided that 16 hops means “unreachable”.</p>
+<p>One common fix is called <strong>split horizon</strong>: never tell a neighbor about a route you learned from that same neighbor. There’s an experiment for it in the lab.</p>
+</details>
+</think>
+
+<h3>Going round in circles</h3>
+
+<p>Counting to infinity shows that routing tables can be wrong for a while, especially just after something changes. Tables can also be wrong because someone typed them in badly. Either way, you can get a situation where R1 thinks the way to network 4 is through R2, and R2 thinks it’s through R1:</p>
+
+<!-- @include src/figs/ch11-loop.svg -->
+
+<p>Remember the broadcast storm in Chapter 9, where frames went round a loop of switches forever? We fixed that by making sure the switches never form a loop at all. That won’t work here. Routers <em>need</em> loops, because loops are what give you a second way around a broken cable.</p>
+
+<p>So instead, every packet carries a <strong>hop limit</strong>. The sender sets it to something comfortably big, like 64. Every router that forwards the packet subtracts one, and a router that brings it down to zero throws the packet away. As a courtesy, it also sends a short note back to the sender: “your packet to 4.2 ran out of hops here, at 2.254”. However confused the tables get, no packet can survive more than 64 hops.</p>
+
+<h3>Following the breadcrumbs</h3>
+
+<p>That little courtesy note has a wonderful side effect. Suppose Alice <em>deliberately</em> sends a packet to Grandpa Otto with a hop limit of 1. The first router brings it to zero, and sends a note back saying where it died. Now Alice knows the address of the first router on the way. With a hop limit of 2, the second router sends a note. And so on, until a packet finally makes it to Otto:</p>
+
+<!-- @include src/figs/ch11-trace.svg -->
+
+<p>Alice can now list every router between her and Grandpa Otto without any of them having to cooperate specially. This trick is called <strong>traceroute</strong>, and it’s built into your computer. In the lab, you’ll use it on the real internet.</p>
+
+<realworld>
+<p>The real network address is called an <strong>IP address</strong>, from the <strong>Internet Protocol</strong>, and the classic version is 32 bits long. It’s usually written as four numbers from 0 to 255, like <code>192.168.1.3</code>, and just like ours, it has a network part and a host part:</p>
+<!-- @include src/figs/ch11-realip.svg -->
+<p>Unlike ours, the split doesn’t have to fall between the dots. A big organization might get a network part of just 16 bits, leaving 16 bits for its hosts, while a small office might get 29 bits of network and only 3 of host. That’s why every address comes with a <strong>netmask</strong>, or <strong>prefix length</strong>, saying where the split is (Chapter 20).</p>
+<p>The “who has?” question is the <strong>Address Resolution Protocol</strong>, ARP, from 1982. The hop limit is called the <strong>TTL</strong>, short for “time to live”, because it was originally meant to count seconds. The courtesy note is an <strong>ICMP</strong> “time exceeded” message (Chapter 21). The traceroute trick was invented by Van Jacobson in 1987, while he was hunting for a network problem.</p>
+<p>The box your internet provider gave you, usually called a “Wi-Fi router”, is several boxes in one. It’s a switch (the sockets on the back), a Wi-Fi base station, and a router, with your home network on one side and your provider’s network on the other. It’s your default gateway. Your provider has routers of its own, and so on. The internet is about 75,000 separate networks, each run by a different organization, joined together by routers. Inside a single organization, routers share their tables using protocols like <strong>RIP</strong>, which works exactly like ours (right down to 16 meaning infinity), or <strong>OSPF</strong>. Between organizations, they use one called <strong>BGP</strong>. Those are Chapters 23 and 24.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Alice’s packets reach Grandpa Otto’s computer now, from across town. But Otto’s computer, like everyone’s, runs several programs at once. He has a chat program for talking to Alice, a program that shares his photos, and a game of chess he plays with Bob. When a packet arrives for 4.2, which program should get it?</p>
+
+<p>Back in Chapter 4, the operating system’s mailroom handed messages to programs by name. That was fine for one cable between two computers. But now there are packets flying across the whole town, and some programs, like Otto’s chess game, want quick little messages without any fuss. In the next chapter, we’ll give every program its own mailbox number.</p>
+
+<lab>
+<p><code>routing_sim.py</code> simulates the town from this chapter: four networks, four routers in a ring, and the computers on them. It prints every decision every router makes.</p>
+
+<h4>1. Share the tables</h4>
+
+<terminal title="labs/ch11">
+$ cd labs/ch11
+$ python3 routing_sim.py tables
+before sharing, each router only knows its own network:
+  R1  net 1: right here
+  R2  net 2: right here
+  R3  net 3: right here
+  R4  net 4: right here
+
+after round 1 of sharing:
+  R1  net 1: right here | net 2: via R2, 1 hop | net 4: via R4, 1 hop
+  R2  net 1: via R1, 1 hop | net 2: right here | net 3: via R3, 1 hop
+  R3  net 2: via R2, 1 hop | net 3: right here | net 4: via R4, 1 hop
+  R4  net 1: via R1, 1 hop | net 3: via R3, 1 hop | net 4: right here
+
+after round 2 of sharing:
+  R1  net 1: right here | net 2: via R2, 1 hop | net 3: via R2, 2 hops | net 4: via R4, 1 hop
+  …
+round 3 changed nothing, so the tables have settled. Every router knows a way to every network.
+</terminal>
+
+<p>Add <code>--cut R1-R4</code> to cut a cable after the tables have settled, and watch them settle again. Then try <code>--cut R3-R4 --cut R4-R1</code> to see counting to infinity, round by round.</p>
+
+<h4>2. Follow a packet</h4>
+
+<terminal>
+$ python3 routing_sim.py send alice otto
+alice (1.1) sends a packet to otto (4.2)
+  alice: 4.2 isn't on my network 1, so it goes to my gateway, 1.254.
+    Who has 1.254? → R1 answers: card c1:01
+    frame [to c1:01 from 0a:11]  packet [to 4.2 from 1.1, hops left 64]
+  R1: network 4? my table says via R4. New frame, same packet:
+    frame [to c4:01 from c1:01]  packet [to 4.2 from 1.1, hops left 63]
+  R4: network 4 is right here. Who has 4.2? → otto answers: card 40:02
+    frame [to 40:02 from c4:01]  packet [to 4.2 from 1.1, hops left 62]
+  otto: it's for me ✓  (passed through 2 routers: R1 → R4)
+</terminal>
+
+<p>Look down the <code>frame</code> and <code>packet</code> columns: new frame at every hop, same packet all the way. (To keep things short, each router uses one card address for all its cables. A real router has a separate card, with a separate address, for each one.) Now cut the direct cable and send again:</p>
+
+<terminal>
+$ python3 routing_sim.py send alice otto --cut R1-R4
+…
+  otto: it's for me ✓  (passed through 4 routers: R1 → R2 → R3 → R4)
+$ python3 routing_sim.py send alice bob
+alice (1.1) sends a packet to bob (1.2)
+  alice: 1.2 is on my own network 1. Who has 1.2? → bob answers: card 0b:22
+    frame [to 0b:22 from 0a:11]  packet [to 1.2 from 1.1, hops left 64]
+  bob: it's for me ✓  (no routers needed)
+</terminal>
+
+<p>Here’s the forwarding code. Each router does the same few steps: subtract one from the hop limit, look up the destination network, and either deliver the packet or pass it on in a new frame.</p>
+
+<!-- @code labs/ch11/routing_sim.py#forward -->
+
+<h4>3. A loop, and a trace</h4>
+
+<terminal>
+$ python3 routing_sim.py loop
+R1 thinks network 4 is through R2, and R2 thinks it's through R1.
+alice sends a packet to otto, starting with 8 hops left:
+  …
+  R1: network 4? my table says via R2. New frame, same packet:
+    frame [to c2:01 from c1:01]  packet [to 4.2 from 1.1, hops left 1]
+  R2: hops left is 0! Drop it, and tell 1.1 “your packet died here, at 2.254”
+$ python3 routing_sim.py trace alice otto --cut R1-R4
+tracing the route from alice to otto (4.2):
+  1  R1 (1.254) says “your packet died here”
+  2  R2 (2.254) says “your packet died here”
+  3  R3 (3.254) says “your packet died here”
+  4  R4 (4.254) says “your packet died here”
+  5  otto (4.2) answered: we've arrived
+</terminal>
+
+<h4>4. The real thing</h4>
+
+<p>Now look at your own computer. Its network address and netmask (on Linux, use <code>ip -br addr</code>):</p>
+
+<terminal title="macOS">
+$ ifconfig en0 inet
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	inet 192.168.1.3 netmask 0xffffff00 broadcast 192.168.1.255
+</terminal>
+
+<p>Its default gateway, and the “who has?” answers it remembers (on Linux, <code>ip route</code> and <code>ip neigh</code>):</p>
+
+<terminal title="macOS">
+$ route -n get default | grep gateway
+    gateway: 192.168.1.1
+$ arp -a
+router.home (192.168.1.1) at 14:c3:5e:40:0b:32 on en0 ifscope [ethernet]
+raspberrypi.home (192.168.1.4) at 2c:cf:67:5e:10:c2 on en0 ifscope [ethernet]
+…
+</terminal>
+
+<p>And the route to somewhere out on the internet. <code>1.1.1.1</code> is a public service run by a company called Cloudflare, and it’s a good address to test with:</p>
+
+<terminal title="macOS">
+$ traceroute -n -q 1 -m 8 1.1.1.1
+traceroute to 1.1.1.1 (1.1.1.1), 8 hops max, 40 byte packets
+ 1  192.168.1.1  6.670 ms
+ 2  *
+ 3  203.0.113.9  8.699 ms
+ 4  10.241.1.6  5.492 ms
+ 5  10.240.254.120  6.478 ms
+ 6  *
+ 7  10.241.1.1  6.294 ms
+ 8  198.51.100.77  8.337 ms
+</terminal>
+
+<p>Hop 1 is the home router, the default gateway. After that come the internet provider’s routers. The stars are routers that chose not to send the courtesy note, which they’re allowed to do. The <a href="field-guide.html#cmd-traceroute">Field Guide</a> explains the rest. (Your numbers will be different. Some of the addresses here have been changed.)</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Add a shortcut: a fifth cable, straight across the middle from R1 to R3. Add it to <code>CABLES</code>, rerun <code>tables</code>, and see which routes change.</li>
+<li>Add split horizon to <code>share_until_stable()</code>: when a router shares its table with a neighbor, leave out every route whose <code>via</code> is that neighbor. Then run <code>tables --cut R3-R4 --cut R4-R1</code> again. How many rounds does it take now?</li>
+<li>Add a fifth network: a new router R5 serving network 5, cabled to R2. Give it a host, and send a packet to it from Otto.</li>
+<li>Run <code>traceroute</code> to a website in another country, and compare the times. Can you see the hop where the packets cross an ocean? (Light in glass fiber takes about 5 milliseconds to travel 1,000 kilometers.)</li>
+</ul>
+</lab>

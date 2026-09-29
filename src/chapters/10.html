@@ -1,0 +1,316 @@
+<h3>One big message, two big problems</h3>
+
+<p>Bob’s video of the school play is enormous. Two hours of video is billions of bits, and when Bob sends it to Carol as one giant message, two things go wrong.</p>
+
+<p>The first problem is <strong>hogging</strong>. A frame on the wire can’t be interrupted. While Bob’s video is going down the cable to Carol’s house, nothing else can use it. Alice wants to send Carol a two-letter “HI”, which should take a blink of an eye, and it waits behind the entire video.</p>
+
+<p>The second problem is worse. Somewhere in those billions of bits, noise flips one. We’ve known since Chapter 2 that this happens now and then. Carol’s copy is now slightly wrong, but <em>she has no way to know</em>. Maybe it’s a pixel in a corner that nobody will ever notice. Maybe it’s a bit that makes the rest of the video unplayable. It’s the same problem as “HI BOQ” in Chapter 3, just bigger: our frames can tell when their <em>framing</em> gets damaged, but not when the data inside does.</p>
+
+<p>And suppose Carol <em>could</em> tell something had gone wrong. What then? The only thing she could do is ask Bob to send the whole two hours again. On a long enough message, noise will probably hit the second attempt too, and the third, and the fourth.</p>
+
+<p>We’ll solve these two problems with two inventions. The first is to stop sending huge messages.</p>
+
+<h3>Chop it up</h3>
+
+<p>Bob chops his video into small pieces, each a thousand bytes or so, and sends them one after another. Each piece gets a little label on the front, saying which piece it is and how many there are in total: “piece 7 of 2000”.</p>
+
+<!-- @include src/figs/ch10-chop.svg -->
+
+<p>That simple change fixes a surprising number of things:</p>
+
+<ul>
+<li><strong>No more hogging.</strong> Between any two of Bob’s pieces, anyone else can slip a message in. The link takes turns, a piece at a time, and Alice’s “HI” waits a fraction of a second instead of two hours.</li>
+<li><strong>Damage is cheap.</strong> If noise hits one piece, Carol only needs that piece again: a thousand bytes, not two hours.</li>
+<li><strong>Order doesn’t matter.</strong> Because every piece is numbered, Carol can put them back together whatever order they arrive in. That will turn out to be very useful in the next chapter.</li>
+</ul>
+
+<!-- @include src/figs/ch10-hog.svg -->
+
+<p>These pieces need a name. In 1965, a British computer scientist named Donald Davies was working on exactly this idea. He wanted a word that was short, ordinary, and easy to translate, and he settled on <strong>packet</strong>, like a small parcel. It stuck. From now on, a packet is a small, labeled piece of a bigger message.</p>
+
+<p>Where does the label go? Remember the frame from Chapter 8, with its “to” and “from” addresses and a “data” section in the middle. A packet simply rides in the data section, with its own little header in front:</p>
+
+<!-- @include src/figs/ch10-layout.svg -->
+
+<p>There’s also that field right at the end of the frame, called “check”, which we promised to explain in this chapter. It’s time to invent it.</p>
+
+<h3>A fingerprint for your data</h3>
+
+<p>Here’s the challenge. Bob sends a packet, and Carol receives something. How can she tell whether it’s <em>exactly</em> what Bob sent?</p>
+
+<p>One idea is for Bob to send everything twice, so Carol can compare the two copies. That would work, mostly. But it doubles the cost of everything, and if the copies differ, Carol can’t tell which one is right.</p>
+
+<p>A better idea is for Bob to compute a short summary of the packet, a kind of <strong>fingerprint</strong>, and send it along at the end. Carol computes the same fingerprint from what she received. If her answer matches Bob’s, the data is almost certainly fine. If it doesn’t, something changed along the way, and she throws the packet away.</p>
+
+<p>We want a fingerprint that is:</p>
+<ul>
+<li><strong>small</strong>, so it doesn’t add much to every packet,</li>
+<li><strong>quick to compute</strong>, because every single packet needs one,</li>
+<li>and <strong>sensitive</strong>: any likely kind of damage should change it.</li>
+</ul>
+
+<p>Let’s try a few, from simplest to cleverest.</p>
+
+<h3>Counting the ones</h3>
+
+<p>The simplest possible fingerprint is a single bit. Count the 1s in the data. If there’s an odd number, add an extra 1 at the end; if even, add a 0. Now the total number of 1s is always even. This extra bit is called a <strong>parity bit</strong>.</p>
+
+<!-- @include src/figs/ch10-parity.svg -->
+
+<p>If noise flips any single bit, the count becomes odd, and Carol knows something’s wrong. For one bit, that’s remarkable value. But if <em>two</em> bits flip, they cancel out, and the damage sails through. Unfortunately, noise tends to come in bursts. A crackle on the line lasting a few microseconds can flip several bits in a row, and then parity is no better than a coin toss.</p>
+
+<h3>Adding it all up</h3>
+
+<p>We can do better with a few more bits. Treat each byte as a number, add them all up, and send the total. To keep it short, keep only the last 8 bits of the answer, which is the same as keeping the remainder after dividing by 256. For “HI BOB”:</p>
+
+<p style="text-align:center"><code>72 + 73 + 32 + 66 + 79 + 66 = 388</code>, and <code>388 − 256 = 132</code></p>
+
+<p>If noise flips any one bit, one of those numbers changes, and so does the total. Flip several bits and it’s very unlikely they’ll cancel out exactly. So the sum catches almost everything parity misses.</p>
+
+<p>But it has a blind spot. Addition doesn’t care about order: 72 + 73 is the same as 73 + 72. If two bytes swap places, perhaps because of a bug in some piece of equipment, the sum doesn’t change. “HI OBB” has a sum of 132, just like “HI BOB”.</p>
+
+<p>There’s a 16-bit version of this idea, called the <strong>Internet checksum</strong>, which adds up pairs of bytes instead of single ones. Swapping two bytes that sit in different halves of a pair does change it, but swapping two whole pairs still fools it. It’s still used today, in the headers of the real protocols we’ll meet in Part II, mostly because it’s so quick to compute.</p>
+
+<h3>Checking with remainders</h3>
+
+<p>The best fingerprint yet comes from an idea you learned in school: long division.</p>
+
+<p>Any message is just a long string of bits, and any string of bits is just a (very big) number. So here’s a plan: Alice and Bob agree on a number to divide by. Bob divides his message by it and sends the <strong>remainder</strong> as the fingerprint. Carol does the same division, and checks that she gets the same remainder.</p>
+
+<p>Why remainders? Because every digit, <em>and its position</em>, affects the remainder. Let’s see it with small ordinary numbers, dividing by 7:</p>
+
+<table class="data">
+<tr><th>Message</th><th>Divided by 7</th><th>Remainder</th></tr>
+<tr><td><code>3141</code></td><td>448 × 7 = 3136</td><td><b>5</b></td></tr>
+<tr><td><code>3142</code> (one digit changed)</td><td>448 × 7 = 3136</td><td><b>6</b></td></tr>
+<tr><td><code>1341</code> (two digits swapped)</td><td>191 × 7 = 1337</td><td><b>4</b></td></tr>
+</table>
+
+<p>Unlike the sum, the remainder notices the swap. For computers, there’s one more trick. Ordinary long division is slow, because of all the carrying and borrowing. So we use a variation where “subtract” means <strong>XOR</strong>: compare two bits, and write 1 if they’re different, 0 if they’re the same. There’s no carrying or borrowing at all, and every column can be done at once. Step through it:</p>
+
+<!-- @include src/figs/ch10-crc.svg -->
+
+<p>Here’s a neat bonus. If Carol divides the message <em>with the remainder tacked on</em>, <code>11010110111</code>, by the same divisor, the answer comes out to exactly zero. So a receiver doesn’t even need to compare fingerprints. It just divides everything it received, and checks that nothing is left over.</p>
+
+<p>This is called a <strong>cyclic redundancy check</strong>, or <strong>CRC</strong>. The one at the end of real Ethernet frames, and in countless other places, uses a 33-bit divisor and produces a 32-bit remainder, so it’s called <strong>CRC-32</strong>. Here it is in Python. It looks nothing like long division, because it processes one bit at a time, from the right, but it’s doing the same thing:</p>
+
+<!-- @code labs/ch10/checks.py#crc -->
+
+<p>The divisor for CRC-32 wasn’t chosen at random. Mathematicians chose it carefully, so that it’s <em>guaranteed</em> to catch certain kinds of damage:</p>
+<ul>
+<li>any one, two or three flipped bits, anywhere in a normal-sized frame,</li>
+<li>any burst of damage up to 32 bits long, however garbled,</li>
+<li>and for anything else, even complete garbage, it misses only about 1 time in 4 billion.</li>
+</ul>
+
+<p>And because it’s all shifts and XORs, a network card can compute it in hardware with a handful of logic gates, as fast as bits arrive. Try to fool each of our four checks:</p>
+
+<div data-widget="checkplay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<think>
+<p>A CRC catches accidents. Does it stop Eve? Suppose Eve intercepts Bob’s packet, changes “PAY CAROL $5” to “PAY EVE $500”, and sends it on. What stops her from recomputing the CRC-32 for her new message and putting <em>that</em> at the end?</p>
+<p>Nothing at all. The divisor is public, and the calculation takes a microsecond. Checks like these protect against noise, not against people. Protecting against people needs a very different kind of fingerprint, one that needs a secret key to compute. That’s Chapter 31.</p>
+</think>
+
+<realworld>
+<p>CRCs were invented by W. Wesley Peterson in 1961, and they’re everywhere. The last 4 bytes of every Ethernet frame are a CRC-32, called the <strong>frame check sequence</strong>. Every chunk of a PNG image ends with one, which is the CRC we saw in the hexdump back in Chapter 5. ZIP files, hard drives and Wi-Fi all use CRCs.</p>
+<p>The Internet checksum is defined in a document called RFC 1071, and it’s still in the headers of IP, UDP and TCP. Engineers chose it in the 1970s because the computers of the time could add much faster than they could compute CRCs. By the time a packet crosses the internet, it has usually been checked by both.</p>
+<p>You use check digits all the time without noticing. The last digit of a credit card number is computed from the others using a weighted sum called the <strong>Luhn algorithm</strong>, and the last digit of a book’s ISBN works the same way. They’re designed specifically to catch the two most common human typing errors: one wrong digit, and two neighboring digits swapped.</p>
+</realworld>
+
+<h3>Caught it. Now what?</h3>
+
+<p>When Carol’s check fails, she knows the packet is damaged. She has two options.</p>
+
+<p>The first is to throw it away and get another copy. That’s what we did in Chapter 3, with a NAK, and it’s what Carol did with piece 4 above. Wired networks nearly always work this way. Damage is rare, so asking again now and then costs almost nothing.</p>
+
+<p>The second option is cleverer: send enough extra information that Carol can <em>fix</em> the damage herself, without asking. That sounds impossible, but in 1950 a mathematician at Bell Labs named Richard Hamming worked out how to do it. He was fed up with the lab’s computer. It would read his programs from punched cards over the weekend, hit an error, and simply give up. “If the machine can detect an error,” he complained, “why can’t it locate the position of the error and correct it?”</p>
+
+<p>Here’s his idea. Take 4 bits of data and add 3 parity bits. Each parity bit covers a different, overlapping group of the data bits: draw them as three overlapping circles, with every data bit sitting in a different combination of circles. Every circle must contain an even number of 1s.</p>
+
+<div data-widget="hamming"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>When one bit flips, the circles that contain it turn odd. And because every bit lives in a <em>different</em> combination of circles, the pattern of odd circles points to exactly one bit. Flip it back and the data is repaired. This is called a <strong>Hamming code</strong>. The cost is high, 3 extra bits for every 4, but there are situations where it’s worth every one.</p>
+
+<realworld>
+<p>Error-correcting codes are used wherever asking again is slow, expensive or impossible. The Voyager space probes, now more than 20 billion kilometers away, protect their data with error-correcting codes, because a “please resend” takes nearly two days to arrive. Scratched CDs still play and QR codes still scan with a logo stuck in the middle, thanks to <strong>Reed-Solomon</strong> codes, a far more powerful descendant of Hamming’s idea. The memory chips in most servers use Hamming-style codes to fix bits flipped by cosmic rays. And modern Wi-Fi and phone networks use codes called <strong>LDPC</strong> that let them keep working through a lot of radio noise.</p>
+<p>Ethernet over a wire mostly doesn’t bother. Its error rate is so low that detecting damage and discarding the frame is good enough.</p>
+</realworld>
+
+<h3>Goldilocks and the three packets</h3>
+
+<p>So how big should a packet be? Try it yourself. The line in this widget is <em>very</em> noisy, so you can see the effects:</p>
+
+<div data-widget="packetizer"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>You should find that both extremes are bad. A giant packet almost never gets through undamaged, so it’s sent over and over. Tiny packets nearly always get through, but every one of them carries a header and a check, and when the packets are tiny, the headers are a big fraction of everything sent. The best size is somewhere in the middle, and it depends on how noisy the line is. Here are the numbers for a line that flips one bit in a million, with 16 bytes of labels and checks per packet:</p>
+
+<!-- @include src/figs/ch10-sizes.svg -->
+
+<p>Other things matter too. Every switch has to hold a whole packet in memory before forwarding it, so bigger packets need more memory, and make everyone else wait longer. So real networks settle on a maximum packet size, and chop everything to fit.</p>
+
+<realworld>
+<p>An Ethernet frame can carry at most 1,500 bytes of data, a limit called the <strong>MTU</strong> (maximum transmission unit). It was chosen around 1980, when memory was expensive, and it has barely changed since, even though modern links are a thousand times faster and far less noisy. Some data centers use “jumbo frames” of 9,000 bytes, but on the wider internet, 1,500 is still the number to beat. You can see it on your own computer in the lab below.</p>
+</realworld>
+
+<h3>A different kind of network</h3>
+
+<p>Packets turn out to be a much bigger idea than a trick for sending videos. They change how you’d build an entire network.</p>
+
+<p>The telephone network, the biggest network in the world for most of the 20th century, didn’t use packets. When you made a call, a chain of switching equipment connected a path between you and the other person, and that path was <em>yours</em> for as long as the call lasted. This is called <strong>circuit switching</strong>. It’s great for voice, since there’s never a delay, but it’s wasteful. The circuit sits reserved even while nobody is speaking, and when every circuit is busy, new callers just get a busy signal.</p>
+
+<!-- @include src/figs/ch10-circuits.svg -->
+
+<p>With <strong>packet switching</strong>, nothing is reserved. Everyone’s packets share every link, taking turns. A link is only busy while a packet is actually crossing it. If one path is busy or broken, a packet can take another, and the numbers let the other end put everything back in order.</p>
+
+<realworld>
+<p>Packet switching was invented twice, independently. In the early 1960s, Paul Baran at the RAND Corporation was designing a communications network that could survive a nuclear attack. He proposed chopping messages into “message blocks” that could each find their own way around damage. A few years later, Donald Davies at Britain’s National Physical Laboratory came up with the same idea, for a much more peaceful reason: he wanted computers to share expensive telephone lines efficiently. Davies gave us the word “packet”.</p>
+<p>Telephone engineers were skeptical. It seemed crazy to chop a conversation into pieces and let them fend for themselves. But in 1969 the ARPANET, the ancestor of the internet, was built on packet switching, and today even most phone calls travel as packets.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>The school across town has its own network now, with a few hundred computers and a dozen switches. The school and our neighborhood want to connect their networks, so that Bob can reach his teacher’s computer and Carol can send her bee drawings to the school newsletter.</p>
+
+<p>Just running a cable between the two sets of switches would be a disaster. Everyone’s broadcasts would reach everyone else, and every switch would have to learn every computer in both networks. Remember the fingerprint postal service from the last chapter: it works in a village, and fails for a country.</p>
+
+<p>But we now have small, self-contained, numbered packets, each able to find its own way. In the next chapter, we’ll connect networks without merging them.</p>
+
+<lab>
+<p>This chapter has two programs. <code>checks.py</code> implements the four fingerprints and pits them against each other, and <code>packets.py</code> sends a pretend video over a noisy line.</p>
+
+<h4>1. Four fingerprints</h4>
+
+<terminal title="labs/ch10">
+$ cd labs/ch10
+$ python3 checks.py demo "HI BOB"
+message: 'HI BOB'  bytes: 48 49 20 42 4f 42
+  parity bit:        1
+  8-bit sum:         132 (0x84)
+  internet checksum: 0x4832
+  CRC-32:            0x3b35967c   (zlib agrees: 0x3b35967c)
+$ python3 checks.py demo "HI OBB"
+message: 'HI OBB'  bytes: 48 49 20 4f 42 42
+  parity bit:        1
+  8-bit sum:         132 (0x84)
+  internet checksum: 0x5525
+  CRC-32:            0x86437b62   (zlib agrees: 0x86437b62)
+</terminal>
+
+<p>Swapping the B and the O fools parity and the sum, but not the other two. Our hand-written CRC-32 gives exactly the same answer as the one built into Python (<code>zlib.crc32</code>), which is the one your computer uses for ZIP files. Here are the two simplest checks:</p>
+
+<!-- @code labs/ch10/checks.py#sums -->
+
+<h4>2. The contest</h4>
+
+<p>Now let’s be systematic. <code>contest</code> makes 10,000 random 64-byte messages for each kind of damage, damages them, and counts how often each check notices:</p>
+
+<terminal>
+$ python3 checks.py contest
+10000 random 64-byte messages per row. How often does each check notice the damage?
+
+damage                   parity       sum8   internet      crc32
+1 flipped bit           100.00%    100.00%    100.00%    100.00%
+2 flipped bits            0.00%     93.12%     96.99%    100.00%
+3 flipped bits          100.00%     98.68%     99.75%    100.00%
+burst of 8 bits          50.53%    100.00%    100.00%    100.00%
+burst of 32 bits         50.95%     99.60%    100.00%    100.00%
+burst of 100 bits        51.07%     99.64%    100.00%    100.00%
+two bytes swapped         0.00%      0.00%     50.30%    100.00%
+random garbage           50.75%     99.66%    100.00%    100.00%
+</terminal>
+
+<p>Look at parity’s column: it catches odd numbers of flips, never even ones, and anything else is a coin toss. Why does the sum miss 7% of two-bit flips? (Hint: what happens if one flip adds 4 to a byte and the other subtracts 4 from a different byte?) The Internet checksum catches exactly half of the swaps. Which half?</p>
+
+<h4>3. Fixing, not just finding</h4>
+
+<terminal>
+$ python3 checks.py hamming 1011
+data 1011 is sent as 7 bits: d1=1 d2=0 d3=1 d4=1 p1=0 p2=1 p3=0
+
+  noise flips d1: the receiver blames d1, flips it back → ✓ fixed
+  noise flips d2: the receiver blames d2, flips it back → ✓ fixed
+  …
+  noise flips p3: the receiver blames p3, flips it back → ✓ fixed
+</terminal>
+
+<!-- @code labs/ch10/checks.py#hamming -->
+
+<h4>4. Bob’s video</h4>
+
+<p><code>packets.py</code> sends a 2-megabyte “video” over a line that flips one bit in a million, first as one giant message:</p>
+
+<terminal>
+$ python3 packets.py whole
+Bob sends 2,000,000 bytes to Carol. The line flips about 1 bit in 1,000,000.
+
+  try 1: 16,000,032 bits sent... the check doesn't match. Throw it all away, send it again.
+  try 2: 16,000,032 bits sent... the check doesn't match. Throw it all away, send it again.
+  try 3: 16,000,032 bits sent... the check doesn't match. Throw it all away, send it again.
+  try 4: ✗     try 5: ✗     try 6: ✗     try 7: ✗     try 8: ✗     try 9: ✗     try 10: ✗     try 11: ✗
+  …
+  Bob gives up after 40 tries. Carol still has nothing.
+
+  bits on the wire: 640,001,280 for a 16,000,000-bit video (40.00× the video's size)
+</terminal>
+
+<p>With 16 million bits and a flip every million or so, <em>every</em> attempt gets hit about 16 times. It will essentially never get through. Now in packets:</p>
+
+<terminal>
+$ python3 packets.py packets
+Bob sends 2,000,000 bytes to Carol. The line flips about 1 bit in 1,000,000.
+
+  round 1: sent 2,000 packets, 26 damaged. Carol asks again for: 150, 200, 221, 345, 415, 505, 610, 639 … (26 in all)
+  round 2: sent 26 packets, 0 damaged. Carol asks again for: nothing, she has them all!
+
+  bits on the wire: 16,467,328 for a 16,000,000-bit video (1.03× the video's size)
+  Carol's copy is identical to Bob's ✓
+</terminal>
+
+<p>Only 3% extra, and the video arrives perfectly. (The last line compares the two files using a much bigger fingerprint called SHA-256, of the kind we’ll meet in Chapter 31.) Here’s how the packets are made and checked:</p>
+
+<!-- @code labs/ch10/packets.py#packetize -->
+
+<p>And here’s Carol filing them on her shelf. Notice that the packets are shuffled on the way, and it makes no difference:</p>
+
+<!-- @code labs/ch10/packets.py#reassemble -->
+
+<h4>5. Finding the best size</h4>
+
+<terminal>
+$ python3 packets.py sweep
+Sending a 2,000,000-byte video over a line that flips 1 bit in 1,000,000.
+
+ packet size   packets  header cost   resent  rounds  total sent
+          16   125,000       100.0%     0.0%       2       2.00×  ████████████████████████████████████████
+          64    31,250        25.0%     0.1%       2       1.25×  ██████████
+         256     7,813         6.3%     0.3%       2       1.07×  ███
+       1,000     2,000         1.6%     1.3%       2       1.03×  █
+       4,000       500         0.4%     5.2%       3       1.06×  ██
+      16,000       125         0.1%    15.2%       2       1.15×  ██████
+      64,000        32         0.0%    35.2%       3       1.35×  ██████████████
+     256,000         8         0.0%   637.6%      28       7.38×  ████████████████████████████████████████
+</terminal>
+
+<h4>6. Your computer’s packet size</h4>
+
+<p>Every network interface on your computer has an MTU. On a Mac, <code>en0</code> is usually Wi-Fi (or Ethernet, on a desktop), and <code>lo0</code> is the “loopback” interface that programs on the same computer use to talk to each other:</p>
+
+<terminal>
+$ ifconfig en0 | grep mtu
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+$ ifconfig lo0 | grep mtu
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
+</terminal>
+
+<p>There’s the 1,500 from 1980. Loopback never leaves your computer, so there’s no noise and no hogging to worry about, and it uses much bigger packets. On Linux, <code>ip link</code> shows the same thing. Your network card also counts how many damaged frames it has thrown away. Look for the <code>Ierrs</code> column (input errors) in <code>netstat -i</code>, or <code>RX errors</code> in <code>ip -s link</code> on Linux. On a healthy wired network it should be zero, or close to it.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Keep Chapter 5’s promise: open Carol’s volcano, <code>labs/ch06/sites/bob/volcano.png</code> (or make a fresh one with Chapter 5’s <code>pixels.py</code>), find the first chunk (it starts at byte 8: 4 bytes of length, 4 bytes of type, then the data, then the CRC), and check that <code>zlib.crc32(type + data)</code> matches the 4-byte CRC stored after it.</li>
+<li>Find two different 3-letter messages with the same 8-bit sum, and then two with the same Internet checksum. (You won’t find two with the same CRC-32 this way. Try, and count how many attempts you’d need.)</li>
+<li>Run <code>sweep</code> with <code>--noise 1e-5</code> and <code>--noise 1e-8</code>. Where does the best packet size move to? Why?</li>
+<li>Damage two bits in the Hamming widget and watch it “fix” the wrong one. Then add an eighth bit to <code>hamming_encode</code>: an ordinary parity bit over all seven. With it, the receiver can tell “one error, fixable” apart from “two errors, ask again”. This is called SECDED, and it’s what server memory actually uses.</li>
+<li>Remove the CRC check from <code>unpack()</code> in <code>packets.py</code> (accept every packet). What happens to the final comparison?</li>
+</ul>
+</lab>

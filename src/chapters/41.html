@@ -1,0 +1,218 @@
+<h3>A letter to Mars</h3>
+
+<p>It’s late at Uncle Ray’s farm. The satellites of the last chapter are sliding silently overhead, and Grandpa Otto has found a news story on his phone: a rover on Mars has sent back a picture of a crater rim, taken that morning.</p>
+
+<dialogue>
+G: How do they talk to it? When I was a signalman, if the other ship didn’t answer, you flashed the message again. And again, until it did.
+B: By radio. Mars is fourteen minutes away today, at the speed of light.
+G: Fourteen minutes! You could boil an egg while you wait for “hello”.
+A: And that’s the easy part. The rover can hardly ever talk to Earth directly. An orbiter flies over it a couple of times a day, collects what it has to say, and hands it on when a big dish on Earth is pointed its way.
+G: So it’s like the post. You hand your letter to someone who carries it part of the way, and they hand it to someone else.
+B: Nothing like the internet, then. The internet needs the whole path to be there at once.
+A: Exactly. So for space, people invented a network that doesn’t.
+</dialogue>
+
+<p>Everything in this book so far has assumed two things quietly: that a round trip takes at most a second or so, and that there’s a path all the way from sender to receiver <em>right now</em>. In space, neither is true. This chapter is about networks that work anyway: <strong>delay-tolerant networking</strong>. And, it turns out, they’re useful on Earth too.</p>
+
+<h3>Too far for a conversation</h3>
+
+<p>How far is Mars? It depends on the day. Earth and Mars both go round the Sun, Earth faster, so the distance between them swings from about 55 to 400 million kilometres. This chapter’s <code>mars.py</code> works it out from the same kind of numbers as Chapter 40’s satellites, published by NASA’s Jet Propulsion Laboratory for each planet. (Checked against JPL’s own precise calculations, it’s within 0.02%.)</p>
+
+<!-- @code labs/ch41/mars.py#where -->
+
+<terminal title="Bob’s MacBook">
+$ python3 mars.py
+28 September 2026: Mars is 252 million km from Earth (1.686 AU)
+  a radio message takes ⟦1:14 min 01 s⟧ to get there, and as long again for any answer:
+  28 minutes for a single question and reply
+  Mars is 65° from the Sun in our sky
+$ python3 mars.py --year
+over the next two years, from 28 Sep 2026:
+  nearest:  20 Feb 2027,  101 million km: 5 min 38 s one way
+  furthest: 12 May 2028,  361 million km: 20 min 04 s one way
+  the Sun is in the way (Mars within 3° of it) from ⟦2:08 Mar 2028 to 03 Apr 2028⟧: 27 days of near silence
+</terminal>
+
+<callouts>
+1 | Over a hundred thousand times longer than a ping across Bob’s home Wi-Fi.
+2 | When Mars is behind the Sun, the Sun’s own radio noise drowns everything. Every 26 months or so, the Mars missions go quiet for a couple of weeks, with instructions to keep themselves safe until it’s over.
+</callouts>
+
+<!-- @include src/figs/ch41-distance.svg -->
+
+<p>What does a delay like that do to the protocols we know? Start with the very first step of any TCP connection (Chapter 27): the handshake. The lab’s <code>mars_link.sh</code> builds a “Mars” on Grandpa’s Pi: a namespace (Chapter 36) at the end of a virtual cable, with Linux’s network emulator, <code>netem</code>, holding every packet for 5 minutes and 38 seconds in each direction. That’s Mars at its very nearest.</p>
+
+<!-- @code labs/ch41/mars_link.sh#link -->
+
+<terminal title="Grandpa Otto’s Pi">
+$ sudo ./mars_link.sh
+one way to Mars: 338 s
+curl: (28) Failed to connect to 10.41.0.2 port 80 after ⟦1:134236 ms⟧: Could not connect to server
+  …after 134 s
+⟦2:64 bytes from 10.41.0.2: icmp_seq=1 ttl=64 time=676000 ms⟧
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+</terminal>
+
+<callouts>
+1 | TCP gave up after 134 seconds, having sent its SYN seven times. None of them had reached Mars yet.
+2 | Ping doesn’t need a conversation: one packet there, one back. It just needed patience, which ping has if you tell it to (<code>-W</code>). Eleven and a quarter minutes.
+</callouts>
+
+<!-- @include src/figs/ch41-tcp.svg -->
+
+<p>Suppose TCP were patient enough. It would still be hopeless. Slow start (Chapter 28) doubles its window once per round trip, so reaching a useful speed would take hours. Every lost packet would cost at least eleven minutes to notice. A TLS handshake (Chapter 32) adds another round trip, and a web page (Chapter 37) half a dozen more: an hour to load a page, if nothing went wrong. The internet’s protocols are built on conversation, and at these distances there’s no such thing.</p>
+
+<h3>Connected, some of the time</h3>
+
+<p>Distance isn’t even the biggest problem. A rover’s radio is small and it has little power to spare. It can talk to Earth directly, slowly, but most of what it sends goes by way of the spacecraft orbiting Mars, which fly over it for ten minutes or so, a couple of times a Martian day. The orbiters have big antennas and plenty of power, and they talk to Earth through NASA’s <strong>Deep Space Network</strong>: three sites with dishes up to 70 metres across, in California, Spain and Australia, a third of the way round the world from each other, so one of them can always see Mars. But the dishes serve dozens of missions, so each gets its own booked hours.</p>
+
+<p>So the path from Earth to a rover is a chain of links that come and go on a timetable. There is no moment when the whole path exists at once. That isn’t a fault to be fixed: it’s how the network is.</p>
+
+<h3>Store, carry and forward</h3>
+
+<p>The answer is to stop having conversations and start sending letters. In <strong>delay-tolerant networking</strong> (DTN), an application hands the network a complete message, a <strong>bundle</strong>, with everything needed to deliver it: where it’s going, who sent it, when it was made, and how long it stays useful. Each node along the way takes the bundle, <em>stores</em> it, on disk if need be, for minutes or days, and <em>forwards</em> it when a link to the next node opens. Some nodes <em>carry</em> it, physically: an orbiter holding a rover’s photos until it’s in sight of Earth.</p>
+
+<p>Three ideas make it work:</p>
+
+<ul>
+<li><strong>Hop by hop, not end to end.</strong> Each link only has to work for its own short hop, while it’s up. No handshake ever crosses the whole path.</li>
+<li><strong>Routing by timetable.</strong> Spacecraft move predictably (Chapter 40), so the times when links will be up, the <em>contact plan</em>, are known days ahead. Routes are worked out through time as well as space: “give it to the orbiter now; it will meet the rover at 09:20.”</li>
+<li><strong>Whatever link works.</strong> Bundles can travel over TCP or UDP where there’s an ordinary network, and over a protocol called LTP across deep space. These are “convergence layers”: the bundle layer sits on top of whichever one each hop uses, just as IP sits on top of Ethernet or Wi-Fi (Chapter 15).</li>
+</ul>
+
+<h3>A bundle, byte by byte</h3>
+
+<p>The Bundle Protocol, version 7, was published as RFC 9171 in 2022. Bundles are written in <strong>CBOR</strong> (Concise Binary Object Representation): think of JSON (Chapter 30), but in compact binary. Every item starts with one byte, whose top three bits say what kind of thing it is (a number, some bytes, some text, a list) and whose other five bits say how big, or, for small numbers, the number itself:</p>
+
+<!-- @code labs/ch41/dtn.py#cbor -->
+
+<p>A bundle is a list of <em>blocks</em>. The primary block is the envelope, and never changes on its way; after it come extension blocks, which nodes may add or update, and last, the payload:</p>
+
+<!-- @code labs/ch41/dtn.py#bundle -->
+
+<!-- @include src/figs/ch41-bundle.svg -->
+
+<p>Is it right? Wireshark knows the Bundle Protocol, so the lab sent one bundle on the Pi, to port 4556 (the standard port for bundles over UDP), and let <code>tshark</code> take it apart:</p>
+
+<terminal title="Grandpa Otto’s Pi">
+$ tshark -i lo -f "udp port 4556" -c 1 -O bpv7
+DTN Bundle Protocol Version 7, Src: dtn://earth/, Dst: dtn://rover/camera, Time: 843936225690, Seq: 1, Blocks: 3, Payload-Size: 33
+    Indefinite Array: 9f
+    Primary Block, CRC Type: CRC-16
+        Version: 7
+        Bundle Flags: 0x0000000000000000
+        …
+        CRC Type: CRC-16 (1)
+        Destination Endpoint ID: dtn://rover/camera
+        …
+        Source Node ID: dtn://earth/
+        …
+        Report-to Node ID: dtn:none
+        …
+        Creation Timestamp
+            Time: Sep 28, 2026 18:43:45.690000000 UTC
+            …
+            Sequence Number: 1
+        Lifetime: 604800000ms
+        [Lifetime Expanded: 604800.000000000 seconds]
+        [Expire Time: Oct  5, 2026 18:43:45.690000000 UTC]
+        CRC Field Integer: 0xb8be [correct]
+        ⟦1:[CRC Status: Good]⟧
+    [Bundle Identity: Source: dtn://earth/, DTN Time: 843936225690, Seq: 1]
+    [Destination Service: camera]
+    Canonical Block: Hop Count, Block Num: 2, CRC Type: None
+        …
+        Block Type-Specific Data: 821000
+            Hop Limit: 16
+            Hop Count: 0
+    Canonical Block: Payload, Block Num: 1, CRC Type: None
+        …
+        Block Type-Specific Data: 506c656173652070686f746f677261706820746865206372617465722072696d2e
+    Indefinite Break: ff
+</terminal>
+
+<callouts>
+1 | A completely separate implementation, written by other people from the same standard, agrees with ours about every field, and about the CRC.
+</callouts>
+
+<h3>Earth to rover, and back</h3>
+
+<p>Now a whole journey. <code>dtn.py</code> runs three bundle nodes, Earth, an orbiter and a rover, each with its own UDP socket, and a contact plan: when each link will be up. A two-hour slot on a big dish each day, and a twelve-minute pass over the rover twice a Martian day:</p>
+
+<!-- @code labs/ch41/dtn.py#plan -->
+
+<p>Every node does the same simple thing, over and over: for each bundle it’s holding, look up the next hop, and if the link to it is up, send the bundle on:</p>
+
+<!-- @code labs/ch41/dtn.py#forward -->
+
+<p>Bob asks the rover for a photo. (The program runs in fast-forward: a day takes under a minute.)</p>
+
+<terminal title="Bob’s MacBook">
+$ python3 dtn.py
+Earth to Mars: 14 minutes, one way. One second here is 30 minutes.
+   day 1, 06:05  earth    new bundle for dtn://rover/camera (105 bytes)
+   day 1, 06:05  earth    link to orbiter is up: sent it; it arrives in 14 minutes
+   day 1, 06:19  orbiter  received a bundle for dtn://rover/camera (105 bytes); ⟦1:stored, waiting for a link⟧
+   day 1, 09:20  orbiter  link to rover is up: sent it
+   day 1, 09:20  rover    delivered (2 hops): “Please photograph the crater rim.”
+   day 1, 09:20  rover    the camera takes the photo, and sends a bundle back
+   day 1, 09:20  rover    link to orbiter is up: sent it
+   day 1, 09:20  orbiter  received a bundle for dtn://earth/bob (104 bytes); stored, waiting for a link
+   day 2, 06:00  orbiter  link to earth is up: sent it; it arrives in 14 minutes
+   day 2, 06:14  earth    delivered (2 hops): “rim.jpg: done. (thumbnail attached)”
+question and answer took ⟦2:24.2 hours⟧; light alone needs 28 minutes.
+minutes when a whole path from Earth to the rover existed at once: ⟦3:0⟧
+</terminal>
+
+<callouts>
+1 | The orbiter has nowhere to send it yet, so it keeps it. On an internet router, a packet with nowhere to go is dropped in a fraction of a second (Chapter 11).
+2 | Mostly waiting: for the orbiter to come round, and then for Earth’s dish.
+3 | TCP couldn’t have done this at any speed. DTN did it with two hops, each over a link that was up at the time.
+</callouts>
+
+<!-- @include src/figs/ch41-plan.svg -->
+
+<p>Try sending your own messages, on any day of the next few years:</p>
+
+<div data-widget="solarmail"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<think>
+<p>Why not just fix TCP: give it longer timers, and bigger windows?</p>
+<p>Some of that was tried, and helps for the Moon (a second and a quarter each way). But TCP’s real assumption is deeper: that sender and receiver can talk <em>while the data moves</em>, so the receiver’s acknowledgements can steer the sender (Chapters 13 and 28). With no path end to end, there’s no one to steer. So DTN moves the responsibility to each hop: a node that has taken a bundle keeps it until the next node has it safely. Reliability becomes a relay race instead of a phone call. The same idea is in email: mail servers pass messages along, and keep them until the next one can take them.</p>
+</think>
+
+<realworld>
+<p>Vint Cerf, one of TCP/IP’s inventors (Chapter 27), began working on an “interplanetary internet” with NASA’s Jet Propulsion Laboratory in 1998. In 2003, Kevin Fall generalised the idea into delay-tolerant networking for any “challenged” network. In 2008 NASA tested it on a real spacecraft, the Deep Impact comet probe, about 24 million kilometres from Earth, and DTN has been used on the International Space Station since 2016. Plans for networks around the Moon, like NASA’s LunaNet, are built on the Bundle Protocol.</p>
+<p>On Earth, DTN helps wherever connections come and go. In the early 2000s, DakNet put Wi-Fi boxes on rural buses in India, which collected villages’ email as they passed and delivered it when they reached a town. Researchers built DTN for Sámi reindeer herders in the far north of Sweden, who spend months beyond any network. And the biggest data transfers of all are still delay-tolerant: cloud companies ship disks by lorry, because, as the computer scientist Andrew Tanenbaum put it, you should never underestimate the bandwidth of a station wagon full of tapes hurtling down the highway.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>The rover’s messages are protected, of course: nobody wants a stranger commanding a car on Mars. But Eve has been reading about something that worries everyone who keeps secrets for a long time. She doesn’t need to break today’s encryption today. She just needs to keep a copy, and wait for a computer that can.</p>
+
+<lab>
+<p>Three programs. <code>mars.py</code> and <code>dtn.py</code> run on macOS or Linux. <code>mars_link.sh</code> is for Linux, needs <code>sudo</code>, and takes about twelve minutes: time for a cup of tea.</p>
+
+<h4>1. How far is Mars?</h4>
+
+<p><code>python3 mars.py</code>, <code>python3 mars.py 2027-02-20</code>, <code>python3 mars.py --year</code>. The <code>--year</code> search is a simple loop over the days:</p>
+
+<!-- @code labs/ch41/mars.py#year -->
+
+<h4>2. Bundles</h4>
+
+<p><code>python3 dtn.py --bundle</code> builds one bundle and takes it apart. <code>python3 dtn.py</code> sends a question to the rover and waits for the answer. If you have Wireshark or tshark, capture on the loopback interface while you run <code>python3 dtn.py --send</code>, and see what it makes of it.</p>
+
+<h4>3. A link to Mars</h4>
+
+<p><code>sudo ./mars_link.sh</code>, or give it a number of seconds for a shorter trip, like <code>sudo ./mars_link.sh 30</code>.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>With <code>mars_link.sh 60</code>, a round trip takes two minutes, just under TCP’s patience. Does <code>curl</code> manage to connect? Does it get the page? What about 70 seconds?</li>
+<li>Give each bundle a lifetime of 12 hours instead of a week (<code>lifetime_hours</code>), and make nodes throw away bundles that have expired. What happens to the rover’s answer?</li>
+<li>Add a direct link from the rover to Earth to the plan: slow, but available for an hour every afternoon. Change <code>ROUTE</code> so the rover uses whichever link opens first. How much sooner does the answer arrive? (That’s the beginning of contact graph routing.)</li>
+<li>The orbiter forgets a bundle as soon as it sends it on. What if the transmission is lost? Make the receiving node send back a small “got it” bundle, and have the sender keep its copy until one arrives: DTN’s version of Chapter 13’s acknowledgements, one hop at a time.</li>
+<li>The Moon is 384,400 km away. Work out the round trip. Could you play an online game with someone there? Could TCP work, and what would it feel like?</li>
+</ul>
+</lab>

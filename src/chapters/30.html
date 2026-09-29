@@ -1,0 +1,283 @@
+<h3>Grandpa’s garden is slow</h3>
+
+<p>Grandpa Otto’s garden website is a success. His neighbours visit it, his friends from the allotment visit it, and his daughter visits it every morning to see the photos of the beans. And every morning, it takes ages to load.</p>
+
+<dialogue>
+B: It’s just one page and some photos, served from the Pi. How can it be slow?
+A: Open your browser’s developer tools. The Network tab. Now reload.
+B: It downloaded every photo again. Two and a half megabytes each. They haven’t changed since yesterday!
+A: Because the Pi never told the browser it could keep them. And look at the timings: it opened a new connection for each one.
+B: So the web isn’t just “ask for a page, get a page”?
+A: That was Chapter 6. Real HTTP has thirty years of tricks for doing less work: keep the connection open, don’t send what they already have, squash what you do send. Grandpa’s Pi uses none of them.
+</dialogue>
+
+<p>In Chapters 6 and 7, Alice and Bob invented the web: requests and responses, headers, status codes, forms, cookies and chunked replies. The real protocol, HTTP/1.1, is exactly that, with much more learned along the way. This chapter goes through the parts that matter most in real life: connections that stay open, caching, compression, redirects, fetching part of a file, cookies done safely, and the JSON APIs that apps use to talk to servers. (Most big websites now use HTTP/2 or HTTP/3 instead, which carry the very same requests and headers in a more efficient way: that’s Chapter 33.)</p>
+
+<h3>A real conversation</h3>
+
+<p>The first website ever made still answers plain, unencrypted HTTP/1.1, which makes it perfect for looking at. <code>curl -v</code> shows everything it sends (<code>&gt;</code>) and receives (<code>&lt;</code>):</p>
+
+<terminal title="Bob’s MacBook">
+$ curl -v --http1.1 http://info.cern.ch/ -o /dev/null
+* Connected to info.cern.ch (188.184.67.127) port 80
+> GET / HTTP/1.1
+> ⟦1:Host: info.cern.ch⟧
+> User-Agent: curl/8.7.1
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< Date: Mon, 28 Sep 2026 12:02:18 GMT
+< Server: Apache
+< ⟦2:Last-Modified: Wed, 05 Feb 2014 16:00:31 GMT⟧
+< ⟦3:ETag: "286-4f1aadb3105c0"⟧
+< ⟦4:Accept-Ranges: bytes⟧
+< ⟦5:Content-Length: 646⟧
+< ⟦6:Connection: close⟧
+< Content-Type: text/html
+</terminal>
+
+<callouts>
+1 | The only header HTTP/1.1 requires. One server, one address, can host thousands of websites, and this says which one you mean.
+2 | When the page last changed: February 2014.
+3 | An <strong>entity tag</strong>: a fingerprint of this exact version of the page. If the page changes, so does the tag.
+4 | “You may ask me for just part of this file.”
+5 | The body is exactly 646 bytes. That’s how the client knows where the response ends…
+6 | …although this old server closes the connection after every response anyway.
+</callouts>
+
+<h3>Keep the line open</h3>
+
+<p>In the original HTTP, every request needed a new TCP connection: connect, ask, receive, hang up. A web page with a picture on it meant two connections, each with its own handshake. Today a page loads dozens or hundreds of files, and over HTTPS each new connection needs a TCP handshake and a TLS handshake before the first request can even be sent. So HTTP/1.1 keeps connections open by default, and sends request after request over the same one:</p>
+
+<!-- @include src/figs/ch30-keepalive.svg -->
+
+<p>Keeping a connection open only works if each side can tell exactly where a message ends, which is why every response needs a <code>Content-Length</code>, or <code>Transfer-Encoding: chunked</code> (Chapter 7) when the server doesn’t know the length in advance. Our Chapter 6 server just closed the connection to say “that’s all”, which is what info.cern.ch still does. This chapter’s lab handles all three:</p>
+
+<!-- @code labs/ch30/httpclient.py#request -->
+
+<p>HTTP/1.1 has a weakness here, though: on one connection, responses must come back in the order the requests were sent. A slow response holds up everything behind it. (The standard allowed sending several requests without waiting, called “pipelining”, but so many servers and proxies got it wrong that browsers never switched it on.) So browsers open up to six connections to each server at once, and use them in parallel. Chapter 33’s HTTP/2 fixes this properly.</p>
+
+<h3>Don’t send it again: caching</h3>
+
+<p>The fastest request is the one you don’t make. Every browser keeps a <strong>cache</strong> of what it has downloaded, and the server’s response headers say what it may do with it:</p>
+
+<ul>
+<li><code>Cache-Control: max-age=86400</code>: this is <strong>fresh</strong> for a day. Until then, use your copy without asking.</li>
+<li><code>Cache-Control: no-cache</code>: keep it, but check with me every time before using it. (A confusing name: it doesn’t mean “don’t cache”.)</li>
+<li><code>Cache-Control: no-store</code>: this <em>does</em> mean don’t keep it: for pages with bank balances or medical records.</li>
+<li><code>Cache-Control: private</code>: your browser may keep this, but shared caches (like a company’s proxy, or a CDN) mustn’t.</li>
+</ul>
+
+<p>When a cached copy stops being fresh, it isn’t thrown away. The browser asks the server whether it has changed, by sending back the validators it was given: <code>If-None-Match</code> with the ETag, or <code>If-Modified-Since</code> with the date. If nothing has changed, the server answers <code>304 Not Modified</code>, with no body at all:</p>
+
+<terminal title="labs/ch30">
+$ python3 httpclient.py cache http://info.cern.ch/
+first request:  200, 646 bytes; ETag "286-4f1aadb3105c0", Last-Modified Wed, 05 Feb 2014 16:00:31 GMT
+asking again with If-None-Match, If-Modified-Since:
+second request: ⟦1:304, 0 bytes⟧  → “not modified”: use the copy you have
+</terminal>
+
+<callouts>
+1 | For a 646-byte page that hardly matters. For Grandpa’s 2.4 MB photos, it’s the difference between an instant page and a slow one.
+</callouts>
+
+<p>Try it with Grandpa’s photo:</p>
+
+<div data-widget="httpcache"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Notice the trade-off. With a long <code>max-age</code>, the page is instant, and the server does no work at all, but when Grandpa uploads a new photo, visitors keep seeing the old one until their copy expires. Websites get the best of both with a trick: they put a fingerprint of each file’s contents into its <em>name</em> (<code>beans.3f9a1c.jpg</code>), cache it for a year, and when the file changes, the page simply refers to a new name.</p>
+
+<p>Caches aren’t only in browsers. Big websites put <strong>shared caches</strong> between themselves and their visitors, all over the world: that’s what a content delivery network is (Chapter 34). You can often see them in the headers:</p>
+
+<terminal title="Bob’s MacBook">
+$ curl -sI --http1.1 https://example.org | grep -iE "^HTTP|cache|age|last-mod|server"
+HTTP/1.1 200 OK
+Server: cloudflare
+last-modified: Sat, 26 Sep 2026 09:09:07 GMT
+⟦1:Age: 12846⟧
+⟦2:Cache-Control: max-age=14400⟧
+⟦3:cf-cache-status: HIT⟧
+</terminal>
+
+<callouts>
+1 | This copy has been sitting in the shared cache for 12,846 seconds, about three and a half hours…
+2 | …out of the four hours it may be kept. After that, the cache will check with the real server.
+3 | Cloudflare’s own header: this answer came from its cache, and the real server never heard about the request.
+</callouts>
+
+<p>This chapter’s lab includes a small caching proxy that follows the same rules. Point <code>curl</code> at it, and it tells you what it did:</p>
+
+<terminal title="labs/ch30">
+$ python3 cacheproxy.py
+caching proxy on 127.0.0.1:7130. Try: curl -x http://127.0.0.1:7130 -sI http://info.cern.ch/
+17:34:49  MISS        http://info.cern.ch/   ⟦1:(fresh for 86400 s)⟧
+17:34:51  HIT         http://info.cern.ch/   (fresh for 86400 s)
+17:34:52  MISS        http://127.0.0.1:7131/   (fresh for 1 s)
+17:34:53  ⟦2:REVALIDATED⟧ http://127.0.0.1:7131/   (fresh for 1 s)
+</terminal>
+
+<callouts>
+1 | info.cern.ch gives no instructions at all, so the proxy guesses, as the standard allows: a tenth of the time since the page last changed (twelve years!), but never more than a day.
+2 | A page served by <code>python3 -m http.server</code> from a file changed a few seconds earlier: it’s only guessed fresh for a second, so the proxy asks again, and gets a 304.
+</callouts>
+
+<h3>Smaller on the wire</h3>
+
+<p>Text squashes well: web pages are full of repeated words and tags. So browsers say which compression methods they understand, and servers compress the response with one of them:</p>
+
+<terminal title="labs/ch30">
+$ python3 httpclient.py gzip https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol
+Accept-Encoding: identity  → HTTP/1.1 200 OK, Content-Encoding: none    612,715 bytes on the wire
+Accept-Encoding: gzip      → HTTP/1.1 200 OK, Content-Encoding: ⟦1:gzip⟧    ⟦2:100,735 bytes on the wire⟧
+</terminal>
+
+<callouts>
+1 | gzip is the same method as the <code>gzip</code> command, from 1992. Browsers also offer <code>br</code> (Brotli) and <code>zstd</code>, which squeeze a little harder.
+2 | Six times smaller. Photos and videos are already compressed, so they don’t shrink, and servers don’t bother trying.
+</callouts>
+
+<p>A response that depends on the request’s headers must say so, with <code>Vary: Accept-Encoding</code>, or a shared cache might hand a compressed copy to a browser that asked for an uncompressed one.</p>
+
+<h3>Go over there: redirects</h3>
+
+<p>A response with a status code in the 300s and a <code>Location</code> header tells the browser to ask somewhere else instead. <code>301</code> and <code>308</code> mean “moved for good: remember the new address”; <code>302</code> and <code>307</code> mean “over there, for now”. (The difference within each pair is whether the browser may change a POST into a GET on the way, for historical reasons.) Almost every website uses a couple:</p>
+
+<!-- @include src/figs/ch30-redirects.svg -->
+
+<p>That last header matters more than it looks. Remember Eve in Chapter 21, sitting in the middle of Bob’s Wi-Fi with a forged ARP answer? The very first, unencrypted <code>http://</code> request is her chance: she can answer it herself, and never redirect Bob to the real, encrypted site at all. <code>Strict-Transport-Security</code> takes that chance away, at least after the first visit, and the <code>preload</code> means the BBC has asked browser makers to build it into the browser, so there’s never a first unprotected visit. Chapter 32 explains why HTTPS defeats Eve completely.</p>
+
+<h3>Just part of it: ranges</h3>
+
+<p><code>Accept-Ranges: bytes</code> in info.cern.ch’s response means a client can ask for just part of the file:</p>
+
+<terminal title="labs/ch30">
+$ python3 httpclient.py range http://info.cern.ch/ 0-99
+⟦1:206⟧, Content-Range: ⟦2:bytes 0-99/646⟧, got 100 bytes:
+<html><head></head><body><header>
+<title>http://info.cern.ch</title>
+</header>
+
+<h1>http://info.cern
+</terminal>
+
+<callouts>
+1 | <code>206 Partial Content</code>.
+2 | The first 100 bytes, of 646.
+</callouts>
+
+<p>That’s how a download that was interrupted can carry on where it stopped, and how a video player can jump to the middle of a film without downloading the beginning.</p>
+
+<h3>Cookies, done properly</h3>
+
+<p>In Chapter 7, Bob’s server gave each visitor a cookie so that it could recognise them next time. The real <code>Set-Cookie</code> header has grown a list of attributes, most of them about keeping cookies from being stolen:</p>
+
+<!-- @include src/figs/ch30-cookie.svg -->
+
+<p>A cookie that proves you’re logged in is as good as your password, for as long as it lasts, so these attributes matter. <code>Secure</code> keeps it off unencrypted connections, where Eve could read it. <code>HttpOnly</code> keeps it away from any script that sneaks into the page. And <code>SameSite</code> stops other websites from making your browser send requests that carry it: without it, a web page could contain a hidden form that posts to your bank, and your browser would helpfully attach your bank’s cookie. Browsers have also started blocking “third-party” cookies, set by a different site from the one you’re visiting (usually an advertising network, which used them to follow people from site to site).</p>
+
+<h3>Talking to programs: JSON APIs</h3>
+
+<p>Most HTTP requests today aren’t from a person clicking a link. They’re from an app, asking a server for data: the weather, your messages, the next ten videos. These <strong>APIs</strong> use HTTP exactly as a browser does, but the bodies are usually <strong>JSON</strong>, a text format for numbers, strings, lists and dictionaries that every programming language can read. Grandpa wants to know whether to water his beans:</p>
+
+<terminal title="labs/ch30">
+$ python3 api.py weather
+GET https://api.open-meteo.com/v1/forecast?latitude=51.5&longitude=-0.12&current=temperature_2m,precipitation&daily=precipitation_sum&forecast_days=3&timezone=Europe%2FLondon
+→ 200 OK, Content-Type: application/json; charset=utf-8
+
+in the garden now: 18.1 °C, 0.0 mm of rain
+  2026-09-28: 0.0 mm of rain  (water the beans!)
+  2026-09-29: 1.4 mm of rain
+  2026-09-30: 4.4 mm of rain
+</terminal>
+
+<p>APIs use HTTP’s <strong>methods</strong> to say what kind of thing is being done: <code>GET</code> to read, <code>POST</code> to create, <code>PUT</code> or <code>PATCH</code> to change, <code>DELETE</code> to remove. The difference matters to everything in between: a GET must be <em>safe</em> (it changes nothing, so a cache may answer it, and a browser may repeat it), and a PUT or DELETE must be <em>idempotent</em> (doing it twice has the same effect as doing it once, so it can be retried if the answer is lost). The lab has a tiny API for Grandpa’s plants, and a client that tries each method:</p>
+
+<terminal title="labs/ch30">
+$ python3 api.py demo
+GET    /plants     → 200   [{"id": 1, "name": "runner beans", "planted": "2026-05-02"}]
+POST   /plants     → ⟦1:201⟧  Location: /plants/2   {"id": 2, "name": "courgettes", "planted": "2026-06-01"}
+GET    /plants/2   → 200   {"id": 2, "name": "courgettes", "planted": "2026-06-01"}
+POST   /plants     → ⟦2:400⟧   {"error": "send JSON with a name"}
+DELETE /plants/1   → ⟦3:204⟧   (no body)
+DELETE /plants/1   → 204   (no body)
+GET    /plants/1   → 404   {"error": "no plant 1"}
+GET    /plants     → 200   [{"id": 2, "name": "courgettes", "planted": "2026-06-01"}]
+</terminal>
+
+<callouts>
+1 | <code>201 Created</code>, with the address of the new thing in <code>Location</code>.
+2 | <code>400 Bad Request</code>: the request itself was wrong. Status codes in the 400s blame the client; in the 500s, the server.
+3 | <code>204 No Content</code>: done, and nothing to say. Deleting it again gives the same answer: idempotent.
+</callouts>
+
+<p>The status codes you’ll meet most:</p>
+
+<table class="data">
+<tr><th>Code</th><th>Meaning</th><th>Code</th><th>Meaning</th></tr>
+<tr><td><code>200</code></td><td>OK</td><td><code>401</code></td><td>who are you? (log in first)</td></tr>
+<tr><td><code>201</code></td><td>created</td><td><code>403</code></td><td>I know who you are, and no</td></tr>
+<tr><td><code>204</code></td><td>done, nothing to send</td><td><code>404</code></td><td>no such thing</td></tr>
+<tr><td><code>206</code></td><td>here’s the part you asked for</td><td><code>429</code></td><td>too many requests: slow down</td></tr>
+<tr><td><code>301</code>, <code>308</code></td><td>moved for good</td><td><code>500</code></td><td>the server broke</td></tr>
+<tr><td><code>302</code>, <code>307</code></td><td>over there, for now</td><td><code>502</code>, <code>504</code></td><td>a server in the middle couldn’t reach the one behind it (Chapter 34)</td></tr>
+<tr><td><code>304</code></td><td>not modified: use your copy</td><td><code>503</code></td><td>too busy, try later</td></tr>
+</table>
+
+<think>
+<p>A web page on <code>garden.example</code> uses JavaScript to fetch data from Grandpa’s API on <code>api.garden.example</code>, and the browser refuses to let the script read the answer. Why would a browser block a request the page asked for?</p>
+<p>Because of the <strong>same-origin policy</strong>: a script from one site may not read responses from another, or any website could quietly read your email from your webmail’s API, using your cookies. A different name counts as a different site. The API has to opt in, by answering with a header like <code>Access-Control-Allow-Origin: https://garden.example</code>, a system called <strong>CORS</strong> (cross-origin resource sharing). For some requests, the browser even asks first, with an <code>OPTIONS</code> request, before sending the real one. It confuses every web developer the first time: the request usually arrives, and it’s the browser, not the network, that hides the answer.</p>
+</think>
+
+<realworld>
+<p>HTTP/1.1 was first published in 1997, revised in 1999, and completely rewritten, with the same meaning but much clearer wording, in 2014 and again in 2022, when the parts shared by every version of HTTP (methods, status codes, headers, caching) were separated from how HTTP/1.1 writes them on the wire. One of its main authors, Roy Fielding, described the ideas behind its design in his PhD thesis in 2000, and gave them a name that stuck: REST, which is why APIs like Grandpa’s are often called “RESTful”.</p>
+<p>The <code>Host</code> header was one of 1.1’s most important additions. Before it, every website needed its own IP address, which would have made the address shortage (Chapter 25) far worse.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Bob adds three headers to Grandpa’s server, <code>Cache-Control</code> and <code>ETag</code> for the photos, and gzip for the pages, and the site loads instantly. But everything in this chapter went across the network in plain text, readable by anyone in the middle: the pages, the cookies, even the weather. Chapter 31 is a short course in the cryptography that fixes that: secret codes, keys that can be shared in public, fingerprints and signatures. Then Chapter 32 puts it together into the padlock in your browser, and we’ll build a TLS 1.3 client from scratch.</p>
+
+<lab>
+<p>Three programs. <code>httpclient.py</code> is an HTTP/1.1 client written straight on top of sockets. <code>cacheproxy.py</code> is a caching proxy, like a tiny content delivery network. <code>api.py</code> talks to a real JSON API, and runs a small one of its own.</p>
+
+<h4>1. HTTP/1.1, by hand</h4>
+
+<terminal title="labs/ch30">
+$ cd labs/ch30
+$ python3 httpclient.py keepalive https://example.org/
+5 requests, a new connection each time:    858 ms
+5 requests, one connection kept open:     262 ms   (setting it up took 68 ms)
+$ python3 httpclient.py redirects http://bbc.co.uk/
+301  http://bbc.co.uk/
+301  https://bbc.co.uk/   (and: Strict-Transport-Security: max-age=31536000; preload)
+200  https://www.bbc.co.uk/   (and: Strict-Transport-Security: max-age=31536000; preload)
+</terminal>
+
+<p>The keep-alive comparison is the whole idea in a dozen lines:</p>
+
+<!-- @code labs/ch30/httpclient.py#keepalive -->
+
+<h4>2. Be a content delivery network</h4>
+
+<p>Run <code>python3 cacheproxy.py</code>, and in another window, <code>curl -x http://127.0.0.1:7130 -sI http://info.cern.ch/</code> a few times. Then serve a folder with <code>python3 -m http.server 7131</code> and fetch that through the proxy too, before and after changing a file. The heart of a cache is deciding how long something stays fresh:</p>
+
+<!-- @code labs/ch30/cacheproxy.py#fresh -->
+
+<p>and then what to do with a request:</p>
+
+<!-- @code labs/ch30/cacheproxy.py#handle -->
+
+<h4>3. APIs</h4>
+
+<p><code>python3 api.py weather</code> asks a real API. For the garden API, run <code>python3 api.py serve</code> in one window and <code>python3 api.py demo</code> in another, or try it with <code>curl</code>: <code>curl -X POST -d '{"name": "leeks"}' http://127.0.0.1:7132/plants</code>. The server is Python’s built-in <code>http.server</code>, with one method per HTTP method:</p>
+
+<!-- @code labs/ch30/api.py#server -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Change <code>api.py</code>’s coordinates to where you live. Then fetch the same URL twice with <code>curl -sI</code>: does Open-Meteo let you cache the answer? For how long?</li>
+<li>Make <code>cacheproxy.py</code> add <code>Vary: Accept-Encoding</code> handling: store a separate copy for each encoding a client asks for.</li>
+<li>Serve a folder with <code>python3 -m http.server</code> and look at its headers with <code>curl -sI</code>. Which of this chapter’s headers does it send? Which would Grandpa’s site need?</li>
+<li>Add <code>PUT</code> to the garden API, for changing a plant. Why should it be idempotent, and what status code should it return for a plant that doesn’t exist yet?</li>
+</ul>
+</lab>

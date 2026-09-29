@@ -1,0 +1,210 @@
+<h3>A page that’s never the same twice</h3>
+
+<p>Bob got a digital thermometer for his birthday and stuck it outside his window. It plugs into his computer, which can read the temperature whenever it likes. Naturally, Bob wants a page on his little web that shows the current temperature.</p>
+
+<p>But what file would that be? He could write the temperature into a file called <code>weather.mu</code>, but the file would be out of date a minute later. He’d need to rewrite it constantly, day and night, just in case somebody looks.</p>
+
+<p>The better idea is to turn the question around. Instead of preparing the page in advance, Bob’s server could make it <em>at the moment someone asks for it</em>. When a request for <code>/weather</code> arrives, the server doesn’t look for a file at all. It runs a small program that reads the thermometer, writes a fresh page containing the reading, and sends that back.</p>
+
+<!-- @include src/figs/ch07-static-dynamic.svg -->
+
+<p>A page produced like this is called <strong>dynamic</strong>, and a page that’s just a file on disk is <strong>static</strong>. Look at it from the browser’s side, though. It sent <code>GET /weather</code> and got back a document with a <code>Type</code> and a <code>Length</code>. It can’t tell, and doesn’t care, whether that document came from a disk or was written a millisecond ago. The protocol is exactly the same.</p>
+
+<p>Inside the server, all it takes is a table that says “for this path, run this program”. The lab’s server has a handful of these. Here are two:</p>
+
+<!-- @code labs/ch07/dynserver.py#dynamic -->
+
+<h3>Asking with details</h3>
+
+<p>The <code>/dice</code> page above needs to know how many sides the dice have and how many to roll. Bob’s weather page could show Celsius or Fahrenheit. How does the browser say which it wants?</p>
+
+<p>By tacking extra information onto the end of the URL. After the path comes a <code>?</code>, then <code>name=value</code> pairs separated by <code>&amp;</code>:</p>
+
+<!-- @include src/figs/ch07-query.svg -->
+
+<p>These are called <strong>query parameters</strong>, and the part after the <code>?</code> is the <strong>query string</strong>. The server splits it apart and hands the pieces to the program.</p>
+
+<p>One wrinkle: what if a value itself contains a <code>&amp;</code>, a <code>=</code> or a space? “fish &amp; chips” would be split in the wrong place. So those characters get written in a special way: a <code>%</code> followed by the character’s byte value in hex (Chapter 5 pays off). A space becomes <code>%20</code>, <code>&amp;</code> becomes <code>%26</code>, and an emoji becomes its UTF-8 bytes, one <code>%</code> at a time. This is called <strong>percent-encoding</strong>, and it’s the escaping trick from Chapter 3 all over again. Try it:</p>
+
+<div data-widget="urlparts"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>(That <code>#</code> part at the end, the <strong>fragment</strong>, is for the browser alone. It means “scroll to this spot on the page”, and it’s never sent to the server at all.)</p>
+
+<h3>Signing the guestbook</h3>
+
+<p>Carol wants a guestbook on her page: visitors type their name and a message, and it gets added to the list for everyone to see. That’s a new kind of request. Up to now, the browser has only ever <em>asked for</em> things. This time it needs to <em>send</em> something that changes what’s stored on the server.</p>
+
+<p>We could cram the message into a query string, <code>GET /guestbook?name=Alice&amp;message=Hi</code>, but that would be a bad idea, for reasons we’ll see in a moment. Instead we use a different <strong>method</strong>. Instead of <code>GET</code>, the request starts with <code>POST</code>, which means “here is some data for you to do something with”, and the data travels in the request’s body, just like a reply’s body:</p>
+
+<msg title="the browser signs the guestbook">
+request | POST /guestbook TTP/1
+header | Host: carol
+header | Type: application/x-www-form-urlencoded
+header | Length: 30
+blank | (blank line)
+body | name=Alice&amp;message=Hi+Carol%21
+</msg>
+
+<p>The body uses the same <code>name=value&amp;name=value</code> format as a query string (with <code>+</code> as an extra shorthand for a space). To let visitors fill it in, the markup language gets a new tag, a <strong>form</strong>, which draws some text boxes and a button, and sends a <code>POST</code> when the button is pressed.</p>
+
+<p>There’s one subtle trap. After the server saves the message, what should it reply? If it replied with the updated guestbook page, the browser would be showing the result of a <code>POST</code>. And if Alice then pressed Reload, her browser would re-send that <code>POST</code>, and her message would appear twice. That’s the duplicates problem from Chapter 3, caused by the user this time instead of a lost acknowledgement.</p>
+
+<p>So the server instead replies with a special redirect, <code>303 See Other</code>, meaning “done; now go and <code>GET</code> the guestbook”. The browser does, and what Alice ends up looking at is the result of a harmless <code>GET</code>:</p>
+
+<!-- @include src/figs/ch07-prg.svg -->
+
+<!-- @code labs/ch07/dynserver.py#guestbook -->
+
+<h3>Some requests are safer than others</h3>
+
+<p>Why was it a bad idea to sign the guestbook with a <code>GET</code>? Because programs other than people follow links. Remember the “spider” from the last chapter’s lab, which visits every link it can find? If signing the guestbook were a link, the spider would sign it. So would any browser that fetches links ahead of time to make pages load faster. If there were a <code>GET /delete-everything</code> link, a spider would happily delete everything.</p>
+
+<p>So everyone agrees on a rule: <strong><code>GET</code> must never change anything.</strong> Reading is always safe to repeat. That’s why the browser warns you before re-sending a <code>POST</code> but reloads a <code>GET</code> without a second thought.</p>
+
+<p>Once there are methods that change things, it’s worth sorting them by one more property, <strong>idempotence</strong>: does doing it twice have the same effect as doing it once?</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>Method</th><th>Means</th><th>Safe? (changes nothing)</th><th>Idempotent? (twice = once)</th></tr>
+<tr><td><code>GET</code></td><td>give me this</td><td>✔</td><td>✔</td></tr>
+<tr><td><code>PUT</code></td><td>store this, <em>replacing</em> whatever is there</td><td>✘</td><td>✔ (the second copy just replaces the first)</td></tr>
+<tr><td><code>DELETE</code></td><td>remove this</td><td>✘</td><td>✔ (it’s just as gone the second time)</td></tr>
+<tr><td><code>POST</code></td><td>here’s some data; do something with it</td><td>✘</td><td>✘ (sign the guestbook twice, get two entries)</td></tr>
+</table>
+</div>
+
+<p>This matters a lot for the retry problem from Chapter 3. If a request might have been lost, is it OK to just send it again? For an idempotent request, yes: at worst it happens twice, and twice is the same as once. For a <code>POST</code>, a retry might mean two guestbook entries, or two payments. Keep this in the back of your mind; it’ll come back when we build reliable delivery in Chapter 13.</p>
+
+<h3>Who are you again?</h3>
+
+<p>Bob wants his server to say “Welcome back!” to people who have visited before. But there’s a problem: the server has no memory of who it’s talking to. Every request arrives on its own, with no connection to the ones before it. Alice’s second visit looks exactly like a stranger’s first. The protocol is <strong>stateless</strong>.</p>
+
+<p>Being stateless is actually a strength. The server doesn’t have to keep track of millions of conversations, and if it restarts, nothing is lost. But sometimes you do want the server to recognize someone, for example to keep someone logged in, or to remember what’s in their shopping basket.</p>
+
+<p>The trick is to have the <em>browser</em> do the remembering. The first time Alice visits, the server makes up a number for her and sends it back in a new header, <code>Set-Cookie: visitor=7</code>. Her browser stores it. From then on, every request her browser sends to that server carries it: <code>Cookie: visitor=7</code>. It works like a cloakroom ticket, where the server hands you a number and you show it every time you come back.</p>
+
+<!-- @include src/figs/ch07-cookies.svg -->
+
+<!-- @code labs/ch07/dynserver.py#cookie -->
+
+<p>Logging in to a website works exactly this way. When you type your password correctly, the server hands your browser a long, random, unguessable cookie, and from then on that cookie <em>is</em> your proof of who you are. That means anybody who steals the cookie can pretend to be you, so it’s extremely important that nobody else sees it. Keep that in mind for Chapter 32.</p>
+
+<realworld>
+<p>Cookies were invented in 1994 by Lou Montulli at Netscape, to let online shops remember a shopping cart. They were soon put to a less friendly use. A page can include images or scripts from <em>other</em> servers, such as an advertising company’s, and those requests carry that company’s cookie. Because the same ad company’s content appears on thousands of sites, its cookie lets it follow one person across all of them. These “third-party cookies” are why browsers such as Safari and Firefox now block them by default, and why you see so many cookie consent banners.</p>
+</realworld>
+
+<h3>Never trust the guestbook</h3>
+
+<p>Within a day of the guestbook going up, Eve signs it. Her “message” is:</p>
+
+<msg>
+body | Great page! &lt;link to="ttp://eve/prize.mu"&gt;Click here to claim your prize&lt;/link&gt;
+</msg>
+
+<p>Carol’s server stores it, and then pastes it straight into the guestbook page. Every visitor’s browser sees Eve’s tags and obeys them, so now Carol’s page contains a link that Carol never wrote, to wherever Eve likes. Eve could just as easily have added an <code>&lt;image&gt;</code> tag pointing at her own server, which would tell her every time someone viewed Carol’s page.</p>
+
+<div class="side-by-side">
+<div><div class="panel-head">pasted in as-is</div>
+<div class="rendered">• <b>Alice</b>: Hi Carol! Love the bees<br>• <b>Eve</b>: Great page! <a href="#never-trust-the-guestbook">Click here to claim your prize</a></div></div>
+<div><div class="panel-head">escaped first</div>
+<div class="rendered">• <b>Alice</b>: Hi Carol! Love the bees<br>• <b>Eve</b>: Great page! &lt;link to="ttp://eve/prize.mu"&gt;Click here to claim your prize&lt;/link&gt;</div></div>
+</div>
+
+<p>The problem is that the server mixed <em>data</em> (someone’s message) with <em>instructions</em> (markup) without marking which was which. The fix is escaping, once again. Before putting a visitor’s text into a page, the server replaces every <code>&lt;</code> with a code that <em>displays</em> as <code>&lt;</code> but isn’t treated as the start of a tag. Now Eve’s message shows up as the harmless, slightly embarrassing text it is.</p>
+
+<p>The broader lesson is one of the most important in all of computer security: <strong>never trust anything that came over the network</strong>. Escape it before you display it. Check that it’s the size and shape you expected (the lab’s dice page refuses a million-sided die). Assume someone like Eve is on the other end.</p>
+
+<realworld>
+<p>Eve’s trick is a real and very common attack called <strong>cross-site scripting</strong> (XSS). In real HTML, an attacker can inject not just links but <code>&lt;script&gt;</code> tags, which run code in every visitor’s browser, and that code can read the visitor’s cookies. Its cousin, <strong>SQL injection</strong>, sneaks commands into data that a server passes to its database. Injection bugs of one kind or another have been near the top of every list of the most dangerous web vulnerabilities for over twenty years.</p>
+</realworld>
+
+<h3>When you don’t know how long it’ll be</h3>
+
+<p>Back in Chapter 5 we chose to frame messages by sending a <code>Length</code> up front, with a warning: “the sender needs to know the length before it starts”. For a file on disk, that’s easy. For a dynamic page, the server might not know until it’s finished writing it. And some responses never finish at all, like a live news feed or a video stream.</p>
+
+<p>The answer is to send the body in pieces, called <strong>chunks</strong>, each with its own length in front. A chunk of length zero means “that was the last one”:</p>
+
+<!-- @include src/figs/ch07-chunked.svg -->
+
+<p>It’s still length-first framing, so there’s no escaping and no scanning, just applied one piece at a time. The server can start sending the top of a page before it has worked out the bottom, and the browser can start showing it straight away. The lab’s <code>/countdown</code> page does this: it sends one line a second, and your browser displays each line the moment its chunk arrives.</p>
+
+<realworld>
+<p>Everything in this chapter is part of the real web. Letting a web server run programs was standardized in 1993 as CGI (the Common Gateway Interface). Languages like PHP (1995) made it easy, and today almost every page you visit is produced on the fly by frameworks like Django, Rails or Express. HTTP defines <code>GET</code>, <code>POST</code>, <code>PUT</code>, <code>DELETE</code> and a few others (<code>HEAD</code>, <code>PATCH</code>, <code>OPTIONS</code>), and the specification formally defines which of them are “safe” and “idempotent”, just as we did. The chunked sending you just saw is HTTP/1.1’s <code>Transfer-Encoding: chunked</code>.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Look at what our little network does now. Browsers, links, pictures, pages that write themselves, forms, cookies. It’s a real web, just a small one. There’s an elephant in the room, though. All of it runs over a single wire between two houses. Carol’s pages live on Bob’s computer because Carol has no way to connect.</p>
+
+<p>Carol wants in, and so does Dave from across the road. But every protocol we’ve built assumes exactly two computers, one at each end of a wire. In the next chapter, three becomes a crowd.</p>
+
+<lab>
+<p>This server speaks real HTTP. Chapter 6 showed that our Tangled Text Protocol was HTTP with a different spelling, so from here on we’ll drop the disguise and use the real thing. That means you can use your normal web browser, and <code>curl</code>, a command-line HTTP client that comes with macOS. Everything is still built directly on a socket, with no web framework, so you can see every step.</p>
+
+<h4>1. Run it and click around</h4>
+
+<terminal title="terminal 1">
+$ cd labs/ch07
+$ python3 dynserver.py
+open http://localhost:7007/  (Ctrl+C to stop)
+</terminal>
+
+<p>Open <code>http://localhost:7007/</code> in your browser. Reload <code>/time</code> a few times. Change the numbers in the <code>/dice</code> URL by hand. Sign the guestbook. Visit <code>/hello</code>, reload it, then open it in a private window (which has no cookies) and see what happens. Look at <code>/echo</code> to see every header your browser sends. Watch terminal 1 as you go: every request is logged.</p>
+
+<p>Reading the request is the only fiddly part, and it’s short:</p>
+
+<!-- @code labs/ch07/dynserver.py#parse -->
+
+<h4>2. Talk to it with curl</h4>
+
+<p><code>curl</code> shows you what’s really going on. <code>-i</code> prints the reply’s headers, <code>-d</code> sends a <code>POST</code> body, and <code>-c</code>/<code>-b</code> save and send cookies from a file:</p>
+
+<terminal title="terminal 2">
+$ curl -i "localhost:7007/dice?sides=20&n=3"
+HTTP/1.1 200 OK
+Connection: close
+Content-Type: text/html; charset=utf-8
+Content-Length: 380
+…
+$ curl -i localhost:7007/hello | grep -i cookie
+Set-Cookie: visitor=1; Path=/; Max-Age=86400
+$ curl -c jar -b jar localhost:7007/hello > /dev/null
+$ curl -c jar -b jar -s localhost:7007/hello | grep -o "Welcome back.*"
+Welcome back, <b>visitor #2</b>. This is visit number <b>2</b>.
+$ curl -i -d "name=Alice&message=Hi+Carol%21" localhost:7007/guestbook
+HTTP/1.1 303 See Other
+Connection: close
+Location: /guestbook
+Content-Length: 0
+</terminal>
+
+<p>And here’s chunked sending, with <code>--raw</code> so curl shows you the chunk lengths instead of hiding them. Watch the lines appear one second apart:</p>
+
+<terminal>
+$ curl --raw -N localhost:7007/countdown
+51
+<!doctype html><meta charset='utf-8'><body style='font:24px Georgia;margin:40px'>
+b
+<p>5…</p>
+b
+<p>4…</p>
+…
+0
+</terminal>
+
+<p><code>51</code> is hex for 81, the length of the first chunk. Why is <code>&lt;p&gt;5…&lt;/p&gt;</code> 11 bytes (<code>b</code>) and not 9? (Hint: Chapter 5, UTF-8, and that “…” character.)</p>
+
+<h4>3. Break the guestbook, on purpose</h4>
+
+<p>Stop the server, set <code>ESCAPE_GUESTBOOK = False</code> near the top of <code>dynserver.py</code>, and start it again. Now sign the guestbook with a message containing HTML, like <code>&lt;b style="color:red"&gt;BIG RED TEXT&lt;/b&gt;</code>, then with <code>&lt;script&gt;alert("Eve was here")&lt;/script&gt;</code>. Reload the guestbook. Every visitor would now run Eve’s code. Set <code>ESCAPE_GUESTBOOK</code> back to <code>True</code> and look again: the same stored messages are now harmless text. (Delete <code>guestbook.json</code> to clear the guestbook.)</p>
+
+<h4>4. Make your own dynamic page</h4>
+
+<p>Add a <code>/counter</code> page that shows how many times it has been visited in total, by anyone. Then add <code>/greet?name=…</code>, which says hello to whoever is named in the query string. Did you remember to escape the name? Try <code>/greet?name=%3Cb%3EEve%3C%2Fb%3E</code> to check.</p>
+
+<h4>Stretch goals</h4>
+<ul>
+<li>Our <code>/hello</code> cookie is just a counter, so visitor #3 could simply send <code>Cookie: visitor=2</code> and pretend to be visitor #2 (try it with <code>curl -b "visitor=2"</code>). Change it to use a long random value from <code>secrets.token_hex(16)</code>. Why is that much harder to fake?</li>
+<li>Add a <code>DELETE</code> handler to <code>/guestbook</code> that removes the most recent entry. Is your handler idempotent? Should it be? (Try sending it twice with <code>curl -X DELETE</code>.)</li>
+</ul>
+</lab>

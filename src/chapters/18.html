@@ -1,0 +1,255 @@
+<h3>Gadgets on the network</h3>
+
+<p>Bob’s parents have been shopping. There’s a new video doorbell by the front door, a smart thermostat in the hall, and the TV now wants to be on the network too. Bob is setting them all up, and he’s checking the list of connected devices in the router’s settings page, when he spots something odd.</p>
+
+<dialogue>
+B: The router says there are two of me. Two “Bob’s MacBook”s, with different card addresses. I only have one laptop!
+A: Your laptop makes up a new card address for each Wi-Fi network, and sometimes changes it. It’s so shops and airports can’t track you. The router just remembers the old one.
+B: Made up? I thought they were burned in at the factory.
+A: They are. And then your laptop ignores that one. We’ll take them apart. What else is on the list?
+B: The doorbell. The thermostat. The TV. Grandpa’s Pi. Why?
+A: Because the doorbell is now on the same network as your laptop, and nobody updates doorbells. If someone breaks into it, they can see every broadcast your laptop makes, and try all of Eve’s tricks on it. You might want to keep them apart.
+</dialogue>
+
+<p>In Chapter 8, we gave every card an address, and in Chapter 9 we built switches that learn where each address lives. That was <strong>Ethernet</strong>, the link layer used by almost every wired network in the world, and in a slightly different form, by Wi-Fi too. This chapter takes the real thing apart: a real frame, real card addresses, the switch hiding inside every home router, and how one switch can pretend to be several.</p>
+
+<h3>A real frame</h3>
+
+<p>Here’s one Ethernet frame, exactly as it travels down Bob’s new cable:</p>
+
+<!-- @include src/figs/ch18-frame.svg -->
+
+<p>Every piece of it is something we invented in Part I:</p>
+
+<ul>
+<li>The <strong>preamble</strong> is seven bytes of <code>10101010</code>: a steady beat that lets the receiver’s clock lock on to the sender’s, like the tuning flashes in Chapter 2. The <strong>start byte</strong>, <code>10101011</code>, breaks the pattern to say “the frame starts now” (Chapter 3).</li>
+<li>The <strong>destination</strong> comes first, so a card can tell whether a frame is for it after reading just six bytes. The <strong>source</strong> comes next, so switches can learn from it (Chapter 9).</li>
+<li>The <strong>type</strong> says what’s inside, so the receiving computer knows which part of its operating system to hand it to (Chapter 5).</li>
+<li>The <strong>data</strong> is between 46 and 1,500 bytes. Too-short data is padded with zeros up to 46 bytes, so that every frame is at least 64 bytes long. That’s the rule from Chapter 8: on the original shared cable, a frame had to last long enough for a collision to be noticed while it was still being sent.</li>
+<li>The <strong>check</strong> is a CRC-32 of everything from the destination to the end of the data, Chapter 10’s fingerprint exactly. A card that gets a frame with the wrong check just throws it away.</li>
+<li>Finally, a <strong>gap</strong> of at least 12 bytes’ worth of silence, so the receiver can get ready for the next frame.</li>
+</ul>
+
+<p>The network card adds the preamble, the check and the padding itself, and removes them again on arrival, which is why <code>tcpdump</code> never shows them. Build a frame of your own:</p>
+
+<div data-widget="framebuild"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Try making the data 1 byte, then 1,500. A tiny frame is mostly envelope: 84 bytes on the cable to carry 1 byte of data. A full-size frame is 97.5% data. That’s one reason networks prefer big packets (Chapter 10).</p>
+
+<h3>Card addresses, for real</h3>
+
+<p>A real card address is called a <strong>MAC address</strong> (MAC stands for “media access control”, the part of the card that takes turns on the cable). It’s 48 bits long, written as six bytes in hex. Here are two from Bob’s house:</p>
+
+<!-- @include src/figs/ch18-mac.svg -->
+
+<p>Manufacturers buy blocks of addresses from the IEEE, the organization that runs the Ethernet standards. The first three bytes, the <strong>OUI</strong> (“organizationally unique identifier”), say which company made the card, and the company numbers its cards using the other three. <code>2c:cf:67</code> belongs to Raspberry Pi, so Grandpa Otto’s Pi has a card that was given its address at the factory, and no other card in the world should ever have the same one.</p>
+
+<p>Two bits in the very first byte are special. The lowest bit says whether the address means <strong>one card</strong> (0) or <strong>a group</strong> (1). Ethernet sends each byte lowest bit first, so this is the very first bit of every frame after the preamble, and a switch can tell straight away that a frame is for a group. <code>ff:ff:ff:ff:ff:ff</code>, the broadcast address, is the biggest group of all: every card. The next bit says whether the address was <strong>set at the factory</strong> (0), or <strong>chosen by software</strong> (1).</p>
+
+<p>Bob’s laptop address starts with <code>e2</code>, which is <code>11100010</code> in binary. The software bit is set: this is a <strong>private address</strong>, made up by the laptop for this Wi-Fi network. Phones and laptops started doing this around 2020, because a factory address never changes, so anyone with a Wi-Fi receiver could follow a phone from shop to shop just by listening. The real one is still there if you ask:</p>
+
+<terminal title="Bob’s MacBook">
+$ networksetup -getmacaddress en0
+Ethernet Address: ⟦1:84:2f:57:6a:91:0e⟧ (Device: en0)
+$ ifconfig en0 | grep ether
+	ether ⟦2:e2:5f:b1:3c:77:0a⟧
+</terminal>
+
+<callouts>
+1 | The factory address. <code>84:2f:57</code> belongs to Apple.
+2 | The address the laptop is actually using on the home Wi-Fi. That’s the one the router, and Grandpa’s Pi, see.
+</callouts>
+
+<h3>What’s inside?</h3>
+
+<p>The two-byte type field is called the <strong>EtherType</strong>. Here are the ones you’ll meet most:</p>
+
+<div class="table-scroll">
+<table class="data">
+<tr><th>EtherType</th><th>What’s inside</th><th>Chapter</th></tr>
+<tr><td><code>0x0800</code></td><td>an IPv4 packet</td><td>20</td></tr>
+<tr><td><code>0x0806</code></td><td>an ARP “who has?” message</td><td>21</td></tr>
+<tr><td><code>0x86DD</code></td><td>an IPv6 packet</td><td>25</td></tr>
+<tr><td><code>0x8100</code></td><td>a VLAN tag, followed by the real type</td><td>this one</td></tr>
+<tr><td><code>0x888E</code></td><td>Wi-Fi’s key exchange, when you join a network</td><td>19</td></tr>
+<tr><td><code>0x8863</code>, <code>0x8864</code></td><td>PPPoE, used by many fiber and DSL internet connections</td><td>below</td></tr>
+</table>
+</div>
+
+<p>Remember the mystery from Chapter 10’s lab, where the biggest packet that fitted through this home’s internet connection was 1,492 bytes, not 1,500? Here’s the answer. The connection to the internet provider uses <strong>PPPoE</strong>, “PPP over Ethernet”, which puts a small extra header inside every frame: 6 bytes of PPPoE and 2 bytes of PPP. The frames are still at most 1,518 bytes, so there are only 1,500 − 8 = 1,492 bytes left for the packet.</p>
+
+<realworld>
+<p>Early Ethernet had two rival formats. The original, from DEC, Intel and Xerox in 1980 (“Ethernet II”), had a type field. The IEEE’s official standard, 802.3, put a <em>length</em> in the same place instead. Both are still around, and they’re told apart by the number: 1,500 or less is a length, and 1,536 (0x0600) or more is a type. Nearly everything you’ll see today is the first kind.</p>
+<p>Why 1,500 bytes? It was a compromise in 1980, when memory was very expensive: big enough to carry data efficiently, small enough that a network card didn’t need much memory to hold a whole frame. It’s been fixed ever since, because every device on a network has to agree on it. Some data centers use <strong>jumbo frames</strong> of up to 9,000 bytes, but only inside networks where every device has been configured for them.</p>
+</realworld>
+
+<h3>The switch in the router</h3>
+
+<p>Bob’s “router” is really three devices in one box:</p>
+
+<!-- @include src/figs/ch18-homerouter.svg -->
+
+<p>The four ports on the back are a small Ethernet switch, exactly like the one from Chapter 9. It learns which card address is behind which port from the source address of every frame, and forgets entries it hasn’t heard from in about five minutes, in case a device has moved. The Wi-Fi access point is connected to that switch by a <strong>bridge</strong>, which passes frames between Wi-Fi and Ethernet. So Bob’s gaming PC, on a cable, and Grandpa’s Pi, on Wi-Fi, are on the same Ethernet network. They can send frames straight to each other, and they both hear each other’s broadcasts.</p>
+
+<p>Two more things have changed since Chapter 9. Every modern port is <strong>full duplex</strong>: each cable has its own pairs in each direction, and only two devices on it. So there are no collisions at all, and all of Chapter 8’s careful turn-taking is switched off. And most switches are <strong>store-and-forward</strong>: they receive a whole frame and check its CRC before sending it on, so damaged frames stop at the first switch. Switches in data centers and stock exchanges often use <strong>cut-through</strong> instead: they start sending a frame on as soon as they’ve read its destination, which saves a few microseconds, but passes damaged frames along too.</p>
+
+<h3>One switch, several networks</h3>
+
+<p>Now, Alice’s worry. Every device plugged into the switch or joined to the Wi-Fi is on one network. They all hear each other’s broadcasts, and any of them can send frames to any other. The simplest way to keep the gadgets away from the laptops would be to buy a second switch and a second router, and keep two separate networks.</p>
+
+<p>The clever way is to tell one switch to <em>behave</em> like two. Each port is given a number, called a <strong>VLAN</strong> (a “virtual LAN”). The switch only forwards a frame between ports in the same VLAN. It floods broadcasts to its own VLAN only, and it keeps a separate table of addresses for each VLAN. Two devices in different VLANs might as well be on different switches in different buildings.</p>
+
+<div data-widget="vlanswitch"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>But what about the cable up to the router, which has to carry frames for both VLANs? When a frame leaves the switch on that cable, the switch adds a <strong>tag</strong> saying which VLAN it belongs to, and the router takes it off again. A port that carries tagged frames for several VLANs is called a <strong>trunk</strong>. An ordinary port, where the device doesn’t even know it’s in a VLAN, is an <strong>access port</strong>.</p>
+
+<!-- @include src/figs/ch18-tag.svg -->
+
+<p>The tag has room for 4,094 VLAN numbers, and three bits of <strong>priority</strong>, so a switch can let voice calls jump the queue ahead of downloads. Because the tag changes the frame, the check has to be recalculated every time a tag is added or removed.</p>
+
+<p>Linux can tag frames itself, which makes it easy to see them. Here’s Grandpa Otto’s Pi, with a <em>virtual</em> cable: two virtual network cards joined together, so that whatever goes into one comes out of the other (Chapter 36 is all about these). A VLAN interface for VLAN 20 sits on top of one end, and <code>tcpdump</code> is watching the other:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo ip link add bbb-a type veth peer name bbb-b
+$ sudo ip link add link bbb-a name bbb-a.20 type vlan id 20
+$ sudo ip addr add 192.168.20.5/24 dev bbb-a.20
+$ sudo ip link set bbb-a up; sudo ip link set bbb-b up; sudo ip link set bbb-a.20 up
+$ sudo tcpdump -i bbb-b -e -n
+23:33:46.074772 c2:eb:34:e0:4d:4b > ⟦1:01:00:5e:00:00:fb⟧, ⟦2:ethertype 802.1Q (0x8100)⟧, length 225: ⟦2:vlan 20, p 0⟧, ethertype IPv4 (0x0800), 192.168.20.5.5353 > 224.0.0.251.5353: 0*- [0q] 5/0/0 PTR _workstation._tcp.local., …
+23:33:46.330223 c2:eb:34:e0:4d:4b > ⟦1:33:33:00:00:02⟧, ethertype 802.1Q (0x8100), length 74: vlan 20, p 0, ethertype IPv6 (0x86dd), fe80::c0eb:34ff:fee0:4d4b > ff02::2: ICMP6, router solicitation, length 16
+…
+$ sudo ip link del bbb-a
+</terminal>
+
+<callouts>
+1 | Group addresses. <code>01:00:5e:…</code> means an IPv4 multicast group, and <code>33:33:…</code> an IPv6 one. The moment the new interface came up, the Pi started announcing its own name (Chapter 22) and asking “are there any routers here?” (Chapter 25). Networks are chatty.
+2 | Every frame has a VLAN tag for VLAN 20, priority 0, which the kernel added because they went out through <code>bbb-a.20</code>. The last command deletes the virtual cable, and the VLAN interface with it.
+</callouts>
+
+<think>
+<p>Bob puts the doorbell and thermostat in VLAN 20, and the laptops in VLAN 10. The doorbell still needs to reach the internet, to send videos to his parents’ phones. How can it, if VLANs can’t talk to each other? And how does this protect the laptops?</p>
+<p>Through the router. It’s on the trunk, in both VLANs at once, so it can pass packets between them, which is a router’s whole job (Chapter 11). Each VLAN becomes a separate network with its own addresses, and the router’s firewall rules can let the doorbell’s packets out to the internet, while refusing anything from VLAN 20 to VLAN 10. That’s what a “guest” or “IoT” network on a home router usually is: a VLAN, and a few rules.</p>
+</think>
+
+<realworld>
+<p>VLAN tags were standardized in 1998 as IEEE 802.1Q. In offices, universities and data centers, VLANs are everywhere: a building might have one for staff, one for students, one for phones, one for printers and one for the security cameras, all on the same switches. The limit of 4,094 VLANs became a real problem for big cloud providers, who need a separate network for every customer. Their solution, VXLAN, wraps whole Ethernet frames inside UDP packets, with room for 16 million networks (Chapter 35).</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Half of the devices in Bob’s house aren’t plugged into anything. The doorbell, the thermostat, the laptops and the Pi are all on Wi-Fi, which has to share the air the way Chapter 8’s computers shared one cable, without being able to hear collisions at all. Chapter 19 is about how Wi-Fi manages it.</p>
+
+<lab>
+<p><code>frames.py</code> builds real Ethernet frames byte by byte, takes MAC addresses apart, and runs a switch with VLANs. On Linux, it can also send real frames.</p>
+
+<h4>1. Build some frames</h4>
+
+<terminal title="labs/ch18">
+$ cd labs/ch18
+$ python3 frames.py build
+frame                            data  frame  on the wire   useful
+a tiny message to the router       11     64           84    13.1%
+the same, to everyone              13     64           84    15.5%
+a full-size frame                1500   1518         1538    97.5%
+tagged for VLAN 20                 15     68           88    17.0%
+VLAN 30, top priority               7     68           88     8.0%
+
+The first one, byte by byte:
+            to  14 c3 5e 40 0b 32
+          from  2c cf 67 5e 10 c2
+          type  88 b5
+          data  68 69 2c 20 72 6f 75 74 65 72 21
+       padding  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+   check (FCS)  f5 15 a8 b8
+
+Saved to frames.pcap. Try: tcpdump -r frames.pcap -e -n -xx
+$ tcpdump -r frames.pcap -e -n
+… 2c:cf:67:5e:10:c2 > 14:c3:5e:40:0b:32, ethertype Unknown (0x88b5), length 60:
+… 2c:cf:67:5e:10:c2 > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x88b5), length 60:
+… e2:5f:b1:3c:77:0a > 14:c3:5e:40:0b:32, ethertype Unknown (0x88b5), length 1514:
+… 2c:cf:67:5e:10:c2 > 14:c3:5e:40:0b:32, ethertype 802.1Q (0x8100), length 64: vlan 20, p 0, ethertype Unknown (0x88b5),
+… 2c:cf:67:5e:10:c2 > 14:c3:5e:40:0b:32, ethertype 802.1Q (0x8100), length 64: vlan 30, p 7, ethertype Unknown (0x88b5),
+</terminal>
+
+<p><code>0x88B5</code> is an EtherType set aside for experiments, so no real software will try to understand these frames. Compare the check with the one in the “Build a frame” widget above: it’s the same, because it’s the same CRC-32:</p>
+
+<!-- @code labs/ch18/frames.py#frame -->
+
+<h4>2. Take MAC addresses apart</h4>
+
+<terminal title="labs/ch18">
+$ python3 frames.py mac 2c:cf:67:5e:10:c2 e2:5f:b1:3c:77:0a 01:00:5e:00:00:fb
+2c:cf:67:5e:10:c2
+    first byte 2c = 00101100
+    one card (unicast)
+    set at the factory, unique in the world
+    made by Raspberry Pi
+e2:5f:b1:3c:77:0a
+    first byte e2 = 11100010
+    one card (unicast)
+    chosen by software, not set at a factory
+01:00:5e:00:00:fb
+    first byte 01 = 00000001
+    a group address (multicast): many cards may listen
+    IPv4 multicast (a group of listeners)
+$ python3 frames.py mac --mine
+</terminal>
+
+<p>The last command reads the addresses of all your own network interfaces. On a Mac you’ll find a surprising number of them, many with the software bit set: they’re virtual interfaces for things like AirDrop, and for connecting to an iPhone.</p>
+
+<!-- @code labs/ch18/frames.py#mac -->
+
+<h4>3. A switch with VLANs</h4>
+
+<terminal title="labs/ch18">
+$ python3 frames.py switch
+Ports: 1 laptop and 2 TV are in VLAN 10 (family); 3 doorbell and 4 thermostat are in VLAN 20 (gadgets);
+5 is a trunk to the router, carrying both VLANs with tags.
+
+the doorbell shouts “who has 192.168.20.1?”
+    in on port 3: VLAN 20, flooded → out of 4 (thermostat, untagged), 5 (to the router, tagged)
+the router answers the doorbell, tagged VLAN 20
+    in on port 5: VLAN 20, known → out of 3 (doorbell, untagged)
+…
+the doorbell tries to send straight to the laptop
+    in on port 3: VLAN 20, flooded → out of 4 (thermostat, untagged), 5 (to the router, tagged)
+…
+The switch's table (VLAN, card address → port):
+    VLAN 10  14:c3:5e:40:0b:32  → port 5   (router)
+    VLAN 10  a4:83:e7:11:22:33  → port 2   (TV)
+    VLAN 10  e2:5f:b1:3c:77:0a  → port 1   (laptop)
+    VLAN 20  14:c3:5e:40:0b:32  → port 5   (router)
+    VLAN 20  3c:7c:3f:44:55:66  → port 3   (doorbell)
+</terminal>
+
+<p>The doorbell’s frame for the laptop never reaches it: in VLAN 20, the laptop simply doesn’t exist. And the router is in the table twice, once for each VLAN. It’s Chapter 9’s switch, with the VLAN added to every decision:</p>
+
+<!-- @code labs/ch18/frames.py#switch -->
+
+<h4>4. Send real frames (Linux only)</h4>
+
+<p>On Linux, a “packet socket” lets a program hand complete frames to a network card. It needs <code>sudo</code>. Don’t send experiments out onto a real network: make a virtual cable first, as the Pi did above, and watch the other end:</p>
+
+<terminal title="Linux">
+$ sudo ip link add bbb-a type veth peer name bbb-b
+$ sudo ip link set bbb-a up; sudo ip link set bbb-b up
+$ sudo tcpdump -i bbb-b -e -n "ether proto 0x88b5 or vlan" &
+$ sudo python3 frames.py send bbb-a --count 1
+sent 2 frames out of bbb-a, half of them tagged for VLAN 20
+23:33:47.185959 c2:eb:34:e0:4d:4b > ff:ff:ff:ff:ff:ff, ethertype Unknown (0x88b5), length 60:
+	0x0000:  6865 6c6c 6f20 2330 2066 726f 6d20 4269  hello.#0.from.Bi
+	0x0010:  7420 6279 2042 6974 0000 0000 0000 0000  t.by.Bit........
+23:33:47.185980 c2:eb:34:e0:4d:4b > ff:ff:ff:ff:ff:ff, ethertype 802.1Q (0x8100), length 64: vlan 20, p 0, ethertype Unknown (0x88b5),
+	0x0000:  6865 6c6c 6f20 2330 2066 726f 6d20 4269  hello.#0.from.Bi
+	0x0010:  7420 6279 2042 6974 0000 0000 0000 0000  t.by.Bit........
+$ sudo ip link del bbb-a
+</terminal>
+
+<h4>Experiments</h4>
+<ul>
+<li>In <code>frames.py</code>, flip one bit of a frame after building it, and recompute the CRC. Does the check catch it? Try flipping two bits, then 32 bits in a row.</li>
+<li>Give the switch an <strong>aging</strong> timer: forget any address not heard from in 300 “ticks”. Add a <code>tick</code> event to the demo, and move the laptop to another port. What happens without aging?</li>
+<li>Add a third VLAN for guests, and a second trunk to another switch upstairs. Which VLANs should the upstairs trunk carry?</li>
+<li>Run <code>python3 frames.py mac --mine</code>, then turn Wi-Fi off and on, or join a different network. Did your Wi-Fi address change? (On a Mac, look under Wi-Fi settings → your network → Details → “Private Wi-Fi address”.)</li>
+</ul>
+</lab>

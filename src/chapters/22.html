@@ -1,0 +1,263 @@
+<h3>Nobody can come in</h3>
+
+<p>Bob has set up a game server on his gaming computer, so his friends can play together in a world he built. It works perfectly for him. It works for Alice, on her laptop in the next room. It doesn’t work for anyone else at all.</p>
+
+<dialogue>
+B: I gave them my address, 192.168.1.20. The game just says “connection timed out”.
+A: That address is private. Half the houses in the world have a 192.168.1.20. Your friend’s computer sent his packet to the one in <em>his</em> house.
+B: So what’s my real address?
+A: Your router’s. The whole house shares one. Every packet that leaves goes out with the router’s address on it, and every answer comes back to the router, which works out who it’s for.
+B: Then my friend should use the router’s address.
+A: He can try. But when his packet arrives, the router has to decide which of our devices it’s for. And it’s never heard of him.
+</dialogue>
+
+<p>Bob’s router has been quietly doing three jobs we haven’t looked at yet. It hands out addresses to every device that joins, with <strong>DHCP</strong>. It lets the whole house share one public address, with <strong>NAT</strong>. And, with a bit of help, it lets devices find each other by name without any name server, with <strong>multicast DNS</strong>. This chapter opens up all three.</p>
+
+<h3>Where addresses come from</h3>
+
+<p>When Alice came home in Chapter 20, her laptop joined the Wi-Fi and had an address within a second. Nobody typed anything. It asked for one, using the <strong>Dynamic Host Configuration Protocol</strong>:</p>
+
+<!-- @include src/figs/ch22-dora.svg -->
+
+<p>There’s a neat trick in the first step. A computer with no address can still send an IP packet: it uses 0.0.0.0 as the source, and the broadcast address as the destination, and every card on the network picks it up. The DHCP server can’t send the answer to an address, either, since the laptop doesn’t have one yet, so it broadcasts that too, and the laptop recognizes it by its own card address and a random transaction number.</p>
+
+<p>A Mac will show you the last answer it got:</p>
+
+<terminal title="Bob’s MacBook">
+$ ipconfig getpacket en0
+op = BOOTREPLY
+xid = 0x9f80f950
+ciaddr = 0.0.0.0
+⟦1:yiaddr = 192.168.1.3⟧
+chaddr = e2:5f:b1:3c:77:0a
+options:
+dhcp_message_type (uint8): ACK 0x5
+server_identifier (ip): 192.168.1.1
+⟦2:lease_time (uint32): 0x15180⟧
+subnet_mask (ip): 255.255.255.0
+router (ip_mult): {192.168.1.1}
+domain_name_server (ip_mult): {192.168.1.1}
+domain_name (string): home
+…
+</terminal>
+
+<callouts>
+1 | “Your address”: 192.168.1.3. The field names come from BOOTP, DHCP’s ancestor from 1985.
+2 | 0x15180 seconds is 86,400: a one-day lease. The router’s own address is the router (Chapter 20’s default gateway) and the name server (Chapter 14).
+</callouts>
+
+<p>And here’s Grandpa Otto’s Pi, running this chapter’s lab to ask the router for an offer, using a made-up card address. The router offered 192.168.1.6, which the lab never accepts, so it goes back in the pool:</p>
+
+<terminal title="Grandpa Otto’s Raspberry Pi">
+$ sudo python3 dhcp.py discover wlan0
+→ sent DISCOVER  (transaction f2e74f74, client ⟦1:02:62:62:28:37:8e⟧)
+      please tell me about: subnet mask, router, name servers, domain name, lease time, renew after, rebind after
+
+← from 192.168.1.1: OFFER  (transaction f2e74f74, client 02:62:62:28:37:8e, offering ⟦2:192.168.1.6⟧)
+                    server: 192.168.1.1
+                lease time: 86,400 seconds (24 hours)
+               subnet mask: 255.255.255.0
+                    router: 192.168.1.1
+              name servers: 192.168.1.1
+               domain name: home
+                 option 66: 74 66 74 70 3a 2f 2f 30 2e 30 2e 30 2e 30
+</terminal>
+
+<callouts>
+1 | A card address made up for the occasion, with Chapter 18’s “chosen by software” bit set.
+2 | The next free address in the router’s pool. It didn’t send “renew after” times, so clients use the standard ones: half the lease, and seven-eighths.
+</callouts>
+
+<p>(Option 66 is the name of a server to download software from, used by devices that start up over the network. Decode the hex as ASCII, and you’ll find the internet provider left it set to nothing: <code>tftp://0.0.0.0</code>.)</p>
+
+<p>What if nobody answers? The laptop waits, tries again, and eventually gives itself a <strong>link-local</strong> address, picked at random from 169.254.0.0/16 and checked with an ARP probe (Chapter 21). It can talk to other devices on the same network that did the same thing, but nothing else. If you ever see a 169.254 address on your computer, your network’s DHCP server isn’t answering.</p>
+
+<think>
+<p>Eve is still on Bob’s Wi-Fi. What could she do if she started her own DHCP server, and answered DISCOVERs faster than the router?</p>
+<p>Anything. A DHCP answer says which router to use and which name server to ask, and computers believe whichever answer comes first. Eve could name herself as the router, and see every packet anyone sends, or name herself as the name server, and send people to fake websites. It’s called a <strong>rogue DHCP server</strong>. Business switches defend against it with “DHCP snooping”, which only lets DHCP offers in from the port the real server is on. In offices and universities, the DHCP server usually isn’t even on the same network: routers pass the messages on to a central server, a job called <strong>DHCP relay</strong>.</p>
+</think>
+
+<h3>One address for the whole house</h3>
+
+<p>Every device in Bob’s house has a private address from Chapter 20’s special list, and private addresses can’t be used on the internet: thousands of other houses are using exactly the same ones. The router has one public address, given to it by the internet provider. So on the way out, it changes every packet:</p>
+
+<!-- @include src/figs/ch22-nat.svg -->
+
+<p>This is <strong>network address translation</strong>, or NAT. More exactly, it’s <em>port</em> translation: the router doesn’t just swap the address, it keeps track of every conversation by its port numbers, which is how one public address can carry the conversations of every device in the house at once. Try it:</p>
+
+<div data-widget="natbox"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>If two devices inside use the same port, the router has to give one of them a different outside port, because it can only tell answers apart by the port they arrive at. Here’s that happening on Bob’s real router. This chapter’s STUN lab asks servers on the internet what address and port they see. The laptop asked first, from port 50505; then the Pi asked, from the same port:</p>
+
+<terminal title="Bob’s MacBook, then Grandpa Otto’s Pi">
+$ python3 stun.py --port 50505
+inside:  192.168.1.3:50505   (a private address: there's a NAT on the way out)
+  stun.l.google.com      saw us as 203.0.113.77:⟦1:50505⟧
+  stun1.l.google.com     saw us as 203.0.113.77:50505
+  stun.cloudflare.com    saw us as 203.0.113.77:50505
+$ python3 stun.py --port 50505
+inside:  192.168.1.4:50505   (a private address: there's a NAT on the way out)
+  stun.l.google.com      saw us as 203.0.113.77:⟦2:1024⟧
+  stun1.l.google.com     saw us as 203.0.113.77:1024
+  stun.cloudflare.com    saw us as 203.0.113.77:1024
+</terminal>
+
+<callouts>
+1 | The router kept the laptop’s port number, which is what most routers try to do.
+2 | Port 50505 was already taken on the outside, so the Pi was given 1024 instead. (Bob’s public address has been swapped for a documentation address.)
+</callouts>
+
+<p>The router has to do some housekeeping too. Changing an address means fixing the IP checksum, and also the TCP or UDP checksum, which covers the addresses as well (Chapter 12). Entries have to be forgotten when a conversation ends: for TCP, the router watches for the goodbye (Chapter 13); for UDP, which has no goodbye, it waits for a few minutes of silence. And some routers fix other things as packets pass. Remember the mystery at the start of Chapter 16, where the Pi asked for pieces of up to 1,460 bytes, and CERN seemed to reply 1,452? Bob’s router, like most routers on PPPoE connections, knows its internet connection only takes 1,492-byte packets (Chapter 18), so it rewrites the <code>mss</code> option in every TCP handshake that passes through, to stop either end sending pieces that wouldn’t fit. That’s <strong>MSS clamping</strong>.</p>
+
+<h3>Letting someone in</h3>
+
+<p>Now Bob’s problem makes sense. His friend’s packet arrives at the router, addressed to its public address and the game’s port, and there’s no entry for it: nobody inside started that conversation. The router has no way to know it’s meant for the gaming computer, so it drops it.</p>
+
+<p>The fix is a <strong>port forwarding</strong> rule, set up by hand in the router’s settings: “anything arriving at port 25565 goes to 192.168.1.20”. (Try the checkbox in the widget.) Each outside port can only be forwarded to one device, so if Alice wants to run a server on the same port, hers has to use a different outside one. Bob should also give his gaming computer a fixed address, by asking the router to always hand it the same one (a “DHCP reservation”), or the rule will point at the wrong device the next time it gets a new lease.</p>
+
+<p>Some routers let programs set up port forwarding for themselves, using protocols called UPnP, NAT-PMP and PCP. Games and video call apps love it. Security people are less keen, because any program on any device in the house, including a doorbell with a bug in it, can open a door to the whole internet.</p>
+
+<p>And sometimes port forwarding can’t work at all, because Bob’s router isn’t the only NAT:</p>
+
+<!-- @include src/figs/ch22-cgnat.svg -->
+
+<p>Many internet providers don’t have enough public addresses for all their customers, so they put a giant NAT of their own in front of everyone, called <strong>carrier-grade NAT</strong>. The home router gets an address from the special shared range, 100.64.0.0/10, and hundreds of houses share each public address. Nobody behind it can forward ports, because the provider’s NAT has never heard of them either. To check whether you’re behind one, compare the “outside” address in your router’s settings page with what STUN reports. If they differ, there’s another NAT in the way. (Bob’s match, luckily.) Most phones on mobile networks reach IPv4 websites through carrier-grade NAT.</p>
+
+<h3>Getting through anyway</h3>
+
+<p>Video calls and online games have to connect two devices that are both behind NATs, neither of which will accept a packet it wasn’t expecting. There’s a wonderfully sneaky trick for it:</p>
+
+<!-- @include src/figs/ch22-punch.svg -->
+
+<p>It works because most home routers behave like Bob’s did: once an inside device is using an outside port, that port stays the same whoever it talks to. Some NATs, called <strong>symmetric</strong> NATs, give every destination a different outside port, so the address STUN saw is useless to anyone else, and hole punching fails. Then the only way is to send everything through a relay server in the middle (called TURN). Video calls in your browser use a system called ICE, which tries every possible path, direct and relayed, at once, and keeps the fastest one that works.</p>
+
+<realworld>
+<p>NAT was described in 1994, in a document that presented it as a short-term fix for the address shortage. Thirty years later, almost every home and phone on Earth is behind at least one. It has consequences its designers never intended: it broke the internet’s original idea that any computer could reach any other, it made running a server at home hard, and it made protocols like the File Transfer Protocol (which puts addresses inside its messages) need special help from routers. IPv6 has so many addresses that it doesn’t need NAT at all (Chapter 25).</p>
+<p>DHCP was standardized in 1993, building on BOOTP from 1985, which was designed for computers with no disk that needed to be told where to download their operating system from. That’s why DHCP messages still have a 128-byte field for a boot file name, which is almost always empty.</p>
+</realworld>
+
+<h3>Names without a name server</h3>
+
+<p>Bob logs in to Grandpa Otto’s Pi from his laptop with <code>ssh raspberrypi.local</code>. Nobody ever told the router, or any name server, that there’s a computer called <code>raspberrypi</code>. So how does his laptop find it?</p>
+
+<!-- @include src/figs/ch22-mdns.svg -->
+
+<p>This is <strong>multicast DNS</strong>. The questions and answers are exactly Chapter 14’s DNS messages, but instead of going to a name server, they go to everyone at once. It’s part of a set of ideas called <strong>zero-configuration networking</strong>: devices that find each other with nobody setting anything up. The other half is <strong>DNS service discovery</strong>, where devices announce not just their names, but what they offer: “I’m a printer”, “I can receive AirPlay”, “you can log in to me with SSH”. That’s how your laptop finds printers and speakers without being told their addresses. It’s also what the Pi was doing in Chapter 18, announcing itself the moment its new VLAN interface came up. Here’s this chapter’s lab asking Bob’s network what it offers:</p>
+
+<terminal title="labs/ch22 (Bob’s MacBook)">
+$ python3 mdns.py raspberrypi.local
+asking everyone on the network: raspberrypi.local?
+  from 192.168.1.4     raspberrypi.local A 192.168.1.4   (remember for 10 s)
+$ python3 mdns.py --services
+asking everyone on the network: _services._dns-sd._udp.local?
+  from 192.168.1.3     _services._dns-sd._udp.local PTR _ssh._tcp.local   (remember for 10 s)
+  from 192.168.1.3     _services._dns-sd._udp.local PTR _airplay._tcp.local   (remember for 10 s)
+  from 192.168.1.3     _services._dns-sd._udp.local PTR _companion-link._tcp.local   (remember for 10 s)
+  from 192.168.1.4     _services._dns-sd._udp.local PTR ⟦1:_workstation._tcp.local⟧   (remember for 10 s)
+  …
+</terminal>
+
+<callouts>
+1 | The Pi says “I’m a computer you might want to know about.” Bob’s laptop offers SSH and AirPlay (which is what took port 7000 back in Chapter 4).
+</callouts>
+
+<p>Apple built this into its computers in 2002, under the name Rendezvous, later Bonjour. On Linux, the same job is done by a program called Avahi. Because multicast DNS never crosses a router, it only ever finds things on your own network, which is exactly what you want from a printer.</p>
+
+<h3>What’s next?</h3>
+
+<p>That’s everything Bob’s router does for the house: addresses, sharing, names, and a switch and Wi-Fi from Chapter 18. It sends everything that isn’t local to one place, the internet provider. But how does the provider know where to send it? It has thousands of routers, and they have to agree on the way to every one of the internet’s addresses. Chapter 23 is about how routers inside a network find their way, and Chapter 24 is about how tens of thousands of networks agree with each other.</p>
+
+<lab>
+<p>Four programs. <code>dhcp.py</code> shows your own lease, runs a tiny DHCP server and client on your computer, and (on Linux) asks your real router for an offer. <code>nat_sim.py</code> simulates a NAT. <code>stun.py</code> finds out what your real NAT does. <code>mdns.py</code> finds devices by name with nobody’s help.</p>
+
+<h4>1. DHCP, from both sides</h4>
+
+<terminal title="labs/ch22">
+$ cd labs/ch22
+$ python3 dhcp.py lease
+  yiaddr = 192.168.1.3
+  dhcp_message_type (uint8): ACK 0x5
+  server_identifier (ip): 192.168.1.1
+  lease_time (uint32): 0x15180   = 86,400 seconds = 24 hours
+  …
+$ python3 dhcp.py dora
+→ client DISCOVER  (transaction 0b851179, client e2:5f:b1:3c:77:0a)
+      please tell me about: subnet mask, router, name servers, domain name
+                 host name: bobs-laptop
+
+← server OFFER  (transaction 0b851179, client e2:5f:b1:3c:77:0a, offering 192.168.1.100)
+                    server: 192.168.1.1
+                lease time: 86,400 seconds (24 hours)
+               renew after: 43,200 seconds (12 hours)
+              rebind after: 75,600 seconds (21 hours)
+               subnet mask: 255.255.255.0
+                    router: 192.168.1.1
+              name servers: 192.168.1.1
+               domain name: home
+…
+Bob's laptop got 192.168.1.100, the Pi got 192.168.1.101, and when the laptop came back it got 192.168.1.100 again.
+Saved the conversation to dora.pcap. Try: tcpdump -r dora.pcap -n -v
+</terminal>
+
+<p>The server and clients talk over ports 6767 and 6868 on 127.0.0.1, because the real ports, 67 and 68, need administrator rights. The saved capture uses the real ports and broadcast addresses, so <code>tcpdump</code> and Wireshark decode it as DHCP. A DHCP message is an old BOOTP message with DHCP’s options added after a “magic cookie”:</p>
+
+<!-- @code labs/ch22/dhcp.py#build -->
+
+<p>And the server is a pool of addresses, and a memory of who has which:</p>
+
+<!-- @code labs/ch22/dhcp.py#server -->
+
+<p>On Linux, <code>sudo python3 dhcp.py discover wlan0</code> asks your real router, as the Pi did above. (Real DHCP clients send from 0.0.0.0; this one borrows your computer’s address, which routers don’t mind.)</p>
+
+<h4>2. A NAT, simulated</h4>
+
+<terminal title="labs/ch22">
+$ python3 nat_sim.py
+   0s  Bob's laptop       192.168.1.3:52000 → 188.184.67.127:80    leaves as 203.0.113.77:52000   (new mapping)
+   0s  Grandpa's Pi       192.168.1.4:52000 → 1.1.1.1:53           leaves as 203.0.113.77:1024    (new mapping; port 52000 was taken)
+   1s  the TV             192.168.1.8:33333 → 198.51.100.200:443   leaves as 203.0.113.77:33333   (new mapping)
+   1s  CERN answers       188.184.67.127:80 → 203.0.113.77:52000   delivered to 192.168.1.3:52000  (an answer to something sent from inside)
+   1s  1.1.1.1 answers            1.1.1.1:53 → 203.0.113.77:1024    delivered to 192.168.1.4:52000  (an answer to something sent from inside)
+   2s  a stranger        198.51.100.66:4444 → 203.0.113.77:52000   DROPPED                         (192.168.1.3 never sent anything to 198.51.100.66:4444)
+   2s  a stranger        198.51.100.66:4444 → 203.0.113.77:22      DROPPED                         (no mapping for that port: nobody inside asked for this)
+…
+$ python3 nat_sim.py --punch
+…
+…but her packet opened a hole in HER NAT. Now Bob sends to her:
+   1s  Bob                192.168.1.3:50000 → 198.51.100.9:41000   leaves as 203.0.113.77:50000   (existing mapping)
+   1s  Bob → Alice       203.0.113.77:50000 → 198.51.100.9:41000   delivered to 10.23.147.8:41000  (an answer to something sent from inside)
+</terminal>
+
+<!-- @code labs/ch22/nat_sim.py#nat -->
+
+<h4>3. Your real NAT</h4>
+
+<terminal title="labs/ch22">
+$ python3 stun.py
+inside:  192.168.1.3:60970   (a private address: there's a NAT on the way out)
+  stun.l.google.com      saw us as 203.0.113.77:60970
+  stun1.l.google.com     saw us as 203.0.113.77:60970
+  stun.cloudflare.com    saw us as 203.0.113.77:60970
+outside: 203.0.113.77
+Every server saw the same address and port. Your NAT gives one mapping per inside port, and even kept your port number.
+That's the friendly kind: games and video calls can connect straight through it.
+</terminal>
+
+<p>A STUN question is 20 bytes; the answer hides your address by XORing it with a fixed “magic” number, so that routers which helpfully rewrite addresses they find inside packets (yes, some do) leave it alone:</p>
+
+<!-- @code labs/ch22/stun.py#ask -->
+
+<h4>4. Find things by name</h4>
+
+<p><code>python3 mdns.py raspberrypi.local</code> finds a Raspberry Pi on your network, if you have one. <code>python3 mdns.py --services</code> lists the kinds of services on offer, and <code>python3 mdns.py --browse _ipp._tcp</code> finds printers. Because the question doesn’t come from port 5353, devices answer it directly, which is why it needs no special permissions:</p>
+
+<!-- @code labs/ch22/mdns.py#query -->
+
+<h4>Experiments</h4>
+<ul>
+<li>Run <code>stun.py</code> on your phone’s mobile hotspot. Is the outside address in 100.64.0.0/10, or does it change with every server? You’re probably behind carrier-grade NAT.</li>
+<li>Give <code>nat_sim.py</code>’s NAT a “symmetric” mode that picks a new outside port for every destination. Run <code>--punch</code> again. Why does it fail now?</li>
+<li>In <code>dhcp.py dora</code>, make the pool just two addresses, and add a third client. What should the server say? Add a DHCPNAK.</li>
+<li>On a Mac, <code>dns-sd -B _services._dns-sd._udp</code> browses for services continuously; on Linux, install <code>avahi-utils</code> and run <code>avahi-browse -a</code>. Leave it running while you switch devices on and off.</li>
+</ul>
+</lab>

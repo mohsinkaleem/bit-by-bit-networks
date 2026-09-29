@@ -1,0 +1,294 @@
+<h3>Up to 48 hours</h3>
+
+<p>Grandpa Otto has decided he needs a website, for his vegetable garden. Bob has registered him a domain name, pointed it at a little web server on the Pi, and now they’re waiting.</p>
+
+<dialogue>
+B: The registrar’s website says changes can take “up to 48 hours to propagate across the internet”.
+A: Propagate? There’s nothing to propagate. The moment you saved it, CERN… sorry, your registrar’s name servers started giving out the new address.
+B: Then why can’t Grandpa see his site?
+A: Because his laptop asked yesterday, before you set it up, got “no such name”, and his internet provider’s resolver is remembering that answer. For as long as it was told it could.
+B: Who told it that?
+A: The name server, in its answer. It’s all in the message. Want to see one?
+</dialogue>
+
+<p>In Chapter 14, Alice and Bob invented a naming system: a tree of name servers, each responsible for one part of the name, and resolvers that walk down the tree and remember the answers. That’s the <strong>Domain Name System</strong>, DNS, almost exactly. This chapter looks at the real thing: its messages, byte by byte; the walk from the root to an answer, for real; the record types; caching and its famous myth; and how DNS is being made harder to fool and harder to snoop on. And we’ll build a resolver that can find any name on the internet, starting from nothing but the addresses of the root servers.</p>
+
+<h3>Who does the work</h3>
+
+<p>When a program wants an address, it doesn’t do the lookup itself. It asks the operating system’s <strong>stub resolver</strong>, a small piece of code that sends one question to a <strong>recursive resolver</strong>, and waits for the final answer. In Bob’s house, the recursive resolver the laptop asks is the router, which passes the question on to the internet provider’s resolvers. Or it can be a public one, like Cloudflare’s 1.1.1.1 or Google’s 8.8.8.8. The recursive resolver does the real work, asking the <strong>authoritative</strong> servers, the ones run by whoever owns each part of the name, and remembering everything it learns for the next person who asks.</p>
+
+<p>Here’s that work, done by a resolver with an empty memory, for the name of the first website ever made:</p>
+
+<!-- @include src/figs/ch29-trace.svg -->
+
+<p>You can watch a real walk like this with <code>dig +trace</code>, which does the resolver’s job itself, starting from the root:</p>
+
+<terminal title="Bob’s MacBook">
+$ dig +trace +nodnssec @1.1.1.1 info.cern.ch
+.			513342	IN	NS	a.root-servers.net.
+.			513342	IN	NS	b.root-servers.net.
+…
+.			513342	IN	NS	m.root-servers.net.
+;; Received 239 bytes from 1.1.1.1#53(1.1.1.1) in 17 ms
+
+⟦1:ch.			172800	IN	NS	a.nic.ch.⟧
+ch.			172800	IN	NS	b.nic.ch.
+ch.			172800	IN	NS	d.nic.ch.
+ch.			172800	IN	NS	e.nic.ch.
+ch.			172800	IN	NS	f.nic.ch.
+;; Received 345 bytes from ⟦2:192.5.5.241#53(f.root-servers.net) in 14 ms⟧
+
+cern.ch.		3600	IN	NS	ext-dns-1.cern.ch.
+cern.ch.		3600	IN	NS	scsnms.switch.ch.
+cern.ch.		3600	IN	NS	ext-dns-2.cern.ch.
+;; Received 249 bytes from 194.146.106.10#53(f.nic.ch) in 40 ms
+
+⟦3:info.cern.ch.		900	IN	CNAME	webafs902.cern.ch.⟧
+webafs902.cern.ch.	900	IN	A	188.184.67.127
+;; Received 81 bytes from 130.59.31.26#53(scsnms.switch.ch) in 158 ms
+</terminal>
+
+<callouts>
+1 | The root’s referral: “ch is looked after by these five servers”, which may be remembered for 172,800 seconds, two days.
+2 | A root server in 14 ms. There are only 13 root server <em>names</em>, but each is really hundreds of servers around the world sharing one address, and your packets go to the nearest (Chapter 34 explains how).
+3 | The authoritative answer. The first line is a <strong>CNAME</strong>, an alias: “info.cern.ch is another name for webafs902.cern.ch”.
+</callouts>
+
+<p>(Bob asked 1.1.1.1 for the list of root servers to start from. His router, like many home routers, can’t answer that question.)</p>
+
+<h3>A message, byte by byte</h3>
+
+<p>A DNS message is the same shape whether it’s a question or an answer: a 12-byte header, then four sections. The <strong>question</strong> says what’s being asked: a name, a type (A for an IPv4 address, AAAA for IPv6, and so on) and a class (always “IN”, for internet). The <strong>answer</strong> section holds the records that answer it. The <strong>authority</strong> section holds referrals: the NS records of the servers to ask next. And the <strong>additional</strong> section holds helpful extras, like the addresses of those servers. Each record has a name, a type, a class, a <strong>time to live</strong> in seconds, and its data.</p>
+
+<p>Here’s a real one, whole. Every byte is in there, and every one has a job:</p>
+
+<div data-widget="dnsbytes"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>Two tricks keep messages small. Names are written as <strong>labels</strong>, each with its length in front and a zero at the end: <code>04 info 04 cern 02 ch 00</code>, so there’s no need for dots. And any name, or the end of one, that appeared earlier in the message is replaced by a two-byte <strong>pointer</strong> back to it. The answer never repeats <code>info.cern.ch</code>; it says <code>c0 0c</code>, “see byte 12”. Without compression, this answer would be 36 bytes longer.</p>
+
+<p>The header’s flags tell the story of the exchange. <code>qr</code> means it’s a response. <code>rd</code>, “recursion desired”, was copied from the question: “please do the whole lookup for me”. <code>ra</code> says this server is willing to. An authoritative server would set <code>aa</code> instead, and a resolver that checked the answer’s signatures sets <code>ad</code> (more on that below). And the last four bits are the <strong>response code</strong>: <code>NOERROR</code>, or <code>NXDOMAIN</code> (“no such name”), or <code>SERVFAIL</code> (“I tried, and something went wrong”).</p>
+
+<h3>Kinds of record</h3>
+
+<p>A and AAAA records are the most common, but DNS holds many other things. Here are some real ones, from this chapter’s lab:</p>
+
+<terminal title="labs/ch29">
+$ python3 dig.py gmail.com MX @8.8.8.8
+;; ANSWER:
+gmail.com.                     3165  MX     30 alt3.gmail-smtp-in.l.google.com.
+gmail.com.                     3165  MX     ⟦1:5 gmail-smtp-in.l.google.com.⟧
+gmail.com.                     3165  MX     10 alt1.gmail-smtp-in.l.google.com.
+…
+$ python3 dig.py cloudflare.com HTTPS
+;; ANSWER:
+cloudflare.com.                 172  HTTPS  1 . ⟦2:alpn=h3,h2⟧ ipv4hint=104.16.132.229,104.16.133.229 ipv6hint=2606:4700::6810:84e5,2606:4700::6810:85e5
+$ python3 dig.py nope-xyz.cern.ch
+;; ⟦3:NXDOMAIN⟧, id 34671, flags: qr rd ra; over UDP from 1.1.1.1 in 191 ms, 104 bytes; EDNS udp 1232
+;; QUESTION: nope-xyz.cern.ch. A
+;; AUTHORITY:
+cern.ch.                        900  SOA    ext-dns-1.cern.ch. external-dns.cern.ch. 2013780299 1200 300 2419200 ⟦4:900⟧
+</terminal>
+
+<callouts>
+1 | <strong>MX</strong>: where to deliver email for this domain. Lower numbers are tried first; the rest are backups.
+2 | <strong>HTTPS</strong>, a new type: before it even connects, a browser learns that this site speaks HTTP/3 (“h3”) as well as HTTP/2 (Chapter 33), and gets its addresses as a bonus.
+3 | No such name…
+4 | …and the answer includes the zone’s <strong>SOA</strong> (“start of authority”) record. Its last number says how long a resolver may remember that the name doesn’t exist: 900 seconds.
+</callouts>
+
+<p>And a few more, from <code>dig</code> itself:</p>
+
+<table class="data">
+<tr><th>Type</th><th>What it holds</th><th>A real example</th></tr>
+<tr><td>NS</td><td>the name servers responsible for a zone</td><td><code>example.org. NS mitch.ns.cloudflare.com.</code></td></tr>
+<tr><td>TXT</td><td>any text; mostly used to prove who owns a domain, and to fight email spam</td><td><code>example.org. TXT "v=spf1 -all"</code> (“no server may send email as example.org”)</td></tr>
+<tr><td>PTR</td><td>the name for an address, in the special <code>in-addr.arpa</code> tree, written backwards</td><td><code>1.1.1.1.in-addr.arpa. PTR one.one.one.one.</code></td></tr>
+<tr><td>SRV</td><td>which server and port offer a service</td><td><code>_imaps._tcp.gmail.com. SRV 5 0 993 imap.gmail.com.</code></td></tr>
+<tr><td>CAA</td><td>which certificate authorities may issue certificates for the domain (Chapter 32)</td><td><code>google.com. CAA 0 issue "pki.goog"</code></td></tr>
+</table>
+
+<h3>Remembering, and the propagation myth</h3>
+
+<p>Every record carries a TTL, set by the domain’s owner, and every resolver that stores the record counts it down. You can watch Bob’s router do it: ask the same question three times, ten seconds apart:</p>
+
+<terminal title="Bob’s MacBook">
+$ dig +noall +answer @192.168.1.1 www.bbc.co.uk
+www.bbc.co.uk.		21260	IN	CNAME	www.bbc.co.uk.pri.bbc.co.uk.
+www.bbc.co.uk.pri.bbc.co.uk. 300 IN	CNAME	bbc.map.fastly.net.
+bbc.map.fastly.net.	⟦1:11⟧	IN	A	151.101.0.81
+…
+$ dig +noall +answer @192.168.1.1 www.bbc.co.uk
+www.bbc.co.uk.		⟦2:19392⟧	IN	CNAME	www.bbc.co.uk.pri.bbc.co.uk.
+www.bbc.co.uk.pri.bbc.co.uk. 300 IN	CNAME	bbc.map.fastly.net.
+bbc.map.fastly.net.	⟦3:25⟧	IN	A	151.101.128.81
+…
+$ dig +noall +answer @192.168.1.1 www.bbc.co.uk
+www.bbc.co.uk.		19382	IN	CNAME	www.bbc.co.uk.pri.bbc.co.uk.
+www.bbc.co.uk.pri.bbc.co.uk. ⟦4:290⟧ IN	CNAME	bbc.map.fastly.net.
+bbc.map.fastly.net.	15	IN	A	151.101.128.81
+…
+</terminal>
+
+<callouts>
+1 | The BBC’s content delivery network (Chapter 34) lets its addresses be remembered for only 30 seconds, so that it can move visitors between servers quickly. This copy had 11 seconds left.
+2 | This time the question went to a different one of the provider’s resolvers, whose copy was older.
+3 | The 30-second record had run out, been fetched again, and was already 5 seconds old.
+4 | Ten seconds later, everything has counted down by ten.
+</callouts>
+
+<p>Now Bob’s “48 hours” makes sense, and so does its fix:</p>
+
+<!-- @include src/figs/ch29-ttl.svg -->
+
+<p>DNS changes don’t spread outward like ripples. Every resolver in the world simply keeps what it was told, for as long as it was told it could. The “48 hours” is the TTL of the records at the top of the tree, which rarely change (and a registrar being cautious). The trick professionals use is to lower a record’s TTL a day before changing it, so that when the change comes, the whole world picks it up within minutes. And Grandpa Otto’s problem was a <strong>negative</strong> answer, cached for the SOA’s 900 seconds. Fifteen minutes later, his garden was on the internet.</p>
+
+<h3>UDP, TCP, and size</h3>
+
+<p>DNS usually uses UDP, port 53: one datagram for the question, one for the answer (Chapter 26). Originally, answers were limited to 512 bytes, so that they’d never be fragmented. That’s why there are only 13 root server names: 13 is how many fit in 512 bytes. Anything bigger was cut short, with the <code>tc</code> (“truncated”) flag set, and the resolver asked again over TCP, where there’s no limit.</p>
+
+<p>Modern resolvers add a pseudo-record to every question, <strong>EDNS</strong> (that’s the OPT record at the end of the message above), which says how big an answer they can take. Today almost everyone says 1,232 bytes: the most that fits in a single packet on nearly any IPv6 path, even through tunnels. Ask for something big with a small limit, and you can watch truncation happen:</p>
+
+<terminal title="Bob’s MacBook">
+$ dig +bufsize=512 +ignore @1.1.1.1 DNSKEY org | grep -E "flags:|MSG SIZE"
+;; flags: qr ⟦1:tc⟧ rd ra; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 1
+;; MSG SIZE  rcvd: 32
+$ dig +tcp @1.1.1.1 DNSKEY org | grep -E "flags:|MSG SIZE"
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 5, AUTHORITY: 0, ADDITIONAL: 1
+;; MSG SIZE  rcvd: ⟦2:1028⟧
+</terminal>
+
+<callouts>
+1 | “Truncated”: the answer didn’t fit in 512 bytes, so the server sent none of it. (<code>+ignore</code> tells <code>dig</code> not to retry over TCP by itself.)
+2 | Over TCP, the whole 1,028-byte answer: the signing keys of the <code>org</code> domain.
+</callouts>
+
+<h3>A resolver from scratch</h3>
+
+<p>This chapter’s lab has a complete iterative resolver, in about a hundred lines. It starts from the root servers’ addresses, follows referrals, looks up name servers when their addresses weren’t included, follows aliases, and caches everything:</p>
+
+<terminal title="labs/ch29">
+$ python3 resolver.py info.cern.ch cds.cern.ch home.cern
+
+info.cern.ch A?
+asked g.root-servers.net.      (192.112.36.4   ) about info.cern.ch. A: go and ask the 5 servers for ch. (10 glue addresses)  [UDP]
+asked b.nic.ch.                (130.59.31.43   ) about info.cern.ch. A: go and ask the 3 servers for cern.ch. (6 glue addresses)  [UDP]
+asked ext-dns-1.cern.ch.       (192.65.187.5   ) about info.cern.ch. A: the answer: CNAME webafs902.cern.ch., A 188.184.67.127  [UDP]
+=> A 188.184.67.127   (3 questions, 446 ms)
+
+cds.cern.ch A?
+⟦1:asked scsnms.switch.ch.        (130.59.31.26   ) about cds.cern.ch. A⟧: the answer: CNAME cds-lb.cern.ch.  [UDP]
+it's an alias: now looking up cds-lb.cern.ch.
+asked ext-dns-2.cern.ch.       (192.91.245.85  ) about cds-lb.cern.ch. A: the answer: A 188.185.6.133, A 188.184.94.232, …
+=> A 188.185.6.133, A 188.184.94.232, A 188.185.32.246, … (via cds-lb.cern.ch.)   (2 questions, 301 ms)
+
+home.cern A?
+asked h.root-servers.net.      (198.97.190.53  ) about home.cern. A: go and ask the 4 servers for cern. (8 glue addresses)  [UDP]
+asked a0.nic.cern.             (65.22.224.1    ) about home.cern. A: go and ask the 2 servers for home.cern. ⟦2:(0 glue addresses)⟧  [UDP]
+no address for ext-dns-1.cern.ch.: looking that up first
+   asked ext-dns-2.cern.ch.       (192.91.245.85  ) about ext-dns-1.cern.ch. A: the answer: A 192.65.187.5  [UDP]
+asked ext-dns-1.cern.ch.       (192.65.187.5   ) about home.cern. A: the answer: A 188.184.76.40  [UDP]
+=> A 188.184.76.40   (4 questions, 466 ms)
+</terminal>
+
+<callouts>
+1 | The second name is in <code>cern.ch</code> too, so the resolver skips the root and the <code>ch</code> servers, and goes straight to CERN’s. That’s why the internet’s DNS isn’t buried in questions: most lookups start near the bottom of the tree.
+2 | CERN also owns a whole top-level domain, <code>.cern</code>. Its name servers are the ones in <code>cern.ch</code>, a different zone, so the referral can’t include their addresses. The resolver has to look up a name server’s name before it can ask it anything, and the cache makes that quick too.
+</callouts>
+
+<p>The whole algorithm is one loop: ask the closest servers you know, and either get the answer, or a referral to servers closer still:</p>
+
+<!-- @code labs/ch29/resolver.py#resolve -->
+
+<h3>Can you believe the answer?</h3>
+
+<p>Chapter 14 ended with Eve poisoning a cache, by sending a fake answer before the real one arrived. It’s the oldest attack on DNS, and in 2008 a researcher named Dan Kaminsky found a way to make it devastatingly easy: ask the victim resolver about thousands of made-up names in a domain (<code>1.bank.example</code>, <code>2.bank.example</code>…), and flood it with fake answers for each, all containing a fake referral for the whole domain. Every attempt was a new race, and one would eventually win. The whole internet’s DNS software was patched in a single, secretly coordinated day. The patch made the race much harder to win: a fake answer must now match not only the 16-bit ID, but also the random source port the question came from, which makes it about 65,000 times harder. Some resolvers also randomize the capital letters in the name they ask about (<code>iNfO.CeRn.cH</code>), and check that the answer copies them exactly.</p>
+
+<p>The real fix is to make answers impossible to forge at all, with signatures. That’s <strong>DNSSEC</strong>:</p>
+
+<!-- @include src/figs/ch29-dnssec.svg -->
+
+<p>Ask a validating resolver like 1.1.1.1 for a signed name, and it sets the <code>ad</code> flag:</p>
+
+<terminal title="labs/ch29">
+$ python3 dig.py ripe.net --dnssec
+;; NOERROR, id 28412, flags: qr rd ra ⟦1:ad⟧; over UDP from 1.1.1.1 in 38 ms, 157 bytes; EDNS udp 1232
+;; QUESTION: ripe.net. A
+;; ANSWER:
+ripe.net.                       300  A      193.0.11.51
+ripe.net.                       300  ⟦2:RRSIG⟧  00010d020000012c6acc87436ab9fd2bf90e0472697065036e657400f1c800a3bd91ee…
+</terminal>
+
+<callouts>
+1 | Authenticated data: the resolver checked the chain of signatures, all the way from the root.
+2 | The signature itself, sent because the question asked for DNSSEC records.
+</callouts>
+
+<p>DNSSEC protects against forged answers, but it doesn’t hide anything: the questions and answers still cross the network in plain view, and anyone on the path, like Eve on Bob’s Wi-Fi or a provider selling browsing data, can read every name you look up. So there are also ways to <em>encrypt</em> DNS: <strong>DNS over TLS</strong>, on port 853, and <strong>DNS over HTTPS</strong>, which hides DNS messages inside ordinary web traffic on port 443. Browsers like Firefox and Chrome can use it directly, bypassing the operating system. The lab can do it too, and it’s startlingly simple: the very same bytes, sent as the body of an HTTPS request:</p>
+
+<!-- @code labs/ch29/dig.py#doh -->
+
+<think>
+<p>Why does DNS use UDP, and not TCP, which would never lose an answer?</p>
+<p>Because a DNS lookup is one question and one answer, and they usually fit in one packet each. TCP would need a whole handshake first, a round trip before the question could even be sent (Chapter 27), and every web page needs dozens of lookups. A lost UDP question costs a second or so before the resolver asks again, which is rare. The price is that UDP’s source address is easy to fake, which is what makes cache poisoning possible, and why DNS servers get used to amplify attacks: a small question with a faked source address, and a big answer sent to the victim.</p>
+</think>
+
+<realworld>
+<p>Before DNS, every computer on the ARPANET had a copy of one file, <code>HOSTS.TXT</code>, listing every other computer’s name and address, and downloaded a new copy from Stanford Research Institute every so often. (Your computer still has its descendant: <code>/etc/hosts</code>.) By 1983 it was changing faster than it could be copied, and Paul Mockapetris designed DNS to replace it. Its basic design has hardly changed since.</p>
+<p>The root zone was finally signed with DNSSEC in 2010. Its most important key is kept in two guarded facilities in the United States, and it’s used a few times a year, at public “key signing ceremonies” where trusted people from around the world, each holding a piece of what’s needed to unlock it, meet in a secure room, on camera, to sign the next few months of keys.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>Grandpa Otto’s garden has a name, and the name has an address. Chapter 30 is about what happens when a browser connects to it: the real HTTP/1.1, as the web uses it every day, with the parts our Chapter 6 browser skipped: connections that stay open, caches, compression, redirects, cookies and the APIs that apps talk to.</p>
+
+<lab>
+<p>Three files. <code>dnswire.py</code> builds and reads DNS messages. <code>dig.py</code> asks one server one question, over UDP, TCP or HTTPS, and can explain every byte of the answer. <code>resolver.py</code> is a complete resolver that starts from the root.</p>
+
+<h4>1. One question, one answer</h4>
+
+<terminal title="labs/ch29">
+$ cd labs/ch29
+$ python3 dig.py info.cern.ch @8.8.8.8 --hex
+;; NOERROR, id 28774, flags: qr rd ra; over UDP from 8.8.8.8 in 47 ms, 81 bytes; EDNS udp 512
+;; QUESTION: info.cern.ch. A
+;; ANSWER:
+info.cern.ch.                   562  CNAME  webafs902.cern.ch.
+webafs902.cern.ch.              562  A      188.184.67.127
+
+   0  70 66                                     ID                   28774: the answer must carry the same number
+   2  81 80                                     flags                qr, rd, ra; rcode NOERROR
+…
+  30  c0 0c                                     answer name: pointer the rest of the name is at byte 12: “info.cern.ch.”
+…
+$ python3 dig.py example.org --doh
+;; NOERROR, id 30161, flags: qr rd ra; over HTTPS (cloudflare-dns.com) in 109 ms, 72 bytes; EDNS udp 1232
+;; QUESTION: example.org. A
+;; ANSWER:
+example.org.                    167  A      172.66.157.237
+example.org.                    167  A      104.20.26.136
+</terminal>
+
+<p>Building a question takes three lines: a header, the name as labels, and an EDNS record:</p>
+
+<!-- @code labs/ch29/dnswire.py#build -->
+
+<p>Reading names is the only tricky part of reading an answer, because of pointers:</p>
+
+<!-- @code labs/ch29/dnswire.py#names -->
+
+<p>And <code>dig.py</code> tries UDP first, and TCP if the answer was truncated or never came:</p>
+
+<!-- @code labs/ch29/dig.py#ask -->
+
+<h4>2. Find anything, from the root</h4>
+
+<p><code>python3 resolver.py</code> followed by any names. Try a name in a country you’ve never visited, a long chain of aliases (<code>www.bbc.co.uk</code>), or a name that doesn’t exist.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Make <code>resolver.py</code> print its cache at the end. Which entries would still be there tomorrow?</li>
+<li>Add negative caching: when a name doesn’t exist, remember that for the SOA’s last number of seconds, and don’t ask again.</li>
+<li>Query the same name at 1.1.1.1, 8.8.8.8 and 9.9.9.9 with <code>dig.py</code>. Do they give the same addresses? The same TTLs? Why might a content delivery network give each one a different answer?</li>
+<li>Use <code>dig.py --hex</code> to find the longest chain of pointers you can: a pointer to a name that ends in another pointer.</li>
+</ul>
+</lab>

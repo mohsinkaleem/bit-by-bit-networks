@@ -1,0 +1,199 @@
+<h3>Sent twice, lost once</h3>
+
+<p>Back in Chapter 16, the night Bob learned to use <code>tcpdump</code>, he also captured Grandpa Otto’s Raspberry Pi fetching <code>https://example.org</code>. He kept the file. Over the holidays, he and Alice finally sit down to read it, all 44 TCP segments of it.</p>
+
+<dialogue>
+B: Look at the sixth one. The Pi sends exactly the same 183 bytes it sent 65 milliseconds earlier.
+A: A retransmission. It thought the first one was lost.
+B: But it wasn’t! The server acknowledged it a moment later, and then it said it got them twice. And then the server did the same thing, and then the Pi did it again.
+A: And further down, something really was lost. Look at the gap in the numbers.
+B: So how does anyone know what’s lost and what’s just slow?
+A: That’s most of what TCP is for. We invented half of it in Chapter 13. Let’s see how the real thing does it.
+</dialogue>
+
+<p>In Chapter 13, Alice and Bob invented reliable delivery on top of an unreliable network: numbering, acknowledgements, a sliding window, timeouts, a handshake to start and a goodbye to finish. The real version is the <strong>Transmission Control Protocol</strong>, and it carries most of what you do online: web pages, email, file transfers, remote logins. This chapter takes it apart using Bob’s capture, one real segment at a time. The next chapter is about the other half of TCP: how fast to send.</p>
+
+<h3>The header</h3>
+
+<p>A TCP segment is a header and some data. Here’s the header of the very first segment in Bob’s capture, the one that asked to open the connection:</p>
+
+<!-- @include src/figs/ch27-header.svg -->
+
+<p>Everything from Chapter 13 is here. The <strong>ports</strong> say which programs are talking (Chapter 12). The <strong>sequence number</strong> says where this segment’s bytes belong in the stream, and the <strong>acknowledgement number</strong> says which byte the sender expects next from the other side. The <strong>window</strong> says how much more it can accept (Chapter 28). And the <strong>flags</strong> say what kind of segment this is. A segment can have several: most have ACK, since once a connection is running, every segment acknowledges something.</p>
+
+<h3>Hello, hello, hello</h3>
+
+<p>Here’s how the connection started, with the real numbers:</p>
+
+<!-- @include src/figs/ch27-handshake.svg -->
+
+<p>Why random starting numbers, rather than starting at 0? Two reasons. A connection might be closed and reopened between the same two ports, and a delayed segment from the old one must not be mistaken for part of the new one. And an attacker who can guess the numbers can inject fake segments into someone else’s connection, which is exactly what a famous attack did in 1994, when starting numbers were predictable. So every modern operating system picks them with a secret-keyed hash that nobody outside can predict.</p>
+
+<p>The options are how TCP has grown for forty years without breaking: anything either side doesn’t understand, it ignores, and the other side won’t use it. <strong>SACK</strong> and <strong>timestamps</strong> we’ll meet in a moment. <strong>Window scale</strong> is Chapter 28’s business. And <strong>MSS</strong> explains something odd about this capture:</p>
+
+<!-- @include src/figs/ch27-mss.svg -->
+
+<p>You can watch this handshake’s one round trip from your own computer: <code>connect()</code> returns the moment the SYN-ACK arrives.</p>
+
+<terminal title="labs/ch27 (Bob’s MacBook)">
+$ python3 tcp_lab.py handshake
+example.org    172.66.157.237   connect() took 21.3, 21.0, 21.9 ms
+info.cern.ch   188.184.67.127   connect() took 157.0, 152.1, 162.1 ms
+1.1.1.1        1.1.1.1          connect() took 11.3, 12.9, 13.9 ms
+Each connect() waits for exactly one round trip: our SYN there, their SYN-ACK back.
+</terminal>
+
+<p>Those are ping times, near enough (Chapter 21), which is a handy way to measure the distance to a server that ignores pings.</p>
+
+<h3>Counting bytes</h3>
+
+<p>TCP numbers bytes, not segments, exactly as Chapter 13 did. Once the handshake is done, the Pi’s first segment carries bytes 1 to 1388, its next bytes 1389 to 1571, and the server’s acknowledgement of 1572 means “I have everything before byte 1572; send 1572 next”. The data doesn’t have to be split the same way each time it’s sent, and the receiver doesn’t care how it was split: to the programs at each end, it’s one long stream of bytes. That’s why you can’t use TCP to send separate messages without marking where each one ends yourself (Chapter 5’s length prefixes):</p>
+
+<terminal title="labs/ch27">
+$ python3 tcp_lab.py stream
+three sends of 4, 4 and 5 bytes; the other end's first recv() got: b'one two three'
+</terminal>
+
+<p>Now step through the whole connection. The top bar is everything the Pi sent, the bottom bar everything the server sent, and the shading shows what has been acknowledged:</p>
+
+<div data-widget="tcpreplay"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<h3>Lost, or just slow?</h3>
+
+<p>Here’s the hard part. When a sender hears nothing back, it can’t tell whether its segment was lost, or the acknowledgement was, or both are just taking the scenic route. TCP has three ways to decide.</p>
+
+<p>The oldest is the <strong>retransmission timeout</strong>, the one we invented in Chapter 13: if nothing is acknowledged in time, send it again. TCP measures every round trip (the <strong>timestamps</strong> option makes that easy: each segment carries the time it was sent, and the other side echoes it back), keeps a running average and a measure of how much it varies, and sets the timeout to the average plus four times the variation, the very formula from Chapter 13. It never goes below a minimum, 200 milliseconds on Linux and a whole second in the standard, and it doubles after every timeout, because if the network is in trouble, sending more makes it worse.</p>
+
+<p>Waiting that long wastes time, so the second way is quicker. When a segment is lost but later ones arrive, the receiver acknowledges each of them with the same number, the first byte it’s missing. Three of these <strong>duplicate ACKs</strong> in a row are a strong hint, and the sender resends straight away, without waiting for the timer: that’s <strong>fast retransmit</strong>. Better still, with <strong>selective acknowledgements</strong> (the SACK option), the receiver says exactly which bytes it has, so the sender knows exactly what’s missing. Here’s the one real loss in Bob’s capture:</p>
+
+<!-- @include src/figs/ch27-sack.svg -->
+
+<p>The third way deals with the case the others can’t: when the lost segment is the last one, and nothing comes after it to trigger any duplicate ACKs. That’s what happened three times in this capture, and each time, nothing was actually lost:</p>
+
+<!-- @include src/figs/ch27-tlp.svg -->
+
+<p>Modern Linux goes further, with a method called <strong>RACK</strong>: rather than counting duplicate ACKs, it notices when a segment that was sent <em>later</em> has been acknowledged, and a segment sent earlier hasn’t, even after allowing for a little reordering. Then the earlier one is probably lost. It uses time, not counting, which works much better when several segments are lost at once.</p>
+
+<p>This chapter’s lab reads the capture and flags all of it, the way Wireshark does:</p>
+
+<terminal title="labs/ch27">
+$ python3 tcpflow.py example-org.pcap
+a connection from 192.168.1.4:58798 (“Pi”) to 172.66.157.237:443 (“server”), 44 segments
+
+    0.0 ms      Pi → server [SYN        ] seq 0                    len 0     mss 1460 sackOK wscale 10
+   30.2 ms  server → Pi     [SYN,ACK    ] seq 0          ack 1     len 0     mss 1400 sackOK wscale 13
+   30.2 ms      Pi → server [ACK        ] seq 1          ack 1     len 0
+   33.5 ms      Pi → server [ACK        ] seq 1:1389     ack 1     len 1388
+   33.5 ms      Pi → server [ACK,PSH    ] seq 1389:1572  ack 1     len 183
+   98.3 ms      Pi → server [ACK,PSH    ] seq 1389:1572  ack 1     len 183   ; ⟦1:RETRANSMISSION: these bytes were sent before (the last segment, resent to provoke an ACK: a “tail loss probe”)⟧
+  113.2 ms  server → Pi     [ACK        ] seq 1          ack 1572  len 0
+…
+  189.0 ms  server → Pi     [ACK        ] seq 5082       ack 1572  len 0     ; ⟦2:D-SACK 1389-1572: “I got these twice”⟧
+…
+  210.7 ms  server → Pi     [ACK,PSH    ] seq 5828:6418  ack 1775  len 590   ; a hole: bytes 5657-5828 haven't arrived
+  210.8 ms      Pi → server [ACK        ] seq 1806       ack 5657  len 0     ; SACK 5828-6418: “I have these, but not 5657-5828”
+…
+  300.8 ms  server → Pi     [ACK,PSH    ] seq 5657:5828  ack 1806  len 171   ; fills the hole 5657-5828
+</terminal>
+
+<callouts>
+1 | The lab can’t read the Pi’s mind, but a resend of the very last segment sent, with no duplicate ACKs before it, is the signature of a tail loss probe.
+2 | A SACK block <em>below</em> the acknowledgement number can only mean one thing: those bytes arrived again after they’d already been acknowledged.
+</callouts>
+
+<p>Why were there so many unnecessary resends? Look at the timings: the server’s acknowledgements took 60 to 80 milliseconds to come back, on a connection whose round trip was 30. Something on the way was holding packets up, and that something turns out to be the subject of Chapter 28: when a link is busy, packets wait in a queue. Every one of those resends was TCP trying to be quick, and a network being slow.</p>
+
+<think>
+<p>If TCP can recover from anything, why did PSH appear on some segments? And what are URG and the urgent pointer for?</p>
+<p>PSH (“push”) marks the end of a burst of data from the program, telling the receiver to hand it over now rather than wait for more. Most receivers hand data over straight away anyway, so it’s mostly a hint. URG was meant for “out-of-band” data, like pressing Ctrl-C in a remote login, that should jump the queue. Different systems implemented it in incompatible ways, and today it’s essentially never used: the urgent pointer in Bob’s SYN, like nearly every segment ever sent, is 0.</p>
+</think>
+
+<h3>Goodbye</h3>
+
+<p>Closing a connection is a conversation of its own. Each direction is closed separately: a FIN means “I have nothing more to send”, but the side that sends it can keep receiving. (A program can do this on purpose, with <code>shutdown()</code>, to say “that’s my whole request” and then wait for the answer.) In Bob’s capture, the Pi sent its FIN first, at 382.9 ms, the server finished sending and sent its own at 459.9 ms, and each acknowledged the other’s.</p>
+
+<p>The operating system keeps track of where each connection is with a small <strong>state machine</strong>. You’ve seen its states in <code>netstat</code> and <code>ss</code> (Chapter 13); here’s the whole thing:</p>
+
+<!-- @include src/figs/ch27-states.svg -->
+
+<p>This chapter’s lab walks a connection through it, on one computer, and asks the operating system what state each end is in:</p>
+
+<terminal title="labs/ch27 (Bob’s MacBook)">
+$ python3 tcp_lab.py states
+
+1. the server is listening:
+    127.0.0.1.7127 *.* LISTEN
+
+2. after the handshake, both ends are ESTABLISHED:
+    127.0.0.1.52667 127.0.0.1.7127 ESTABLISHED
+    127.0.0.1.7127 *.* LISTEN
+    127.0.0.1.7127 127.0.0.1.52667 ESTABLISHED
+
+3. the client closed first (sent FIN); the server hasn't yet:
+    127.0.0.1.52667 127.0.0.1.7127 ⟦1:FIN_WAIT_2⟧
+    127.0.0.1.7127 *.* LISTEN
+    127.0.0.1.7127 127.0.0.1.52667 ⟦2:CLOSE_WAIT⟧
+
+4. both closed. The side that closed first waits in TIME_WAIT:
+    127.0.0.1.52667 127.0.0.1.7127 ⟦3:TIME_WAIT⟧
+    127.0.0.1.7127 *.* LISTEN
+</terminal>
+
+<callouts>
+1 | The client’s FIN has been acknowledged. It’s waiting for the server’s.
+2 | The server has received the FIN, and is waiting for its program to close too. A server with thousands of connections in CLOSE_WAIT has a bug: it’s forgetting to close them.
+3 | The connection is finished, but the client’s end hangs around, remembering it.
+</callouts>
+
+<p>Why wait in TIME_WAIT? Because the very last ACK might be lost. If it is, the other side will send its FIN again, and someone has to be there to acknowledge it, rather than answering with an error. And because a stray, delayed segment from this connection could still be wandering the network, and must die of old age before the same pair of ports is used again. So the side that closed first waits for twice the longest time a segment could survive: a minute, on Linux.</p>
+
+<p>There’s one more way for a connection to end: abruptly, with a <strong>reset</strong>. A segment with the RST flag means “I have no idea what you’re talking about: forget this connection”. It’s what a computer sends when a SYN arrives for a port nobody’s listening on, which is where “connection refused” comes from:</p>
+
+<terminal title="labs/ch27">
+$ python3 tcp_lab.py refused
+ConnectionRefusedError(61, 'Connection refused') after 0.32 ms
+The other end's kernel answered our SYN with RST (“reset”): nobody is listening on that port.
+</terminal>
+
+<p>It’s also what a program sends when it crashes with connections open, and, less innocently, what some firewalls forge to cut connections they don’t approve of.</p>
+
+<think>
+<p>A server has to remember every half-open connection (a SYN received, a SYN-ACK sent, no ACK yet) while it waits for the final ACK. What if someone sends it millions of SYNs, from fake addresses, and never answers?</p>
+<p>That’s a <strong>SYN flood</strong>, one of the oldest attacks on the internet: the server’s memory fills up with half-open connections, and real visitors can’t get in. The clever defence is the <strong>SYN cookie</strong>: when it’s under attack, the server remembers nothing at all, and instead encodes everything it needs to know (a secret hash of the addresses, ports and time, plus the MSS) into its own starting sequence number. A real client’s ACK will acknowledge that number plus one, so the server can check it, and rebuild the connection from it. Fake addresses never send the ACK, and cost nothing.</p>
+</think>
+
+<realworld>
+<p>TCP started as one protocol, described by Vint Cerf and Bob Kahn in a 1974 paper, that did everything: addresses, routing, reliability. In 1978 it was split in two, so that programs that didn’t want reliability (like voice) could use the routing on its own: that’s where IP, and later UDP, came from, and why people still say “TCP/IP”. The standard was published in 1981, and was finally rewritten, forty-one years and dozens of additions later, in 2022. SACK arrived in 1996, and tail loss probes and RACK in the 2010s, from Google, which studied why web pages loaded slowly and found that many of the delays were TCP waiting for timeouts.</p>
+</realworld>
+
+<h3>What’s next?</h3>
+
+<p>We’ve seen how TCP makes sure everything arrives. But we haven’t seen how it decides how much to send at once. Send too little, and a fast connection sits idle; send too much, and the queues fill up, packets are lost, and everyone slows down, which may be exactly what Bob’s capture shows. Chapter 28 is about the two controls on TCP’s speed: flow control, which protects the receiver, and congestion control, which protects the network. And about why Bob’s games lag every evening.</p>
+
+<lab>
+<p>Two programs. <code>tcpflow.py</code> reads a TCP connection out of a capture and explains every segment. <code>tcp_lab.py</code> has small experiments with real connections on your own computer.</p>
+
+<h4>1. Read a real connection</h4>
+
+<p><code>python3 tcpflow.py example-org.pcap</code> reads Bob’s capture (it’s in the lab folder). Try it on your own: capture one connection with <code>sudo tcpdump -i en0 -w mine.pcap host example.org</code> (Chapter 16) while you run <code>curl -s https://example.org -o /dev/null</code>, then <code>python3 tcpflow.py mine.pcap</code>. Unpacking the header is the same kind of work as Chapter 20’s IP header, plus a loop over the options:</p>
+
+<!-- @code labs/ch27/tcpflow.py#parse -->
+
+<p>And spotting retransmissions, holes and D-SACKs is a matter of remembering which byte ranges each side has sent:</p>
+
+<!-- @code labs/ch27/tcpflow.py#analyse -->
+
+<h4>2. A connection’s life</h4>
+
+<p><code>python3 tcp_lab.py states</code>, <code>refused</code>, <code>handshake</code> and <code>stream</code> are the experiments from this chapter. Here’s the state walk:</p>
+
+<!-- @code labs/ch27/tcp_lab.py#states -->
+
+<h4>Experiments</h4>
+<ul>
+<li>In <code>tcp_lab.py states</code>, make the <em>server</em> close first. Which side ends up in TIME_WAIT now? Why do busy servers prefer that clients close first?</li>
+<li>Run <code>states</code> twice quickly. Does the second run still work while the first connection is in TIME_WAIT? Which port is in TIME_WAIT, and why doesn’t it clash?</li>
+<li>Add a check for duplicate ACKs to <code>tcpflow.py</code>, and count them in your own captures. How often does a lost segment get three?</li>
+<li>Use the timestamps option to measure round trips: for each ACK, find the segment whose timestamp value it echoes, and print the time between them. How much do they vary in Bob’s capture?</li>
+</ul>
+</lab>

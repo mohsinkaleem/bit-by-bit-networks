@@ -1,0 +1,218 @@
+<h3>Fifty pages of volcano</h3>
+
+<p>Alice has finished her school report on volcanoes, all fifty pages, and she wants Grandpa Otto to read it before she hands it in. She chops it into pieces (Chapter 10), puts each piece in a datagram (Chapter 12), and sends them all to Otto’s computer across town.</p>
+
+<p>What arrives is a mess. A few pieces are missing. Two arrive twice. Pieces 17 and 18 arrive the wrong way round. And near the end, Otto’s computer was busy for a moment, its mailbox filled up, and a whole run of pieces simply vanished, just like slowpoke’s did in the last chapter’s lab. Neither Alice nor Otto knows exactly which pieces went wrong.</p>
+
+<p>Datagrams make no promises, and the network underneath them can lose, duplicate and reorder anything. What Alice wants is a <em>guarantee</em>: every byte arrives, exactly once, in the right order. In this chapter we’ll build that guarantee out of unreliable parts. It’s one of the cleverest ideas in networking.</p>
+
+<h3>Did you get that?</h3>
+
+<p>We’ve solved a smaller version of this problem already. Back in Chapter 3, Alice and Bob’s Chatterboxes sent a message, waited for an acknowledgment, and sent the message again if none came. That worked, except for one flaw: if the <em>acknowledgment</em> got lost, Bob received the message twice, and had no way of telling.</p>
+
+<p>The fix is to number everything. Each datagram gets a <strong>sequence number</strong>, and each acknowledgment says which number the receiver wants next: “ACK 5” means “I have everything before #5, please send #5”.</p>
+
+<!-- @include src/figs/ch13-stopwait.svg -->
+
+<p>With numbers, every problem the network can cause has a cure. A lost datagram is resent when its timer runs out. A duplicate is spotted by its number and thrown away. A datagram that arrives out of order is put back in its place. This scheme, one datagram at a time, is called <strong>stop-and-wait</strong>, and it’s completely reliable.</p>
+
+<p>Unfortunately, it’s also very slow.</p>
+
+<h3>The pipe is mostly empty</h3>
+
+<p>Otto’s town is a few routers away, and it takes about 20 milliseconds for a datagram to get there, and 20 more for the acknowledgment to come back. So with stop-and-wait, Alice sends one datagram, then sits doing nothing for 40 milliseconds, then sends the next. That’s 25 datagrams a second, about 25 kilobytes a second, no matter how fast the wires are. A gigabit link would spend 99.9% of its time idle.</p>
+
+<!-- @include src/figs/ch13-pipe.svg -->
+
+<p>The fix is obvious once you picture it: don’t wait. Send several datagrams, one after another, and deal with the acknowledgments as they come back. How many should be in flight at once? Enough to fill the pipe. To keep the pipe full, you need as many bytes in flight as the link can carry in one round trip. That’s called the <strong>bandwidth-delay product</strong>: at 100 megabits per second and 40 milliseconds, it’s half a megabyte.</p>
+
+<h3>The sliding window</h3>
+
+<p>Alice picks a limit, say 8: there may be at most 8 datagrams that have been sent but not yet acknowledged. This limit is called the <strong>window</strong>. As soon as the oldest one is acknowledged, the window slides along by one, and she can send another.</p>
+
+<!-- @include src/figs/ch13-window.svg -->
+
+<p>When a datagram in the middle of the window is lost, there are two ways to recover:</p>
+
+<ul>
+<li><strong>Go back N.</strong> Otto only accepts datagrams in order, and throws away anything that arrives after a gap. When Alice’s timer runs out, she goes back and resends <em>everything</em> from the lost one onwards. It’s simple, and it wastes a lot.</li>
+<li><strong>Selective repeat.</strong> Otto keeps the datagrams that arrive early, and his acknowledgments also list which later ones he already has. Alice resends only the missing one.</li>
+</ul>
+
+<p>Try both. Set a window of 4, press Run, and destroy one of the first datagrams by clicking it:</p>
+
+<div data-widget="slidingwindow"><p class="noscript">This interactive needs JavaScript.</p></div>
+
+<p>With a window of 1, you’re back to stop-and-wait, and everything takes forever. With a window of 8, the whole report is on its way in the first round trip. And notice that with go-back-N, one lost datagram costs a whole window of resends, while selective repeat resends just the one.</p>
+
+<h3>How long should Alice wait?</h3>
+
+<p>There’s one number we’ve been quietly taking for granted: how long Alice waits for an acknowledgment before she gives up and resends. If she waits too long, every loss stalls everything. If she doesn’t wait long enough, she resends datagrams that weren’t lost at all, just slow, and clogs up the network with duplicates.</p>
+
+<p>And the right answer keeps changing. A datagram to Bob next door comes back in a millisecond. One to Otto takes 40, or 60 when the town’s network is busy. So Alice <em>measures</em>. For every acknowledgment, she notes how long the round trip took, and keeps a running average of the times, and of how much they wobble. Then she waits for the average plus four times the wobble:</p>
+
+<!-- @include src/figs/ch13-rtt.svg -->
+
+<!-- @code labs/ch13/reliable.py#timer -->
+
+<p>One more rule: if the timer runs out anyway, something’s wrong, so she doubles the wait before trying again. If the network is overloaded, the last thing it needs is everyone resending faster.</p>
+
+<h3>Slow down, I’m full!</h3>
+
+<p>Remember slowpoke from the last chapter’s lab? The sender fired 5,000 datagrams without waiting, slowpoke’s mailbox overflowed, and 97% of them were lost. A window helps, but a window of a thousand could still drown a slow receiver.</p>
+
+<p>So Otto helps too. Every acknowledgment he sends also says how much room is left in his mailbox: “ACK 212, and I have room for 30 more”. Alice never lets her window grow bigger than that. If Otto’s program stops reading for a while, the room shrinks to zero and Alice waits. This is called <strong>flow control</strong>. It stops a fast sender from overwhelming a slow receiver.</p>
+
+<h3>Slow down, the road’s jammed!</h3>
+
+<p>There’s a second way to overwhelm something. Suppose Alice, Bob and Carol are all sending big files across town at once, and all their datagrams have to squeeze through the same router. Each of them has a big window and a fast connection, but the router’s outgoing cable can only carry so much. Its queue fills up, and it starts throwing datagrams away. Everybody’s timers run out, everybody resends, and the queue gets even longer.</p>
+
+<p>Otto’s mailbox has room, so flow control doesn’t help. The problem is somewhere in the middle, where neither end can see it. But the ends <em>can</em> notice one thing: datagrams going missing. So every sender keeps a second limit, the <strong>congestion window</strong>. It grows by one datagram every round trip, gently probing for spare capacity, and every time a loss is noticed, it’s cut in half:</p>
+
+<!-- @include src/figs/ch13-sawtooth.svg -->
+
+<p>“Add a little, halve it on trouble” sounds almost too simple, but it has a lovely property. When several senders share a link and all follow it, they end up sharing it fairly, with nobody in charge. Part II has a whole chapter on it.</p>
+
+<realworld>
+<p>In October 1986, the link between Lawrence Berkeley Laboratory and the University of California, Berkeley, a few hundred meters apart, suddenly dropped from 32,000 bits per second to 40, a thousand times slower. Nothing was broken. The links were so full of resent datagrams, and the resends of those, that almost nothing useful got through. It was the first of the internet’s <strong>congestion collapses</strong>.</p>
+<p>Van Jacobson (who also wrote traceroute) and Michael Karels worked out what was going on, and in 1988 they published the fix: measuring round trips and their wobble for the timeout, doubling the timeout after each failure, and the grow-slowly, halve-on-loss congestion window. Their changes were added to TCP everywhere, and they’re a big part of why the internet didn’t collapse as it grew.</p>
+</realworld>
+
+<h3>Hello, and goodbye</h3>
+
+<p>So far, Alice just started sending. But before any of this can work, both computers have to set things up. Otto needs to know that Alice is about to send, what number she’ll start counting from, and how big her mailbox is. And Alice needs to know that Otto is actually there, and his starting number too. So they begin with a short <strong>handshake</strong>, and when they’re finished, they say goodbye:</p>
+
+<!-- @include src/figs/ch13-handshake.svg -->
+
+<p>Everything between the hello and the goodbye is a <strong>connection</strong>: a two-way conversation between two programs, named by the four numbers from the last chapter.</p>
+
+<think>
+<p>Why pick a <em>random</em> starting number? Why not always start at 0?</p>
+<details><summary>Two reasons</summary>
+<p>First, old datagrams. Suppose Alice’s last connection to Otto used the same two ports and ended a second ago, and a slow datagram from it is still wandering around town. If the new connection also started at 0, that stray datagram’s number might fit neatly into the new conversation, and Otto would accept a piece of an old report as part of the new one. With random starting numbers, that’s extremely unlikely.</p>
+<p>Second, Eve. If she knew that every connection starts at 0, she could send Otto datagrams that pretend to come from Alice’s address and port, numbered to slot perfectly into Alice’s conversation. A random starting number is a small secret she’d have to guess.</p>
+</details>
+</think>
+
+<h3>A stream, not a pile of letters</h3>
+
+<p>Here’s a final twist. Instead of numbering datagrams, we can number <em>bytes</em>. Alice’s first byte is number 1000, her second is 1001, and so on, and an acknowledgment says “I have every byte up to 1734”. Datagrams can then be any size, and a resent datagram can even be split up or combined with others.</p>
+
+<p>What the programs at each end see is then a <strong>stream</strong>: one long, continuous sequence of bytes, flowing in order. Alice’s program writes bytes into it, and Otto’s program reads bytes out, and neither of them needs to know anything about datagrams, numbers, windows or timers.</p>
+
+<!-- @include src/figs/ch13-stream.svg -->
+
+<p>Notice that the stream doesn’t remember where Alice’s writes started and stopped. If Alice writes two messages, Otto might read them as one, or as three pieces. So if the programs care about message boundaries, they have to mark them themselves, using a length at the front or a special end marker. That’s exactly the framing problem from Chapters 3 and 5, one layer up.</p>
+
+<realworld>
+<p>Everything in this chapter together is the <strong>Transmission Control Protocol</strong>, TCP, designed by Vint Cerf and Bob Kahn in 1974. It numbers bytes, not datagrams, starting from a random number. Its handshake is exactly ours: the messages are called SYN, SYN-ACK and ACK, and goodbye is FIN. Every TCP header carries the receiver’s free space for flow control, and modern TCP uses selective acknowledgments (called SACK) like our selective repeat.</p>
+<p>TCP ports are separate from UDP ports, so port 53 on TCP and port 53 on UDP can belong to different programs. Web pages, email, SSH and most other things that need every byte to arrive travel over TCP. Things that would rather have a byte late than never, like video calls and games, often use UDP and handle losses their own way.</p>
+<p>When you used <code>socket.create_connection()</code> or <code>nc</code> in earlier chapters, TCP was doing all of this for you, silently. In the lab you’ll send the same report over TCP in a handful of lines.</p>
+</realworld>
+
+<think>
+<p>TCP guarantees that bytes arrive. Does that mean Alice always knows what happened? Suppose her program sends Otto’s bank program “PAY CAROL $5”, and then the connection breaks before any reply comes back. Did Otto’s program pay Carol, or not?</p>
+<details><summary>What can Alice do?</summary>
+<p>She can’t know. The message might have been lost on the way, or it might have arrived and been paid, with only the reply lost. No amount of acknowledging acknowledgments can fix this. It’s a famous puzzle called the <strong>Two Generals’ Problem</strong>.</p>
+<p>The practical answer takes us back to Chapter 7. Design requests so that doing them twice is harmless (<em>idempotent</em>), for example by giving each payment a unique number that Otto’s program remembers. Then Alice can simply try again.</p>
+</details>
+</think>
+
+<h3>What’s next?</h3>
+
+<p>Alice now has reliable, ordered connections to anywhere in town. There’s just one annoyance left. To talk to Grandpa Otto, she has to remember that he’s 4.2. The library is 3.1, the school newsletter is on 2.7, and Carol’s recipe page is on 1.3. When Otto’s town renumbers its network next month, every one of those numbers Alice has written down will be wrong.</p>
+
+<p>People are good with names and bad with numbers. Computers are the other way around. In the next chapter, we’ll teach the network to translate.</p>
+
+<lab>
+<p><code>reliable.py</code> runs three things at once, with real UDP sockets on your computer: Alice’s sender, Otto’s receiver, and a lossy link between them. The link delays every datagram by 20 milliseconds each way, loses 10%, duplicates 2%, and holds a few back so that others overtake them. Alice’s job is to get her report across intact anyway.</p>
+
+<h4>1. Stop-and-wait</h4>
+
+<terminal title="labs/ch13">
+$ cd labs/ch13
+$ python3 reliable.py --window 1
+Alice sends 44,290 bytes as 45 datagrams (stop-and-wait) through a link that takes 20 ms each way,
+loses 10%, duplicates 2% and delays 3% by an extra 10 ms.
+
+  done in 3.09 s (14 kB/s)
+  Alice sent 58 datagrams: 13 of them were resends, after 13 timeouts
+  the link lost 13 (data and acks) and duplicated 1
+  Otto got 5 duplicates and 0 that arrived ahead of a gap
+  Alice's final timeout: 63 ms
+  Otto's copy is identical to Alice's ✓
+</terminal>
+
+<p>Every datagram lost, every acknowledgment lost, every duplicate: all handled, and the copy is perfect. But 14 kilobytes a second is painfully slow. (Your numbers will be a little different each time. The link is random, and so is the exact timing of the programs.)</p>
+
+<h4>2. A window</h4>
+
+<terminal>
+$ python3 reliable.py
+Alice sends 44,290 bytes as 45 datagrams (window of 8, go-back-N) …
+
+  done in 1.07 s (41 kB/s)
+  Alice sent 109 datagrams: 64 of them were resends, after 9 timeouts
+  …
+$ python3 reliable.py --selective
+Alice sends 44,290 bytes as 45 datagrams (window of 8, selective) …
+
+  done in 0.57 s (78 kB/s)
+  Alice sent 53 datagrams: 8 of them were resends, after 4 timeouts
+  …
+</terminal>
+
+<p>Going back N is three times faster than stop-and-wait, but look at the waste: 64 resends for 45 datagrams. Selective repeat needed only 8. Here’s Alice’s side. The three numbered comments are the whole algorithm:</p>
+
+<!-- @code labs/ch13/reliable.py#sender -->
+
+<p>And Otto’s side, which keeps early arrivals only when <code>selective</code> is on:</p>
+
+<!-- @code labs/ch13/reliable.py#receiver -->
+
+<h4>3. A perfect network</h4>
+
+<p>Turn off all the damage, and compare stop-and-wait with a window of 16:</p>
+
+<terminal>
+$ python3 reliable.py --loss 0 --dup 0 --reorder 0 --window 1 | grep done
+  done in 1.88 s (23 kB/s)
+$ python3 reliable.py --loss 0 --dup 0 --reorder 0 --window 16 | grep done
+  done in 0.13 s (333 kB/s)
+</terminal>
+
+<p>Fifteen times faster, just by not waiting. Stop-and-wait’s time is simply 45 round trips of about 42 milliseconds each.</p>
+
+<h4>4. Now with TCP</h4>
+
+<terminal>
+$ python3 reliable.py tcp
+sent 44,290 bytes over TCP; Otto received 44,290 bytes in 1 reads; identical ✓
+</terminal>
+
+<!-- @code labs/ch13/reliable.py#tcp -->
+
+<p>That’s all it takes, because TCP inside your operating system does everything this chapter built. Notice how Otto reads “until Alice hangs up”: a stream has no messages, just bytes, until the goodbye.</p>
+
+<h4>5. Real connections</h4>
+
+<p>On Linux, <code>ss -ti</code> shows the numbers TCP keeps for each connection. Here’s an SSH connection to a Raspberry Pi:</p>
+
+<terminal title="Linux">
+$ ss -tin
+State Recv-Q Send-Q                     Local Address:Port                Peer Address:Port
+ESTAB 0      0      [fe80::5a1c:9e02:4b7d:a3f1]%wlan0:22   [fe80::1c2b:3a4d:5e6f:7081]:60728
+	 cubic wscale:6,10 rto:208 rtt:4.847/1.823 ato:40 mss:1428 pmtu:1500 …
+	 … cwnd:10 … snd_wnd:131072 rcv_wnd:78848
+</terminal>
+
+<p>There’s the average round trip and its wobble (<code>rtt:4.847/1.823</code>), the timeout (<code>rto:208</code>), the congestion window (<code>cwnd:10</code>) and the other end’s free space (<code>snd_wnd</code>). The <a href="field-guide.html#cmd-tcp-info">Field Guide</a> explains every field, and shows how to count resends with <code>nstat</code> or <code>netstat -s</code>.</p>
+
+<h4>Experiments</h4>
+<ul>
+<li>Try <code>--loss 0.3 --dup 0.05</code> with and without <code>--selective</code>. How much worse does going back N get?</li>
+<li>Try windows of 1, 2, 4, 8, 16 and 32 with no loss, and plot the time against the window size. Where does it stop getting faster, and why? (Hint: 45 datagrams.)</li>
+<li>Make the timeout fixed, by changing <code>timeout</code> to always return 0.03 (shorter than a round trip). What happens to the number of resends? Then try 1.0.</li>
+<li>Add flow control: have Otto’s receiver include “room for N more” in each ACK, where N shrinks as unread pieces pile up, and have Alice respect it. Then make Otto’s receiver slow, like slowpoke.</li>
+</ul>
+</lab>

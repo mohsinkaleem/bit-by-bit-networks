@@ -1,0 +1,15 @@
+# the built site: GitHub Actions rebuilds it on every push
+site/
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# lab by-products that never get published
+*.key
+*.tle
+_out*
+
+# local-only tools and settings (sanitize.py holds real MAC addresses)
+src/captures/sanitize.py
+.claude/
